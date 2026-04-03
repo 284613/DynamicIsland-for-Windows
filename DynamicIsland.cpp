@@ -585,9 +585,9 @@ bool DynamicIsland::Initialize(HINSTANCE hInstance) {
 
 		if (imgData) {
 
-			if (imgData->data && imgData->size > 0) {
+			if (!imgData->data.empty()) {
 
-				m_renderer.LoadAlbumArtFromMemory(imgData->data, imgData->size);
+				m_renderer.LoadAlbumArtFromMemory(imgData->data);
 
 			}
 
@@ -2967,15 +2967,15 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-			if (m_currentAlert.iconData) {
+			if (!m_currentAlert.iconData.empty()) {
 
 
 
-				delete m_currentAlert.iconData;
 
 
 
-				m_currentAlert.iconData = nullptr;
+
+				m_currentAlert.iconData.clear();
 
 
 
@@ -3273,7 +3273,7 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-			if (imgData->data && imgData->size > 0)
+			if (!imgData->data.empty())
 
 
 
@@ -3281,7 +3281,7 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-				m_renderer.LoadAlbumArtFromMemory(imgData->data, imgData->size);
+				m_renderer.LoadAlbumArtFromMemory(imgData->data);
 
 
 
@@ -3865,11 +3865,11 @@ void DynamicIsland::ProcessNextAlert() {
 
 
 
-			if (m_currentAlert.iconData) {
+			if (!m_currentAlert.iconData.empty()) {
 
 
 
-				m_renderer.LoadAlertIconFromMemory(m_currentAlert.iconData, m_currentAlert.iconData->size());
+				m_renderer.LoadAlertIconFromMemory(m_currentAlert.iconData);
 
 
 

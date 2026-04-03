@@ -36,7 +36,7 @@ public:
         m_weatherTemp = temp;
     }
     bool LoadAlbumArt(const std::wstring& file);
-    bool LoadAlbumArtFromMemory(const std::vector<uint8_t>* data, size_t size); // 【新增】从内存加载专辑封面
+    bool LoadAlbumArtFromMemory(const std::vector<uint8_t>& data); // 【新增】从内存加载专辑封面
     // 新增：加载通知图标
 
 
@@ -58,7 +58,7 @@ public:
         m_pressedProgress = pressed;
     }
     bool LoadAlertIcon(const std::wstring& file); // 【新增】加载通知图标
-    bool LoadAlertIconFromMemory(const std::vector<uint8_t>* data, size_t size); // 【新增】从内存加载通知图标
+    bool LoadAlertIconFromMemory(const std::vector<uint8_t>& data); // 【新增】从内存加载通知图标
     void SetDpi(float dpi);
     void Resize(int width, int height); // 应对窗口物理大小的改变
     void TriggerWeatherAnimOnce() { m_weatherAnimPhase = 0.0f; }

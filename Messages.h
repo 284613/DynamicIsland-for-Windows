@@ -15,8 +15,7 @@
 
 // 内存图像数据结构
 struct ImageData {
-    std::vector<uint8_t>* data;  // 图像字节数据
-    size_t size;                  // 数据大小
+    std::vector<uint8_t> data;  // 图像字节数据（改为值类型）
 };
 
 struct AlertInfo {
@@ -24,7 +23,7 @@ struct AlertInfo {
     std::wstring name;       // WiFi名 / 蓝牙名 / App名(如 "微信")
     std::wstring deviceType; // 设备类型 / 通知标题
     std::wstring iconPath;   // 【新增】应用图标临时文件路径
-    std::vector<uint8_t>* iconData; // 【新增】内存图像数据
+    std::vector<uint8_t> iconData; // 【新增】内存图像数据（改为值类型）
 };
 
 

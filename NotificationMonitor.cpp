@@ -104,7 +104,7 @@ void NotificationMonitor::Worker() {
 							    combined += body;
 							}
 
-							AlertInfo info{ 3, appName, combined, iconData ? L"" : ExtractIconFromExe(appName), iconData };
+							AlertInfo info{ 3, appName, combined, iconData ? L"" : ExtractIconFromExe(appName), iconData ? *iconData : std::vector<uint8_t>() };
 							EventBus::GetInstance().PublishNotificationArrived(info);
 						}
 					}

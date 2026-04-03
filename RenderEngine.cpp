@@ -4074,7 +4074,7 @@ bool RenderEngine::LoadAlertIcon(const std::wstring& file) {
 
 
 
-bool RenderEngine::LoadAlbumArtFromMemory(const std::vector<uint8_t>* data, size_t size) {
+bool RenderEngine::LoadAlbumArtFromMemory(const std::vector<uint8_t>& data) {
 
 
 
@@ -4082,7 +4082,7 @@ bool RenderEngine::LoadAlbumArtFromMemory(const std::vector<uint8_t>* data, size
 
 
 
-	if (!m_wicFactory || !data || size == 0) return false;
+	if (!m_wicFactory || data.empty()) return false;
 
 
 
@@ -4106,7 +4106,7 @@ bool RenderEngine::LoadAlbumArtFromMemory(const std::vector<uint8_t>* data, size
 
 
 
-	hr = wicStream->InitializeFromMemory(const_cast<uint8_t*>(data->data()), static_cast<DWORD>(size));
+	hr = wicStream->InitializeFromMemory(const_cast<uint8_t*>(data.data()), static_cast<DWORD>(data.size()));
 
 
 
@@ -4198,7 +4198,7 @@ bool RenderEngine::LoadAlbumArtFromMemory(const std::vector<uint8_t>* data, size
 
 
 
-bool RenderEngine::LoadAlertIconFromMemory(const std::vector<uint8_t>* data, size_t size) {
+bool RenderEngine::LoadAlertIconFromMemory(const std::vector<uint8_t>& data) {
 
 
 
@@ -4206,7 +4206,7 @@ bool RenderEngine::LoadAlertIconFromMemory(const std::vector<uint8_t>* data, siz
 
 
 
-	if (!m_wicFactory || !data || size == 0) return false;
+	if (!m_wicFactory || data.empty()) return false;
 
 
 
@@ -4230,7 +4230,7 @@ bool RenderEngine::LoadAlertIconFromMemory(const std::vector<uint8_t>* data, siz
 
 
 
-	hr = wicStream->InitializeFromMemory(const_cast<uint8_t*>(data->data()), static_cast<DWORD>(size));
+	hr = wicStream->InitializeFromMemory(const_cast<uint8_t*>(data.data()), static_cast<DWORD>(data.size()));
 
 
 

@@ -64,19 +64,19 @@ void SystemMonitor::OnPowerEvent(WPARAM wParam, LPARAM lParam) {
 
                 // 1. 检查是否刚刚插上电源
                 if (sps.ACLineStatus == 1 && m_lastACStatus == 0) {
-                    AlertInfo info{ 4, L"电源已连接", pctStr, L"", nullptr };
+                    AlertInfo info{ 4, L"电源已连接", pctStr, L"", {} };
                     EventBus::GetInstance().PublishNotificationArrived(info);
                     m_lowBatteryAlerted = false;
                 }
                 // 2. 检查是否刚刚拔下电源
                 else if (sps.ACLineStatus == 0 && m_lastACStatus == 1) {
-                    AlertInfo info{ 4, L"正在使用电池", pctStr, L"", nullptr };
+                    AlertInfo info{ 4, L"正在使用电池", pctStr, L"", {} };
                     EventBus::GetInstance().PublishNotificationArrived(info);
                 }
 
                 // 3. 低电量检查
                 if (sps.ACLineStatus == 0 && sps.BatteryLifePercent <= 20 && !m_lowBatteryAlerted) {
-                    AlertInfo info{ 5, L"电量不足 20%", L"请连接电源", L"", nullptr };
+                    AlertInfo info{ 5, L"电量不足 20%", L"请连接电源", L"", {} };
                     EventBus::GetInstance().PublishNotificationArrived(info);
                     m_lowBatteryAlerted = true;
                 }
