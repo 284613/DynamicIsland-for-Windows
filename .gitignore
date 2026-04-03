@@ -1,0 +1,42 @@
+# Build outputs
+x64/
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.obj
+*.o
+*.res
+*.res.files
+*.tlh
+*.tli
+*.user
+*.aps
+*.pch
+*.idb
+*.pdb
+*.log
+
+# Visual Studio
+.vs/
+Debug/
+Release/
+ipch/
+
+# Backup files
+*_Backup*/
+*_bak*/
+
+# Local settings (user-specific)
+DynamicIslandSettings.ini
+config.ini
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*~
+
+# Plugin DLLs (if any)
+*.dll
+*.exe
