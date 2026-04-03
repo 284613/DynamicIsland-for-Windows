@@ -84,6 +84,8 @@ namespace Animation {
     // 动画帧率
     constexpr int FRAME_RATE = 60;
     constexpr int FRAME_TIME_MS = 16;  // ~60fps
+
+    constexpr float WAVE_SPEED = 5.0f;              // 波浪速度
 }
 
 // ============================================

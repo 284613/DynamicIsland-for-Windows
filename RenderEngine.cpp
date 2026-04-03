@@ -3190,7 +3190,7 @@ void RenderEngine::DrawCapsule(const RenderContext& ctx)
 
 
 
-					float buttonGroupWidth = BUTTON_SIZE * 3 + BUTTON_SPACING * 2;
+					float buttonGroupWidth = Constants::UI::BUTTON_SIZE * 3 + Constants::UI::BUTTON_SPACING * 2;
 
 
 
@@ -3202,7 +3202,7 @@ void RenderEngine::DrawCapsule(const RenderContext& ctx)
 
 
 
-					DrawPlaybackButtons(buttonX, buttonY, BUTTON_SIZE, contentAlpha, isPlaying);
+					DrawPlaybackButtons(buttonX, buttonY, Constants::UI::BUTTON_SIZE, contentAlpha, isPlaying);
 
 
 
@@ -3538,7 +3538,7 @@ void RenderEngine::UpdateScroll(float deltaTime, float audioLevel, float islandH
 
 
 
-		m_titleScrollOffset += SCROLL_SPEED * deltaTime;
+		m_titleScrollOffset += Constants::Animation::SCROLL_SPEED * deltaTime;
 
 
 
@@ -3594,7 +3594,7 @@ void RenderEngine::UpdateScroll(float deltaTime, float audioLevel, float islandH
 
 
 
-		m_artistScrollOffset += SCROLL_SPEED * deltaTime;
+		m_artistScrollOffset += Constants::Animation::SCROLL_SPEED * deltaTime;
 
 
 
@@ -3626,7 +3626,7 @@ void RenderEngine::UpdateScroll(float deltaTime, float audioLevel, float islandH
 
 
 
-		m_lyricScrollOffset += SCROLL_SPEED * deltaTime;
+		m_lyricScrollOffset += Constants::Animation::SCROLL_SPEED * deltaTime;
 
 
 
@@ -3726,7 +3726,7 @@ void RenderEngine::DrawPlaybackButtons(float left, float top, float buttonSize, 
 
 
 
-	float spacing = BUTTON_SPACING;
+	float spacing = Constants::UI::BUTTON_SPACING;
 
 
 

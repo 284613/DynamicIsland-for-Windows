@@ -3709,11 +3709,11 @@ int DynamicIsland::HitTestPlaybackButtons(POINT pt) {
 
 
 
-	float buttonSize = RenderEngine::BUTTON_SIZE;
+	float buttonSize = Constants::UI::BUTTON_SIZE;
 
 
 
-	float spacing = RenderEngine::BUTTON_SPACING;
+	float spacing = Constants::UI::BUTTON_SPACING;
 
 
 

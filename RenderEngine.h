@@ -2,6 +2,7 @@
 #pragma once
 #include <windows.h>
 #include <string>
+#include "Constants.h"
 #include <unordered_map>  // 新增：图标缓存
 #include <memory>
 #include <dcomp.h>
@@ -42,9 +43,7 @@ public:
 
     void UpdateScroll(float deltaTime, float audioLevel, float islandHeight);
     void SetAlertState(int alert) { m_currentAlertAlert = alert; }
-    static constexpr float BUTTON_SIZE = 30.0f;
-    static constexpr float BUTTON_SPACING = 5.0f;
-    static constexpr float BUTTON_AREA_WIDTH = BUTTON_SIZE * 3 + BUTTON_SPACING * 2; // 100.0f
+    static constexpr float BUTTON_AREA_WIDTH = Constants::UI::BUTTON_SIZE * 3 + Constants::UI::BUTTON_SPACING * 2;
     void SetPlaybackButtonStates(int hoveredIndex, int pressedIndex) {
         m_hoveredButtonIndex = hoveredIndex;
         m_pressedButtonIndex = pressedIndex;
@@ -66,11 +65,6 @@ private:
 
     // 新增：绘制播放控制按钮（仅在展开模式且有媒体会话时显示）
     void DrawPlaybackButtons(float left, float top, float buttonSize, float contentAlpha, bool isPlaying);
-    // 常量抽离（优化硬编码）
-    const float ICON_SIZE = 24.0f;          // 通知图标尺寸
-    const float ICON_MARGIN = 8.0f;         // 图标与文本间距
-    const float ALBUM_ART_SIZE = 60.0f;     // 专辑封面尺寸
-    const float ALBUM_ART_MARGIN = 20.0f;   // 专辑封面左边距
 
     // Component instances for decoupled rendering
     std::unique_ptr<MusicPlayerComponent> m_musicComponent;
@@ -148,9 +142,6 @@ private:
     float m_titleScrollOffset = 0.0f;
     float m_artistScrollOffset = 0.0f;
 
-    // 滚动速度（像素/秒）
-    const float SCROLL_SPEED = 30.0f;
-
     // 上次更新时间（用于计算时间差）
     ULONGLONG m_lastScrollTime = 0;
 
@@ -169,7 +160,6 @@ private:
     float m_targetWaveHeight[3] = { 10.0f, 10.0f, 10.0f };  // 目标高度
     ULONGLONG m_lastRandomUpdate = 0;                       // 上次随机更新时间
     float m_wavePhase[3] = { 0.0f, 1.2f, 2.4f }; // 三根柱子的初始相位（错开）
-    const float WAVE_SPEED = 5.0f; // 波动速度（弧度/秒）
     int m_hoveredButtonIndex = -1;
     int m_pressedButtonIndex = -1;
     int m_hoveredProgress = -1;
