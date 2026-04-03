@@ -13,6 +13,7 @@
 #include "SystemMonitor.h"
 #include "FilePanelWindow.h"
 #include "Spring.h"
+#include "LayoutController.h"
 #include "Constants.h"
 #pragma comment(lib, "shell32.lib")
 
@@ -86,20 +87,22 @@ private:
     // ============================================
     IslandState m_state = IslandState::Collapsed;
     bool m_isHovering = false;  // 鼠标是否悬停
-    float m_currentWidth;
-    float m_currentHeight;
+    // float m_currentWidth;  // 迁移到 LayoutController
+    // float m_currentHeight;
     float m_targetWidth;
     float m_targetHeight;
 
-    float m_currentAlpha = 1.0f;
-    float m_targetAlpha = 1.0f;
+    // float m_currentAlpha = 1.0f;
+    // float m_targetAlpha = 1.0f;
 
-    Spring m_widthSpring;
-    Spring m_heightSpring;
-    Spring m_alphaSpring;
+    // Spring m_widthSpring;
+    // Spring m_heightSpring;
+    // Spring m_alphaSpring;
     const int HOTKEY_ID = 1001;
     UINT_PTR m_timerId = 1;
-    bool m_isAnimating = false;
+    // bool m_isAnimating = false;
+
+    LayoutController m_layout;
 
     UINT_PTR m_displayTimerId = 2;
     ULONGLONG m_lastUpdateTime = 0;
