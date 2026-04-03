@@ -67,6 +67,31 @@ std::wstring ExtractIconFromExe(const std::wstring& appName) {
     return iconPath;
 }
 
+// 全屏检测：检测前台窗口是否占满整个屏幕
+bool DynamicIsland::IsFullscreen() {
+    HWND hwnd = GetForegroundWindow();
+    if (!hwnd) return false;
+    
+    // 忽略灵动岛自身
+    if (hwnd == m_window.GetHWND()) return false;
+    
+    // 获取窗口所属的显示器信息
+    HMONITOR hMonitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO mi = { sizeof(mi) };
+    if (!GetMonitorInfo(hMonitor, &mi)) return false;
+    
+    // 获取窗口矩形
+    RECT rcWindow;
+    if (!GetWindowRect(hwnd, &rcWindow)) return false;
+    
+    // 判断是否全屏：窗口占据整个显示器区域
+    return (rcWindow.left <= mi.rcMonitor.left &&
+            rcWindow.top <= mi.rcMonitor.top &&
+            rcWindow.right >= mi.rcMonitor.right &&
+            rcWindow.bottom >= mi.rcMonitor.bottom);
+}
+
+
 
 
 
@@ -810,6 +835,7 @@ void DynamicIsland::StartAnimation() {
 
 
 		SetTimer(m_window.GetHWND(), m_timerId, 16, nullptr);
+	SetTimer(m_window.GetHWND(), m_fullscreenTimerId, 1000, nullptr); // 全屏检测定时器（每秒）
 
 
 

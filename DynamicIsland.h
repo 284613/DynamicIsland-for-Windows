@@ -128,14 +128,18 @@ private:
     bool m_isVolumeControlActive = false; // 是否正在显示音量条
     float m_currentVolume = 0.0f;         // 当前音量值
     UINT_PTR m_volumeTimerId = 4;         // 音量条自动隐藏定时器
+    UINT_PTR m_fullscreenTimerId = 5;      // 全屏检测定时器
 
 
     bool m_isDragHovering = false; // 【新增】是否有文件拖拽悬停在岛屿上方
     //std::wstring m_storedFilePath; // 保存暂存的文件路径
     std::vector<std::wstring> m_storedFiles; // 保存暂存的多个文件路径
 
+    bool m_isFullscreen = false; // 全屏检测标志
+
     // 天气信息
     std::wstring m_weatherDesc = L"Sunny";
+    bool IsFullscreen(); // 全屏检测
     float m_weatherTemp = 25.0f;
 };
 
