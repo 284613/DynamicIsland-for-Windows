@@ -137,7 +137,6 @@
     <ClInclude Include="Components\VolumeComponent.h" />
     <ClInclude Include="ConnectionMonitor.h" />
     <ClInclude Include="IslandState.h" />
-    <ClInclude Include="LayoutController.h" />
     <ClInclude Include="Constants.h" />
     <ClInclude Include="DropManager.h" />
     <ClInclude Include="DynamicIsland.h" />
@@ -170,7 +169,6 @@
     <ClCompile Include="Components\VolumeComponent.cpp" />
     <ClCompile Include="ConnectionMonitor.cpp" />
     <ClCompile Include="DynamicIsland.cpp" />
-    <ClCompile Include="LayoutController.cpp" />
     <ClCompile Include="FilePanelWindow.cpp" />
     <ClCompile Include="LyricsMonitor.cpp" />
     <ClCompile Include="main.cpp" />

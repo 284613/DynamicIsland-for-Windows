@@ -58,17 +58,27 @@ DynamicIsland::DynamicIsland()
 
 
 
-	: m_targetWidth(Constants::Size::COLLAPSED_WIDTH),
+	: m_currentWidth(Constants::Size::COLLAPSED_WIDTH),
 
 
 
-	m_targetHeight(Constants::Size::COLLAPSED_HEIGHT)
+	m_currentHeight(Constants::Size::COLLAPSED_HEIGHT),
+
+
+
+	m_currentAlpha(1.0f)
 
 
 
 {
 
-	// LayoutController handles spring initialization in its constructor
+	// Initialize springs with initial target values
+
+	m_widthSpring.SetTarget(Constants::Size::COLLAPSED_WIDTH);
+
+	m_heightSpring.SetTarget(Constants::Size::COLLAPSED_HEIGHT);
+
+	m_alphaSpring.SetTarget(1.0f);
 
 }
 
@@ -160,11 +170,9 @@ void DynamicIsland::TransitionTo(IslandDisplayMode mode) {
 
 void DynamicIsland::SetTargetSize(float width, float height) {
 
-	m_targetWidth = width;
+	m_widthSpring.SetTarget(width);
 
-	m_targetHeight = height;
-
-	m_layout.SetTargetSize(width, height);
+	m_heightSpring.SetTarget(height);
 
 }
 
@@ -342,19 +350,19 @@ void DynamicIsland::LoadConfig() {
 
 
 
-	m_targetWidth = COLLAPSED_WIDTH;
+	m_currentWidth = COLLAPSED_WIDTH;
 
 
 
-	m_targetHeight = COLLAPSED_HEIGHT;
+	m_currentHeight = COLLAPSED_HEIGHT;
 
 
 
-	m_layout.SetTargetSize(COLLAPSED_WIDTH, COLLAPSED_HEIGHT);
+	m_widthSpring.SetTarget(COLLAPSED_WIDTH);
 
 
 
-	}
+	m_heightSpring.SetTarget(COLLAPSED_HEIGHT);
 
 
 
@@ -677,8 +685,7 @@ void DynamicIsland::StartAnimation() {
 
 
 
-	bool layoutAnimating = m_layout.IsAnimating();
-	if (!layoutAnimating || m_targetWidth != lastTargetWidth || m_targetHeight != lastTargetHeight) {
+	if (!m_isAnimating || m_targetWidth != lastTargetWidth || m_targetHeight != lastTargetHeight) {
 
 
 
@@ -690,7 +697,7 @@ void DynamicIsland::StartAnimation() {
 
 
 
-		m_layout.StartAnimation();
+		m_isAnimating = true;
 
 
 
@@ -764,23 +771,27 @@ void DynamicIsland::UpdatePhysics() {
 
 	// 正常物理更新 - 使用弹簧动画系统
 
-	m_layout.UpdatePhysics();
+	m_widthSpring.Update(deltaTime);
+
+	m_heightSpring.Update(deltaTime);
+
+	m_alphaSpring.Update(deltaTime);
 
 
 
 	// 从弹簧获取当前值
 
-	m_currentWidth = m_layout.GetCurrentWidth();
+	m_currentWidth = m_widthSpring.GetValue();
 
-	m_currentHeight = m_layout.GetCurrentHeight();
+	m_currentHeight = m_heightSpring.GetValue();
 
-	m_currentAlpha = m_layout.GetCurrentAlpha();
+	m_currentAlpha = m_alphaSpring.GetValue();
 
 
 
 	// 检查动画是否已稳定
 
-	bool physicsSettled = !m_layout.IsAnimating();
+	bool physicsSettled = m_widthSpring.IsSettled() && m_heightSpring.IsSettled() && m_alphaSpring.IsSettled();
 
 
 
@@ -826,15 +837,7 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
-	if (physicsSettled) {
-
-		// Animation complete - stop timer
-
-		KillTimer(m_window.GetHWND(), m_timerId);
-
-	}
-
-	if (m_state == IslandState::Collapsed) {
+	if (physicsSettled && m_state == IslandState::Collapsed) {
 
 
 
@@ -3660,21 +3663,9 @@ void DynamicIsland::UpdateWindowRegion()
 
 int DynamicIsland::HitTestPlaybackButtons(POINT pt) {
 
-	return m_layout.HitTestPlaybackButtons(pt,
 
-		m_state == IslandState::Expanded,
 
-		m_mediaMonitor.HasSession(),
-
-		CANVAS_WIDTH,
-
-		m_layout.GetCurrentWidth(),
-
-		m_layout.GetCurrentHeight(),
-
-		m_dpiScale);
-
-}
+	if (m_state != IslandState::Expanded || !m_mediaMonitor.HasSession()) return -1;
 
 
 
@@ -3984,21 +3975,9 @@ std::wstring DynamicIsland::GetCurrentTimeString() {
 
 int DynamicIsland::HitTestProgressBar(POINT pt) {
 
-	return m_layout.HitTestProgressBar(pt,
 
-		m_state == IslandState::Expanded,
 
-		m_mediaMonitor.HasSession(),
-
-		CANVAS_WIDTH,
-
-		m_layout.GetCurrentWidth(),
-
-		m_layout.GetCurrentHeight(),
-
-		m_dpiScale);
-
-}
+	if (m_state != IslandState::Expanded || !m_mediaMonitor.HasSession()) return -1;
 
 
 
