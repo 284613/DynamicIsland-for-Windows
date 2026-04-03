@@ -172,7 +172,15 @@ void MediaMonitor::BackgroundMediaWorker() {
 			catch (winrt::hresult_error const&) {}
 			catch (...) {}
 
-			Sleep(1000);
+			// 【OPT-02】智能休眠：根据播放状态和岛屿状态调整轮询间隔
+			if (m_isPlaying) {
+				m_pollIntervalMs = 1000; // 正在播放：1秒轮询
+			} else if (m_hasSession) {
+				m_pollIntervalMs = 5000; // 有会话但暂停：5秒轮询
+			} else {
+				m_pollIntervalMs = 10000; // 无会话：10秒轮询
+			}
+			Sleep(m_pollIntervalMs);
 		}
 	}
 	catch (...) {
@@ -181,6 +189,16 @@ void MediaMonitor::BackgroundMediaWorker() {
 }
 bool MediaMonitor::IsPlaying() const {
 	return m_isPlaying.load();  // 原子变量无需锁
+}
+
+void MediaMonitor::SetExpandedState(bool expanded) {
+	// 【OPT-02】岛屿展开时缩短轮询间隔，确保进度条流畅更新
+	if (expanded && m_isPlaying) {
+		m_pollIntervalMs = 1000; // 展开+播放：1秒轮询
+	} else if (expanded && !m_isPlaying && m_hasSession) {
+		m_pollIntervalMs = 2000; // 展开+暂停：2秒轮询
+	}
+	// 收起状态由智能休眠逻辑自动调整
 }
 
 std::wstring MediaMonitor::GetAlbumArt()

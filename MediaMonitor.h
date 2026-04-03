@@ -54,6 +54,7 @@ public:
     void SetPosition(std::chrono::seconds position);  // 设置播放位置
     float GetVolume();               // 【新增】获取当前音量 (0.0 ~ 1.0)
     void SetVolume(float volume);    // 【新增】设置当前音量 (0.0 ~ 1.0)
+    void SetExpandedState(bool expanded); // 【OPT-02】设置岛屿展开状态，动态调整轮询频率
 private:
     void BackgroundMediaWorker(); // 后台拉取媒体信息的线程
     std::vector<uint8_t>* ReadThumbnailToMemory(const IRandomAccessStreamReference& thumbnail);
@@ -83,6 +84,8 @@ private:
     std::atomic<std::chrono::seconds::rep> m_position{ 0 };  // 当前位置（秒）
     std::atomic<std::chrono::seconds::rep> m_duration{ 0 };  // 总时长（秒）
     std::mutex m_controlMutex; // 控制操作的互斥锁，防止同时调用多个控制函数导致状态混乱
+    event_token m_sessionChangedToken; // 【OPT-02】会话变更事件订阅
+    int m_pollIntervalMs = 1000; // 【OPT-02】当前轮询间隔（毫秒）
    
 
     
