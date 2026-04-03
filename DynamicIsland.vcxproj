@@ -179,6 +179,7 @@
     <ClCompile Include="TaskDetector.cpp" />
     <ClCompile Include="WeatherPlugin.cpp" />
     <ClCompile Include="WindowManager.cpp" />
+    <ClCompile Include="LayoutController.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

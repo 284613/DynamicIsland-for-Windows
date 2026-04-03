@@ -1,4 +1,4 @@
-﻿//DynamicIsland.cpp
+//DynamicIsland.cpp
 
 
 
@@ -36,6 +36,39 @@
 
 #include "LyricsMonitor.h"
 
+std::wstring ExtractIconFromExe(const std::wstring& appName) {
+
+    std::wstring iconPath;
+
+    wchar_t exePath[MAX_PATH];
+
+    if (!GetModuleFileNameW(nullptr, exePath, MAX_PATH)) return iconPath;
+
+
+
+    // Extract only once, locate the current .exe directory
+
+    PathRemoveFileSpecW(exePath);
+
+    std::wstring base(exePath);
+
+
+
+    // Match app name and point to icon path
+
+    if (appName.find(L"QQ") != std::wstring::npos &&
+        appName.find(L"\\u538b\\u4e0b") == std::wstring::npos) {
+        iconPath = base + L"\\icon\\QQ.png";
+    }
+    else if (appName.find(L"\\u5fae\\u4fe1") != std::wstring::npos ||
+        appName.find(L"WeChat") != std::wstring::npos) {
+        iconPath = base + L"\\icon\\Wechat.png";
+    }
+    return iconPath;
+}
+
+
+
 
 
 DynamicIsland::~DynamicIsland()
@@ -48,9 +81,9 @@ DynamicIsland::~DynamicIsland()
 
 
 
-
-
 }
+
+
 
 
 
@@ -58,29 +91,15 @@ DynamicIsland::DynamicIsland()
 
 
 
-	: m_currentWidth(Constants::Size::COLLAPSED_WIDTH),
-
-
-
-	m_currentHeight(Constants::Size::COLLAPSED_HEIGHT),
-
-
-
-	m_currentAlpha(1.0f)
-
-
-
 {
 
-	// Initialize springs with initial target values
 
-	m_widthSpring.SetTarget(Constants::Size::COLLAPSED_WIDTH);
 
-	m_heightSpring.SetTarget(Constants::Size::COLLAPSED_HEIGHT);
 
-	m_alphaSpring.SetTarget(1.0f);
 
 }
+
+
 
 
 
@@ -90,23 +109,11 @@ void DynamicIsland::TransitionTo(IslandDisplayMode mode) {
 
 		case IslandDisplayMode::Idle:
 
-			m_targetWidth = Constants::Size::COLLAPSED_WIDTH;
-
-			m_targetHeight = Constants::Size::COLLAPSED_HEIGHT;
-
-			m_targetAlpha = 1.0f;
-
 			SetTargetSize(Constants::Size::COLLAPSED_WIDTH, Constants::Size::COLLAPSED_HEIGHT);
 
 			break;
 
 		case IslandDisplayMode::MusicCompact:
-
-			m_targetWidth = Constants::Size::COMPACT_WIDTH;
-
-			m_targetHeight = Constants::Size::COMPACT_HEIGHT;
-
-			m_targetAlpha = 1.0f;
 
 			SetTargetSize(Constants::Size::COMPACT_WIDTH, Constants::Size::COMPACT_HEIGHT);
 
@@ -114,23 +121,11 @@ void DynamicIsland::TransitionTo(IslandDisplayMode mode) {
 
 		case IslandDisplayMode::MusicExpanded:
 
-			m_targetWidth = Constants::Size::EXPANDED_WIDTH;
-
-			m_targetHeight = m_mediaMonitor.HasSession() ? Constants::Size::MUSIC_EXPANDED_HEIGHT : Constants::Size::EXPANDED_HEIGHT;
-
-			m_targetAlpha = 1.0f;
-
 			SetTargetSize(Constants::Size::EXPANDED_WIDTH, m_mediaMonitor.HasSession() ? Constants::Size::MUSIC_EXPANDED_HEIGHT : Constants::Size::EXPANDED_HEIGHT);
 
 			break;
 
 		case IslandDisplayMode::Alert:
-
-			m_targetWidth = Constants::Size::ALERT_WIDTH;
-
-			m_targetHeight = Constants::Size::ALERT_HEIGHT;
-
-			m_targetAlpha = 1.0f;
 
 			SetTargetSize(Constants::Size::ALERT_WIDTH, Constants::Size::ALERT_HEIGHT);
 
@@ -138,23 +133,11 @@ void DynamicIsland::TransitionTo(IslandDisplayMode mode) {
 
 		case IslandDisplayMode::Volume:
 
-			m_targetWidth = Constants::Size::ALERT_WIDTH;
-
-			m_targetHeight = Constants::Size::ALERT_HEIGHT;
-
-			m_targetAlpha = 1.0f;
-
 			SetTargetSize(Constants::Size::ALERT_WIDTH, Constants::Size::ALERT_HEIGHT);
 
 			break;
 
 		case IslandDisplayMode::FileDrop:
-
-			m_targetWidth = Constants::Size::EXPANDED_WIDTH;
-
-			m_targetHeight = Constants::Size::EXPANDED_HEIGHT;
-
-			m_targetAlpha = 1.0f;
 
 			SetTargetSize(Constants::Size::EXPANDED_WIDTH, Constants::Size::EXPANDED_HEIGHT);
 
@@ -168,13 +151,15 @@ void DynamicIsland::TransitionTo(IslandDisplayMode mode) {
 
 
 
+
+
 void DynamicIsland::SetTargetSize(float width, float height) {
 
-	m_widthSpring.SetTarget(width);
-
-	m_heightSpring.SetTarget(height);
+	m_layoutController.SetTargetSize(width, height);
 
 }
+
+
 
 
 
@@ -218,11 +203,17 @@ IslandDisplayMode DynamicIsland::DetermineDisplayMode() const {
 
 
 
+
+
 void DynamicIsland::LoadConfig() {
 
 
 
+
+
 	wchar_t exePath[MAX_PATH];
+
+
 
 
 
@@ -234,7 +225,15 @@ void DynamicIsland::LoadConfig() {
 
 
 
+
+
+
+
+
+
 	// 获取当前 exe 所在的目录
+
+
 
 
 
@@ -242,7 +241,11 @@ void DynamicIsland::LoadConfig() {
 
 
 
+
+
 	size_t pos = pathStr.find_last_of(L"\\/");
+
+
 
 
 
@@ -254,11 +257,21 @@ void DynamicIsland::LoadConfig() {
 
 
 
+
+
+
+
+
+
 	// 读取 INI 文件（如果文件不存在则使用后面的默认值）
 
 
 
+
+
 	CANVAS_WIDTH = (float)GetPrivateProfileIntW(L"Settings", L"CanvasWidth", (int)Constants::Size::CANVAS_WIDTH, configPath.c_str());
+
+
 
 
 
@@ -270,43 +283,27 @@ void DynamicIsland::LoadConfig() {
 
 
 
-	COLLAPSED_WIDTH = (float)GetPrivateProfileIntW(L"Settings", L"CollapsedWidth", (int)Constants::Size::COLLAPSED_WIDTH, configPath.c_str());
 
 
+	// COLLAPSED_WIDTH = (float)GetPrivateProfileIntW(L"Settings", L"CollapsedWidth", (int)Constants::Size::COLLAPSED_WIDTH, configPath.c_str());
 
-	COLLAPSED_HEIGHT = (float)GetPrivateProfileIntW(L"Settings", L"CollapsedHeight", (int)Constants::Size::COLLAPSED_HEIGHT, configPath.c_str());
+	// COLLAPSED_HEIGHT = (float)GetPrivateProfileIntW(L"Settings", L"CollapsedHeight", (int)Constants::Size::COLLAPSED_HEIGHT, configPath.c_str());
 
+	// COMPACT_WIDTH = (float)GetPrivateProfileIntW(L"Settings", L"CompactWidth", (int)Constants::Size::COMPACT_WIDTH, configPath.c_str());
 
+	// COMPACT_HEIGHT = (float)GetPrivateProfileIntW(L"Settings", L"CompactHeight", (int)Constants::Size::COMPACT_HEIGHT, configPath.c_str());
 
+	// EXPANDED_WIDTH = (float)GetPrivateProfileIntW(L"Settings", L"ExpandedWidth", (int)Constants::Size::EXPANDED_WIDTH, configPath.c_str());
 
+	// EXPANDED_HEIGHT = (float)GetPrivateProfileIntW(L"Settings", L"ExpandedHeight", (int)Constants::Size::EXPANDED_HEIGHT, configPath.c_str());
 
+	// MUSIC_EXPANDED_HEIGHT = (float)GetPrivateProfileIntW(L"Settings", L"MusicExpandedHeight", (int)Constants::Size::MUSIC_EXPANDED_HEIGHT, configPath.c_str());
 
+	// ALERT_WIDTH = (float)GetPrivateProfileIntW(L"Settings", L"AlertWidth", (int)Constants::Size::ALERT_WIDTH, configPath.c_str());
 
-	COMPACT_WIDTH = (float)GetPrivateProfileIntW(L"Settings", L"CompactWidth", (int)Constants::Size::COMPACT_WIDTH, configPath.c_str());
-
-
-
-	COMPACT_HEIGHT = (float)GetPrivateProfileIntW(L"Settings", L"CompactHeight", (int)Constants::Size::COMPACT_HEIGHT, configPath.c_str());
-
-
-
-	EXPANDED_WIDTH = (float)GetPrivateProfileIntW(L"Settings", L"ExpandedWidth", (int)Constants::Size::EXPANDED_WIDTH, configPath.c_str());
-
+	// ALERT_HEIGHT = (float)GetPrivateProfileIntW(L"Settings", L"AlertHeight", (int)Constants::Size::ALERT_HEIGHT, configPath.c_str());
 
 
-	EXPANDED_HEIGHT = (float)GetPrivateProfileIntW(L"Settings", L"ExpandedHeight", (int)Constants::Size::EXPANDED_HEIGHT, configPath.c_str());
-
-
-
-	MUSIC_EXPANDED_HEIGHT = (float)GetPrivateProfileIntW(L"Settings", L"MusicExpandedHeight", (int)Constants::Size::MUSIC_EXPANDED_HEIGHT, configPath.c_str());
-
-
-
-	ALERT_WIDTH = (float)GetPrivateProfileIntW(L"Settings", L"AlertWidth", (int)Constants::Size::ALERT_WIDTH, configPath.c_str());
-
-
-
-	ALERT_HEIGHT = (float)GetPrivateProfileIntW(L"Settings", L"AlertHeight", (int)Constants::Size::ALERT_HEIGHT, configPath.c_str());
 
 
 
@@ -314,7 +311,11 @@ void DynamicIsland::LoadConfig() {
 
 
 
+
+
 	GetPrivateProfileStringW(L"Settings", L"AllowedApps", L"微信,QQ", allowedAppsBuf, 512, configPath.c_str());
+
+
 
 
 
@@ -322,7 +323,11 @@ void DynamicIsland::LoadConfig() {
 
 
 
+
+
 	size_t start = 0, end;
+
+
 
 
 
@@ -330,7 +335,11 @@ void DynamicIsland::LoadConfig() {
 
 
 
+
+
 		m_allowedApps.push_back(appsStr.substr(start, end - start));
+
+
 
 
 
@@ -338,7 +347,11 @@ void DynamicIsland::LoadConfig() {
 
 
 
+
+
 	}
+
+
 
 
 
@@ -346,23 +359,17 @@ void DynamicIsland::LoadConfig() {
 
 
 
+
+
 	// 初始状态设定为折叠
 
 
 
-	m_currentWidth = COLLAPSED_WIDTH;
 
 
-
-	m_currentHeight = COLLAPSED_HEIGHT;
-
+	m_layoutController.SetTargetSize(Constants::Size::COLLAPSED_WIDTH, Constants::Size::COLLAPSED_HEIGHT);
 
 
-	m_widthSpring.SetTarget(COLLAPSED_WIDTH);
-
-
-
-	m_heightSpring.SetTarget(COLLAPSED_HEIGHT);
 
 
 
@@ -370,7 +377,11 @@ void DynamicIsland::LoadConfig() {
 
 
 
+
+
 bool DynamicIsland::Initialize(HINSTANCE hInstance) {
+
+
 
 
 
@@ -380,9 +391,9 @@ bool DynamicIsland::Initialize(HINSTANCE hInstance) {
 
 
 
-
-
 	// 获取系统初始 DPI 并计算缩放
+
+
 
 
 
@@ -390,7 +401,11 @@ bool DynamicIsland::Initialize(HINSTANCE hInstance) {
 
 
 
+
+
 	m_dpiScale = m_currentDpi / 96.0f;
+
+
 
 
 
@@ -398,7 +413,11 @@ bool DynamicIsland::Initialize(HINSTANCE hInstance) {
 
 
 
+
+
 	int physCanvasW = (int)(CANVAS_WIDTH * m_dpiScale);
+
+
 
 
 
@@ -406,7 +425,11 @@ bool DynamicIsland::Initialize(HINSTANCE hInstance) {
 
 
 
+
+
 	// 创建窗口（传入物理尺寸）
+
+
 
 
 
@@ -414,7 +437,11 @@ bool DynamicIsland::Initialize(HINSTANCE hInstance) {
 
 
 
+
+
 	// 窗口创建后，获取该窗口所在显示器的精准 DPI
+
+
 
 
 
@@ -422,7 +449,11 @@ bool DynamicIsland::Initialize(HINSTANCE hInstance) {
 
 
 
+
+
 	m_dpiScale = m_currentDpi / 96.0f;
+
+
 
 
 
@@ -430,7 +461,11 @@ bool DynamicIsland::Initialize(HINSTANCE hInstance) {
 
 
 
+
+
 	if (!m_renderer.Initialize(m_window.GetHWND(), physCanvasW, physCanvasH)) return false;
+
+
 
 
 
@@ -440,9 +475,9 @@ bool DynamicIsland::Initialize(HINSTANCE hInstance) {
 
 
 
-
-
 	// 初始化文件面板窗口
+
+
 
 
 
@@ -452,9 +487,9 @@ bool DynamicIsland::Initialize(HINSTANCE hInstance) {
 
 
 
-
-
 	m_mediaMonitor.SetTargetWindow(m_window.GetHWND());
+
+
 
 
 
@@ -462,7 +497,11 @@ bool DynamicIsland::Initialize(HINSTANCE hInstance) {
 
 
 
+
+
 	m_connectionMonitor.Initialize(m_window.GetHWND());
+
+
 
 
 
@@ -470,22 +509,47 @@ bool DynamicIsland::Initialize(HINSTANCE hInstance) {
 
 
 
+
+
 	m_lyricsMonitor.Initialize(m_window.GetHWND());
+
+
 
 
 
 	m_systemMonitor.Initialize(m_window.GetHWND()); // 【新增】启动电量监控
 
+
+
+
+
 	// 【新增】立即获取天气（不等10分钟定时器）
+
+
+
+
 
 	m_systemMonitor.UpdateWeather();
 
+
+
+
+
 	m_weatherDesc = m_systemMonitor.GetWeatherDescription();
+
+
+
+
 
 	m_weatherTemp = m_systemMonitor.GetWeatherTemperature();
 
+
+
+
+
 	m_renderer.SetWeatherInfo(m_weatherDesc, m_weatherTemp);
-	
+
+
 
 
 
@@ -497,7 +561,11 @@ bool DynamicIsland::Initialize(HINSTANCE hInstance) {
 
 
 
+
+
 	bool isPlaying = m_mediaMonitor.IsPlaying();
+
+
 
 
 
@@ -505,17 +573,19 @@ bool DynamicIsland::Initialize(HINSTANCE hInstance) {
 
 
 
+
+
 	// Construct RenderContext for initial draw
 
 	RenderContext initCtx;
 
-	initCtx.islandWidth = m_currentWidth;
+	initCtx.islandWidth = GetCurrentWidth();
 
-	initCtx.islandHeight = m_currentHeight;
+	initCtx.islandHeight = GetCurrentHeight();
 
 	initCtx.canvasWidth = CANVAS_WIDTH;
 
-	initCtx.contentAlpha = m_currentAlpha;
+	initCtx.contentAlpha = GetCurrentAlpha();
 
 	initCtx.audioLevel = m_mediaMonitor.GetAudioLevel();
 
@@ -555,7 +625,11 @@ bool DynamicIsland::Initialize(HINSTANCE hInstance) {
 
 
 
+
+
 	m_renderer.DrawCapsule(initCtx);
+
+
 
 
 
@@ -567,7 +641,11 @@ bool DynamicIsland::Initialize(HINSTANCE hInstance) {
 
 
 
+
+
 	UpdateWindowRegion();
+
+
 
 
 
@@ -578,6 +656,10 @@ bool DynamicIsland::Initialize(HINSTANCE hInstance) {
 
 
 	// 【新增】订阅EventBus事件 - MediaMetadataChanged事件处理
+
+
+
+
 
 	EventBus::GetInstance().Subscribe(EventType::MediaMetadataChanged, [this](const Event& e) {
 
@@ -611,7 +693,13 @@ bool DynamicIsland::Initialize(HINSTANCE hInstance) {
 
 
 
+
+
 	// 【新增】订阅EventBus事件 - NotificationArrived事件处理
+
+
+
+
 
 	EventBus::GetInstance().Subscribe(EventType::NotificationArrived, [this](const Event& e) {
 
@@ -637,13 +725,15 @@ bool DynamicIsland::Initialize(HINSTANCE hInstance) {
 
 
 
+
+
 	return true;
 
 
 
+
+
 }
-
-
 
 
 
@@ -653,13 +743,15 @@ void DynamicIsland::Run() {
 
 
 
+
+
 	m_window.RunLoop();
 
 
 
+
+
 }
-
-
 
 
 
@@ -669,7 +761,11 @@ void DynamicIsland::StartAnimation() {
 
 
 
+
+
 	// 添加保护：只有目标真正改变才触发动画
+
+
 
 
 
@@ -677,27 +773,39 @@ void DynamicIsland::StartAnimation() {
 
 
 
+
+
 	static float lastTargetHeight = 0;
 
 
 
-	
 
 
 
-	if (!m_isAnimating || m_targetWidth != lastTargetWidth || m_targetHeight != lastTargetHeight) {
 
 
 
-		lastTargetWidth = m_targetWidth;
+	if (!IsAnimating() || GetTargetWidth() != lastTargetWidth || GetTargetHeight() != lastTargetHeight) {
 
 
 
-		lastTargetHeight = m_targetHeight;
+
+
+		lastTargetWidth = GetTargetWidth();
 
 
 
-		m_isAnimating = true;
+
+
+		lastTargetHeight = GetTargetHeight();
+
+
+
+
+
+		m_layoutController.StartAnimation();
+
+
 
 
 
@@ -705,7 +813,11 @@ void DynamicIsland::StartAnimation() {
 
 
 
+
+
 	}
+
+
 
 
 
@@ -715,9 +827,9 @@ void DynamicIsland::StartAnimation() {
 
 
 
-
-
 void DynamicIsland::UpdatePhysics() {
+
+
 
 
 
@@ -725,7 +837,11 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
+
+
 	m_smoothedAudio += (realAudioLevel - m_smoothedAudio) * 0.2f;
+
+
 
 
 
@@ -737,7 +853,11 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
+
+
 	bool isPlaying = m_mediaMonitor.IsPlaying();
+
+
 
 
 
@@ -747,9 +867,9 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
-
-
 	static ULONGLONG lastUpdate = GetTickCount64();
+
+
 
 
 
@@ -757,7 +877,11 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
+
+
 	float deltaTime = (now - lastUpdate) / 1000.0f;
+
+
 
 
 
@@ -767,31 +891,9 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
-
-
 	// 正常物理更新 - 使用弹簧动画系统
 
-	m_widthSpring.Update(deltaTime);
-
-	m_heightSpring.Update(deltaTime);
-
-	m_alphaSpring.Update(deltaTime);
-
-
-
-	// 从弹簧获取当前值
-
-	m_currentWidth = m_widthSpring.GetValue();
-
-	m_currentHeight = m_heightSpring.GetValue();
-
-	m_currentAlpha = m_alphaSpring.GetValue();
-
-
-
-	// 检查动画是否已稳定
-
-	bool physicsSettled = m_widthSpring.IsSettled() && m_heightSpring.IsSettled() && m_alphaSpring.IsSettled();
+	m_layoutController.UpdatePhysics();
 
 
 
@@ -801,7 +903,11 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
+
+
 	if (m_filePanel.IsVisible()) {
+
+
 
 
 
@@ -809,7 +915,11 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
+
+
 		GetWindowRect(m_window.GetHWND(), &islandRect);
+
+
 
 
 
@@ -817,17 +927,21 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
+
+
 		int panelY = islandRect.top;  // Top aligned with island
 
 
 
-		m_filePanel.UpdatePosition(panelX, panelY, m_currentHeight);
+
+
+		m_filePanel.UpdatePosition(panelX, panelY, GetCurrentHeight());
+
+
 
 
 
 	}
-
-
 
 
 
@@ -837,7 +951,11 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
-	if (physicsSettled && m_state == IslandState::Collapsed) {
+
+
+	if (m_layoutController.IsAnimating() && m_state == IslandState::Collapsed) {
+
+
 
 
 
@@ -845,15 +963,11 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
-		if (m_mediaMonitor.IsPlaying() && m_targetHeight < Constants::Size::COMPACT_MIN_HEIGHT && m_storedFiles.empty()) {
 
 
-
-			m_targetWidth = Constants::Size::COMPACT_WIDTH;
-
+		if (m_mediaMonitor.IsPlaying() && GetTargetHeight() < Constants::Size::COMPACT_MIN_HEIGHT && m_storedFiles.empty()) {
 
 
-			m_targetHeight = Constants::Size::COMPACT_HEIGHT;
 
 
 
@@ -861,37 +975,15 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
+
+
 			StartAnimation();
 
 
 
+
+
 		}
-
-
-
-		// 如果不播放且目标是Compact态，停留在Compact（不恢复到Mini）
-
-
-
-		// else if (!m_mediaMonitor.IsPlaying() && m_targetHeight >= 35.0f) {
-
-
-
-		// 	m_targetWidth = COLLAPSED_WIDTH;
-
-
-
-		// 	m_targetHeight = COLLAPSED_HEIGHT;
-
-
-
-		// 	StartAnimation();
-
-
-
-		// }
-
-
 
 	}
 
@@ -899,11 +991,7 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
-
-
-	m_renderer.UpdateScroll(deltaTime, realAudioLevel, m_currentHeight);
-
-
+	m_renderer.UpdateScroll(deltaTime, realAudioLevel, GetCurrentHeight());
 
 
 
@@ -913,11 +1001,17 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
+
+
 	std::wstring realArtist = m_mediaMonitor.GetArtist();
 
 
 
+
+
 	m_lyricsMonitor.UpdateSong(realTitle, realArtist);
+
+
 
 
 
@@ -927,9 +1021,9 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
-
-
 	if (!albumArt.empty() && albumArt != m_lastAlbumArt) {
+
+
 
 
 
@@ -937,13 +1031,15 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
+
+
 		m_renderer.LoadAlbumArt(albumArt);
 
 
 
+
+
 	}
-
-
 
 
 
@@ -953,11 +1049,11 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
+
+
 	bool showTime = (m_state == IslandState::Collapsed && !m_isAlertActive && !isPlaying);
 
 
-
-	
 
 
 
@@ -965,7 +1061,11 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
+
+
 	static ULONGLONG lastTimeStrUpdate = 0;
+
+
 
 
 
@@ -973,11 +1073,15 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
+
+
 	ULONGLONG nowMs = GetTickCount64();
 
 
 
-	
+
+
+
 
 
 
@@ -985,7 +1089,11 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
+
+
 		cachedTimeStr = GetCurrentTimeString();
+
+
 
 
 
@@ -993,7 +1101,11 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
+
+
 	} else if (!showTime) {
+
+
 
 
 
@@ -1001,11 +1113,17 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
+
+
 		lastTimeStrUpdate = 0;
 
 
 
+
+
 	}
+
+
 
 
 
@@ -1015,9 +1133,9 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
-
-
 	// 获取音乐进度
+
+
 
 
 
@@ -1025,7 +1143,11 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
+
+
 	auto duration = m_mediaMonitor.GetDuration();
+
+
 
 
 
@@ -1033,7 +1155,11 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
+
+
 	if (duration.count() > 0) {
+
+
 
 
 
@@ -1041,7 +1167,11 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
+
+
 	}
+
+
 
 
 
@@ -1049,7 +1179,11 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
+
+
 	if (m_isDraggingProgress || m_justReleasedProgress) {
+
+
 
 
 
@@ -1059,9 +1193,9 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
-
-
 		// 如果刚松开，检查是否应该停止使用临时进度
+
+
 
 
 
@@ -1069,7 +1203,11 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
+
+
 			ULONGLONG now = GetTickCount64();
+
+
 
 
 
@@ -1079,9 +1217,9 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
-
-
 			// 条件1：已经过了1秒
+
+
 
 
 
@@ -1089,15 +1227,19 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
+
+
 				shouldStop = true;
+
+
 
 
 
 			}
 
-
-
 			// 条件2：实际位置已经接近临时位置（差距小于0.5秒）
+
+
 
 
 
@@ -1105,7 +1247,11 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
+
+
 				float actualProgress = (float)position.count() / (float)duration.count();
+
+
 
 
 
@@ -1113,7 +1259,11 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
+
+
 				if (std::abs(actualProgress - m_tempProgress) < threshold) {
+
+
 
 
 
@@ -1121,13 +1271,15 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
+
+
 				}
 
 
 
+
+
 			}
-
-
 
 
 
@@ -1137,7 +1289,11 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
+
+
 				m_justReleasedProgress = false;
+
+
 
 
 
@@ -1145,13 +1301,15 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
+
+
 		}
 
 
 
+
+
 	}
-
-
 
 
 
@@ -1161,7 +1319,11 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
+
+
 	std::wstring currentLyric;
+
+
 
 
 
@@ -1169,7 +1331,11 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
+
+
 		int64_t positionMs = position.count() * 1000;
+
+
 
 
 
@@ -1177,7 +1343,11 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
+
+
 	}
+
+
 
 
 
@@ -1189,7 +1359,7 @@ void DynamicIsland::UpdatePhysics() {
 
 	}
 
-	// 👆👆👆
+
 
 
 
@@ -1197,11 +1367,17 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
+
+
 	m_renderer.SetAlertState(m_isAlertActive, m_currentAlert);
 
 
 
+
+
 	m_renderer.SetProgressBarStates(m_hoveredProgress, m_pressedProgress);
+
+
 
 
 
@@ -1211,17 +1387,19 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
+
+
 	// Construct RenderContext
 
 	RenderContext ctx;
 
-	ctx.islandWidth = m_currentWidth;
+	ctx.islandWidth = GetCurrentWidth();
 
-	ctx.islandHeight = m_currentHeight;
+	ctx.islandHeight = GetCurrentHeight();
 
 	ctx.canvasWidth = CANVAS_WIDTH;
 
-	ctx.contentAlpha = m_currentAlpha;
+	ctx.contentAlpha = GetCurrentAlpha();
 
 	ctx.audioLevel = realAudioLevel;
 
@@ -1261,7 +1439,11 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
+
+
 	m_renderer.DrawCapsule(ctx);
+
+
 
 
 
@@ -1269,7 +1451,11 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
+
+
 }
+
+
 
 
 
@@ -1277,7 +1463,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 	switch (uMsg) {
+
+
 
 
 
@@ -1285,7 +1475,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		POINT physicalPt;
+
+
 
 
 
@@ -1293,7 +1487,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		physicalPt.y = GET_Y_LPARAM(lParam);
+
+
 
 
 
@@ -1301,7 +1499,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		POINT pt; // 转成逻辑坐标，供后续的 HitTest 使用
+
+
 
 
 
@@ -1309,7 +1511,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		pt.x = (LONG)std::round(physicalPt.x / m_dpiScale);
+
+
 
 
 
@@ -1319,17 +1525,15 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+		float left = (CANVAS_WIDTH - GetCurrentWidth()) / 2.0f;
 
 
 
 
 
-
-		float left = (CANVAS_WIDTH - m_currentWidth) / 2.0f;
-
+		float right = left + GetCurrentWidth();
 
 
-		float right = left + m_currentWidth;
 
 
 
@@ -1337,17 +1541,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-		float bottom = top + m_currentHeight;
 
 
-
-
-
-
-
-
-
-
+		float bottom = top + GetCurrentHeight();
 
 
 
@@ -1357,7 +1553,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			return HTCLIENT;
+
+
 
 
 
@@ -1365,7 +1565,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		return HTTRANSPARENT;
+
+
 
 
 
@@ -1373,7 +1577,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 	case WM_MOUSEMOVE:
+
+
 
 
 
@@ -1381,11 +1589,17 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		POINT physicalPt;
 
 
 
+
+
 		physicalPt.x = GET_X_LPARAM(lParam);
+
+
 
 
 
@@ -1395,9 +1609,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-
-
 		POINT pt; // 转成逻辑坐标，供后续的 HitTest 使用
+
+
 
 
 
@@ -1405,7 +1619,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		pt.x = (LONG)std::round(physicalPt.x / m_dpiScale);
+
+
 
 
 
@@ -1415,17 +1633,21 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-
-
 		// 鼠标悬停检测
 
 
 
-		float hoverLeft = (CANVAS_WIDTH - m_currentWidth) / 2.0f;
+
+
+		float hoverLeft = (CANVAS_WIDTH - GetCurrentWidth()) / 2.0f;
 
 
 
-		float hoverRight = hoverLeft + m_currentWidth;
+
+
+		float hoverRight = hoverLeft + GetCurrentWidth();
+
+
 
 
 
@@ -1433,7 +1655,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-		float hoverBottom = hoverTop + m_currentHeight;
+
+
+		float hoverBottom = hoverTop + GetCurrentHeight();
+
+
 
 
 
@@ -1441,7 +1667,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-		
+
+
+
 
 
 
@@ -1449,11 +1677,19 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			m_isHovering = isOverIsland;
 
 
 
+
+
 			// 悬停时：停止待处理的自动收缩定时器
+
+
+
+
 
 			if (m_isHovering) {
 
@@ -1463,7 +1699,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			// 悬停时：无论是否播放，都展开到Compact态
+
+
 
 
 
@@ -1471,15 +1711,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-				if (m_targetHeight < Constants::Size::COMPACT_MIN_HEIGHT) {
 
 
-
-					m_targetWidth = Constants::Size::COMPACT_WIDTH;
-
+				if (GetTargetHeight() < Constants::Size::COMPACT_MIN_HEIGHT) {
 
 
-					m_targetHeight = Constants::Size::COMPACT_HEIGHT;
 
 
 
@@ -1487,7 +1723,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 					StartAnimation();
+
+
 
 
 
@@ -1495,13 +1735,21 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			} else if (!m_isHovering && m_state == IslandState::Collapsed) {
+
+
 
 
 
 				// 鼠标离开时：如果是compact大小，启动5秒定时器后缩小到mini
 
-				if (m_targetHeight >= Constants::Size::COMPACT_MIN_HEIGHT) {
+
+
+
+
+				if (GetTargetHeight() >= Constants::Size::COMPACT_MIN_HEIGHT) {
 
 					// 先启动定时器，5秒后会缩小
 
@@ -1511,7 +1759,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			}
+
+
 
 
 
@@ -1521,35 +1773,49 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-
-
-		
 		// Weather icon hover detection: trigger animation on first hover
+
 		if (m_state == IslandState::Expanded && !m_mediaMonitor.IsPlaying()) {
-			float left = (CANVAS_WIDTH - m_currentWidth) / 2.0f;
-			float right = left + m_currentWidth;
-			float top = (CANVAS_HEIGHT - m_currentHeight) / 2.0f;
-			float islandHeight = m_currentHeight;
+
+			float left = (CANVAS_WIDTH - GetCurrentWidth()) / 2.0f;
+
+			float right = left + GetCurrentWidth();
+
+			float top = (CANVAS_HEIGHT - GetCurrentHeight()) / 2.0f;
+
+			float islandHeight = GetCurrentHeight();
+
 			float iconSize = islandHeight * 0.4f;
+
 			float iconX = right - iconSize - 15.0f;
+
 			float iconY = top + (islandHeight - iconSize) / 2.0f;
 
+
+
 			bool isOverWeather = (pt.x >= iconX && pt.x <= iconX + iconSize &&
+
 			                      pt.y >= iconY && pt.y <= iconY + iconSize);
 
+
+
 			if (isOverWeather) {
+
 				m_renderer.TriggerWeatherAnimOnce();
+
 			}
+
 		}
+
 // 进度条拖动
 
 
 
-		if (m_isDraggingProgress)
 
 
+		if (m_isDraggingProgress) {
 
-		{
+
 
 
 
@@ -1557,7 +1823,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-			float left = (CANVAS_WIDTH - m_currentWidth) / 2.0f;
+
+
+			float left = (CANVAS_WIDTH - GetCurrentWidth()) / 2.0f;
+
+
 
 
 
@@ -1565,7 +1835,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-			float right = left + m_currentWidth;
+
+
+			float right = left + GetCurrentWidth();
+
+
 
 
 
@@ -1573,7 +1847,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			float artLeft = left + 20.0f;
+
+
 
 
 
@@ -1581,11 +1859,17 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			float titleMaxWidth = (right - 20.0f) - textLeft;
 
 
 
+
+
 			float progressBarLeft = textLeft - 80.0f;
+
+
 
 
 
@@ -1595,13 +1879,15 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-
-
 			float clickX = (float)pt.x;
 
 
 
+
+
 			float progress = (clickX - progressBarLeft) / (progressBarRight - progressBarLeft);
+
+
 
 
 
@@ -1611,9 +1897,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-
-
 			// 只更新临时进度，不设置播放位置
+
+
 
 
 
@@ -1623,13 +1909,15 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-
-
 			StartAnimation();
 
 
 
+
+
 			return 0;
+
+
 
 
 
@@ -1639,17 +1927,15 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+		if (m_dragging) {
 
 
-		if (m_dragging)
-
-
-
-		{
 
 
 
 			POINT current;
+
+
 
 
 
@@ -1659,9 +1945,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-
-
 			int dx = current.x - m_dragStart.x;
+
+
 
 
 
@@ -1671,13 +1957,15 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-
-
 			// 计算新窗口位置
 
 
 
+
+
 			int newLeft = m_windowStart.x + dx;
+
+
 
 
 
@@ -1687,9 +1975,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-
-
 			// 获取当前窗口所在显示器的工作区
+
+
 
 
 
@@ -1697,15 +1985,17 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			MONITORINFO mi = { sizeof(MONITORINFO) };
 
 
 
-			if (GetMonitorInfo(hMonitor, &mi))
 
 
+			if (GetMonitorInfo(hMonitor, &mi)) {
 
-			{
+
 
 
 
@@ -1715,9 +2005,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-
-
 				// 获取窗口大小
+
+
 
 
 
@@ -1725,11 +2015,17 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 				GetWindowRect(hwnd, &windowRect);
 
 
 
+
+
 				int width = windowRect.right - windowRect.left;
+
+
 
 
 
@@ -1739,9 +2035,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-
-
 				// 限制新位置不超出工作区
+
+
 
 
 
@@ -1749,7 +2045,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 				if (newTop < workArea.top) newTop = workArea.top;
+
+
 
 
 
@@ -1757,13 +2057,15 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 				if (newTop + height > workArea.bottom) newTop = workArea.bottom - height;
 
 
 
+
+
 			}
-
-
 
 
 
@@ -1775,9 +2077,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-
-
 			return 0;
+
+
 
 
 
@@ -1785,7 +2087,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-		int hit = HitTestPlaybackButtons(pt);
+
+
+		int hit = m_layoutController.HitTestPlaybackButtons(pt, m_state == IslandState::Expanded, m_mediaMonitor.HasSession(), CANVAS_WIDTH, GetCurrentWidth(), GetCurrentHeight(), m_dpiScale);
+
+
 
 
 
@@ -1793,7 +2099,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			m_hoveredButtonIndex = hit;
+
+
 
 
 
@@ -1801,9 +2111,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		}
-
-
 
 
 
@@ -1813,7 +2123,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-		int progressHit = HitTestProgressBar(pt);
+
+
+		int progressHit = m_layoutController.HitTestProgressBar(pt, m_state == IslandState::Expanded, m_mediaMonitor.HasSession(), CANVAS_WIDTH, GetCurrentWidth(), GetCurrentHeight(), m_dpiScale);
+
+
 
 
 
@@ -1821,7 +2135,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			m_hoveredProgress = progressHit;
+
+
 
 
 
@@ -1829,9 +2147,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		}
-
-
 
 
 
@@ -1841,7 +2159,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		tme.cbSize = sizeof(TRACKMOUSEEVENT);
+
+
 
 
 
@@ -1849,7 +2171,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		tme.hwndTrack = hwnd;
+
+
 
 
 
@@ -1857,11 +2183,17 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		return 0;
 
 
 
+
+
 	}
+
+
 
 
 
@@ -1869,7 +2201,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		if (m_hoveredButtonIndex != -1 || m_pressedButtonIndex != -1 || m_hoveredProgress != -1 || m_pressedProgress != -1) {
+
+
 
 
 
@@ -1877,7 +2213,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			m_pressedButtonIndex = -1;
+
+
 
 
 
@@ -1885,11 +2225,17 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			m_pressedProgress = -1;
 
 
 
+
+
 		}
+
+
 
 
 
@@ -1897,7 +2243,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		if (m_isHovering) {
+
+
 
 
 
@@ -1905,7 +2255,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-			
+
+
+
 
 
 
@@ -1913,7 +2265,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		return 0;
+
+
 
 
 
@@ -1921,7 +2277,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 	// 鼠标点击胶囊体
+
+
 
 
 
@@ -1929,11 +2289,17 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		POINT physicalPt;
 
 
 
+
+
 		physicalPt.x = GET_X_LPARAM(lParam);
+
+
 
 
 
@@ -1943,9 +2309,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-
-
 		POINT pt; // 转成逻辑坐标，供后续的 HitTest 使用
+
+
 
 
 
@@ -1953,7 +2319,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		pt.x = (LONG)std::round(physicalPt.x / m_dpiScale);
+
+
 
 
 
@@ -1961,11 +2331,17 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		// --- 检查是否点中了按钮 ---
 
 
 
-		int hit = HitTestPlaybackButtons(pt);
+
+
+		int hit = m_layoutController.HitTestPlaybackButtons(pt, m_state == IslandState::Expanded, m_mediaMonitor.HasSession(), CANVAS_WIDTH, GetCurrentWidth(), GetCurrentHeight(), m_dpiScale);
+
+
 
 
 
@@ -1973,7 +2349,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			m_pressedButtonIndex = hit;
+
+
 
 
 
@@ -1981,7 +2361,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			return 0; // 拦截点击，不要触发窗口拖拽！
+
+
 
 
 
@@ -1989,7 +2373,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		// 点击胶囊不再打开文件 - 文件在侧边栏管理
+
+
 
 
 
@@ -1997,11 +2385,17 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-		int progressHit = HitTestProgressBar(pt);
+
+
+		int progressHit = m_layoutController.HitTestProgressBar(pt, m_state == IslandState::Expanded, m_mediaMonitor.HasSession(), CANVAS_WIDTH, GetCurrentWidth(), GetCurrentHeight(), m_dpiScale);
+
+
 
 
 
 		if (progressHit != -1) {
+
+
 
 
 
@@ -2011,13 +2405,15 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-
-
 			// 计算点击位置对应的进度 (使用与RenderEngine一致的坐标)
 
 
 
-			float left = (CANVAS_WIDTH - m_currentWidth) / 2.0f;
+
+
+			float left = (CANVAS_WIDTH - GetCurrentWidth()) / 2.0f;
+
+
 
 
 
@@ -2025,7 +2421,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-			float right = left + m_currentWidth;
+
+
+			float right = left + GetCurrentWidth();
+
+
 
 
 
@@ -2033,7 +2433,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			float artLeft = left + 20.0f;
+
+
 
 
 
@@ -2041,11 +2445,17 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			float titleMaxWidth = (right - 20.0f) - textLeft;
 
 
 
+
+
 			float progressBarLeft = textLeft - 80.0f;
+
+
 
 
 
@@ -2055,13 +2465,15 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-
-
 			float clickX = (float)pt.x;
 
 
 
+
+
 			float progress = (clickX - progressBarLeft) / (progressBarRight - progressBarLeft);
+
+
 
 
 
@@ -2071,9 +2483,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-
-
 			// 初始化临时进度
+
+
 
 
 
@@ -2083,9 +2495,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-
-
 			StartAnimation();
+
+
 
 
 
@@ -2093,9 +2505,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		}
-
-
 
 
 
@@ -2105,7 +2517,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		m_dragging = true;
+
+
 
 
 
@@ -2113,7 +2529,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		RECT rect;
+
+
 
 
 
@@ -2121,11 +2541,17 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		m_windowStart.x = rect.left;
 
 
 
+
+
 		m_windowStart.y = rect.top;
+
+
 
 
 
@@ -2135,9 +2561,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-
-
 		if (m_state == IslandState::Collapsed) {
+
+
 
 
 
@@ -2145,11 +2571,17 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			m_state = IslandState::Expanded;
 
 
 
+
+
 			TransitionTo(IslandDisplayMode::MusicExpanded);
+
+
 
 
 
@@ -2159,11 +2591,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 			}
 
-		}
+		} else {
 
 
-
-		else {
 
 
 
@@ -2171,7 +2601,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			m_state = IslandState::Collapsed;
+
+
 
 
 
@@ -2179,7 +2613,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		}
+
+
 
 
 
@@ -2187,11 +2625,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 	}
 
 
-
-					   //
 
 
 
@@ -2199,7 +2637,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 	{
+
+
 
 
 
@@ -2207,7 +2649,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		physicalPt.x = GET_X_LPARAM(lParam);
+
+
 
 
 
@@ -2217,9 +2663,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-
-
 		POINT pt; // 转成逻辑坐标，供后续的 HitTest 使用
+
+
 
 
 
@@ -2227,7 +2673,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		pt.x = (LONG)std::round(physicalPt.x / m_dpiScale);
+
+
 
 
 
@@ -2235,7 +2685,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		// 释放进度条拖动
+
+
 
 
 
@@ -2243,11 +2697,17 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			m_isDraggingProgress = false;
 
 
 
+
+
 			m_justReleasedProgress = true;
+
+
 
 
 
@@ -2257,9 +2717,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-
-
 			// 设置播放位置
+
+
 
 
 
@@ -2267,7 +2727,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			if (duration.count() > 0) {
+
+
 
 
 
@@ -2275,7 +2739,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 				m_mediaMonitor.SetPosition(newPosition);
+
+
 
 
 
@@ -2285,15 +2753,13 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-
-
 			return 0;
 
 
 
+
+
 		}
-
-
 
 
 
@@ -2303,11 +2769,17 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		if (m_pressedButtonIndex != -1) {
 
 
 
-			int hit = HitTestPlaybackButtons(pt);
+
+
+			int hit = m_layoutController.HitTestPlaybackButtons(pt, m_state == IslandState::Expanded, m_mediaMonitor.HasSession(), CANVAS_WIDTH, GetCurrentWidth(), GetCurrentHeight(), m_dpiScale);
+
+
 
 
 
@@ -2315,7 +2787,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			if (hit == m_pressedButtonIndex) {
+
+
 
 
 
@@ -2323,7 +2799,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 				else if (hit == 1) m_mediaMonitor.PlayPause();
+
+
 
 
 
@@ -2331,7 +2811,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			}
+
+
 
 
 
@@ -2339,7 +2823,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			StartAnimation(); // 恢复图标大小
+
+
 
 
 
@@ -2347,9 +2835,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		}
-
-
 
 
 
@@ -2359,7 +2847,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		ReleaseCapture();
+
+
 
 
 
@@ -2367,9 +2859,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 	}
-
-
 
 
 
@@ -2379,7 +2871,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		m_isDragHovering = true;
+
+
 
 
 
@@ -2387,7 +2883,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		TransitionTo(IslandDisplayMode::FileDrop);
+
+
 
 
 
@@ -2395,7 +2895,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 	}
+
+
 
 
 
@@ -2403,7 +2907,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		m_isDragHovering = false;
+
+
 
 
 
@@ -2411,7 +2919,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		if (m_state == IslandState::Collapsed && !m_isAlertActive && !m_mediaMonitor.HasSession()) {
+
+
 
 
 
@@ -2419,7 +2931,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		} else {
+
+
 
 
 
@@ -2427,7 +2943,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			TransitionTo(DetermineDisplayMode());
+
+
 
 
 
@@ -2435,7 +2955,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		return 0;
+
+
 
 
 
@@ -2443,7 +2967,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 	case WM_DROP_FILE: {
+
+
 
 
 
@@ -2453,9 +2981,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-
-
 		UINT fileCount = DragQueryFileW(hDrop, 0xFFFFFFFF, nullptr, 0);
+
+
 
 
 
@@ -2463,7 +2991,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			wchar_t path[MAX_PATH];
+
+
 
 
 
@@ -2473,9 +3005,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-
-
 			std::wstring newPath(path);
+
+
 
 
 
@@ -2483,7 +3015,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 				m_storedFiles.push_back(newPath);
+
+
 
 
 
@@ -2491,9 +3027,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		}
-
-
 
 
 
@@ -2503,9 +3039,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		m_isDragHovering = false;
-
-
 
 
 
@@ -2515,7 +3051,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		m_filePanel.UpdateFiles(m_storedFiles);
+
+
 
 
 
@@ -2525,9 +3065,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-
-
 		// 不再展开胶囊 - 文件面板独立显示
+
+
 
 
 
@@ -2535,7 +3075,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			SetTimer(hwnd, m_displayTimerId, 3000, nullptr);
+
+
 
 
 
@@ -2543,11 +3087,17 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		return 0;
 
 
 
+
+
 	}
+
+
 
 
 
@@ -2555,7 +3105,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		int index = (int)wParam;
+
+
 
 
 
@@ -2563,7 +3117,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			m_storedFiles.erase(m_storedFiles.begin() + index);
+
+
 
 
 
@@ -2571,7 +3129,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			if (m_storedFiles.empty()) {
+
+
 
 
 
@@ -2579,7 +3141,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 				// Collapse to Compact state (not Mini)
+
+
 
 
 
@@ -2587,7 +3153,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 				TransitionTo(IslandDisplayMode::MusicCompact);
+
+
 
 
 
@@ -2595,11 +3165,17 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		}
 
 
 
+
+
 		return 0;
+
+
 
 
 
@@ -2609,13 +3185,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-
-
-					 // 【新增】系统全局快捷键被按下
-
-
-
 	case WM_HOTKEY: {
+
+
 
 
 
@@ -2623,7 +3195,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			if (m_state == IslandState::Collapsed) {
+
+
 
 
 
@@ -2631,11 +3207,17 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 				m_state = IslandState::Expanded;
 
 
 
+
+
 				TransitionTo(IslandDisplayMode::MusicExpanded);
+
+
 
 
 
@@ -2649,7 +3231,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			// 设定自动隐藏定时器 (4000 毫秒 = 4秒后自动收缩)
+
+
 
 
 
@@ -2657,25 +3243,25 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		}
 
 
 
-		
+
+
 		// Weather test: Ctrl+Alt+W cycles weather types (7 types)
+
 		return 0;
+
+
 
 
 
 	}
 
 
-
-
-
-
-
-				  // 拦截新增的 Alert 消息
 
 
 
@@ -2683,7 +3269,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		AlertInfo* info = (AlertInfo*)lParam;
+
+
 
 
 
@@ -2691,7 +3281,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		delete info; // 防止内存泄漏
+
+
 
 
 
@@ -2699,7 +3293,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		return 0;
+
+
 
 
 
@@ -2707,7 +3305,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 	case WM_DPICHANGED: {
+
+
 
 
 
@@ -2715,7 +3317,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		m_currentDpi = HIWORD(wParam);
+
+
 
 
 
@@ -2725,9 +3331,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-
-
 		// 更新画板 DPI
+
+
 
 
 
@@ -2737,9 +3343,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-
-
 		// 系统建议的新窗口物理位置和大小
+
+
 
 
 
@@ -2747,7 +3353,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		int newW = prcNewWindow->right - prcNewWindow->left;
+
+
 
 
 
@@ -2757,9 +3367,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-
-
 		// 设置新位置
+
+
 
 
 
@@ -2769,9 +3379,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-
-
 		// 重置画板表面尺寸
+
+
 
 
 
@@ -2781,9 +3391,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-
-
 		UpdateWindowRegion();
+
+
 
 
 
@@ -2791,7 +3401,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		return 0;
+
+
 
 
 
@@ -2799,11 +3413,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-					  // 在 WM_TIMER 里面新增 Alert 定时器结束的逻辑
-
 
 
 	case WM_TIMER: {
+
+
 
 
 
@@ -2811,11 +3425,17 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			UpdatePhysics();
 
 
 
+
+
 		}
+
+
 
 
 
@@ -2825,9 +3445,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-
-
 			// Update weather every 10 min (fixed - runs regardless of stored files)
+
+
 
 
 
@@ -2835,7 +3455,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 				static size_t lastWeatherUpdate = 0;
+
+
 
 
 
@@ -2843,7 +3467,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 				if (now - lastWeatherUpdate > 5 * 60 * 1000) {
+
+
 
 
 
@@ -2851,7 +3479,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 					lastWeatherUpdate = now;
+
+
 
 
 
@@ -2859,7 +3491,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 				m_weatherDesc = m_systemMonitor.GetWeatherDescription();
+
+
 
 
 
@@ -2867,11 +3503,17 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 				m_renderer.SetWeatherInfo(m_weatherDesc, m_weatherTemp);
 
 
 
+
+
 			}
+
+
 
 
 
@@ -2879,7 +3521,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			if (!m_storedFiles.empty()) {
+
+
 
 
 
@@ -2887,7 +3533,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 				break;
+
+
 
 
 
@@ -2895,7 +3545,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			if (m_state == IslandState::Expanded) {
+
+
 
 
 
@@ -2903,25 +3557,31 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 				TransitionTo(DetermineDisplayMode());
+
+
 
 
 
 				// 通知结束后，即使鼠标不在岛屿上，也启动5秒定时器缩小到mini
 
+
+
+
+
 				SetTimer(hwnd, m_displayTimerId, 5000, nullptr);
 
 
 
-			} else if (m_state == IslandState::Collapsed && m_targetHeight >= Constants::Size::COMPACT_MIN_HEIGHT) {
+
+
+			} else if (m_state == IslandState::Collapsed && GetTargetHeight() >= Constants::Size::COMPACT_MIN_HEIGHT) {
 
 				// 从compact缩小到mini
 
-				m_targetWidth = COLLAPSED_WIDTH;
-
-				m_targetHeight = COLLAPSED_HEIGHT;
-
-				SetTargetSize(COLLAPSED_WIDTH, COLLAPSED_HEIGHT);
+				SetTargetSize(Constants::Size::COLLAPSED_WIDTH, Constants::Size::COLLAPSED_HEIGHT);
 
 				StartAnimation();
 
@@ -2931,7 +3591,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			// 隐藏文件面板
+
+
 
 
 
@@ -2939,7 +3603,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			KillTimer(hwnd, m_displayTimerId);
+
+
 
 
 
@@ -2947,11 +3615,17 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		else if (wParam == m_alertTimerId) {
 
 
 
+
+
 			KillTimer(hwnd, m_alertTimerId);
+
+
 
 
 
@@ -2961,15 +3635,13 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-
-
 			// 清理内存中的图标数据
 
 
 
+
+
 			if (!m_currentAlert.iconData.empty()) {
-
-
 
 
 
@@ -2979,7 +3651,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			}
+
+
 
 
 
@@ -2987,11 +3663,17 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			if (m_currentAlert.type == 3 && !m_currentAlert.iconPath.empty()) {
 
 
 
+
+
 				DeleteFileW(m_currentAlert.iconPath.c_str());
+
+
 
 
 
@@ -3001,9 +3683,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-
-
 			ProcessNextAlert();
+
+
 
 
 
@@ -3013,7 +3695,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			if (!m_isAlertActive && m_state == IslandState::Collapsed) {
+
+
 
 
 
@@ -3021,7 +3707,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			} else {
+
+
 
 
 
@@ -3029,7 +3719,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			}
+
+
 
 
 
@@ -3037,11 +3731,17 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		else if (wParam == m_volumeTimerId) {
 
 
 
+
+
 			KillTimer(hwnd, m_volumeTimerId);
+
+
 
 
 
@@ -3051,9 +3751,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-
-
 			// 恢复折叠状态（如果没有其他弹窗的话）
+
+
 
 
 
@@ -3061,7 +3761,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 				TransitionTo(DetermineDisplayMode());
+
+
 
 
 
@@ -3069,7 +3773,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 				StartAnimation();
+
+
 
 
 
@@ -3077,7 +3785,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		}
+
+
 
 
 
@@ -3085,7 +3797,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 	}
+
+
 
 
 
@@ -3093,7 +3809,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		// 获取滚轮滚动的方向和大小 (+120 向上, -120 向下)
+
+
 
 
 
@@ -3103,13 +3823,15 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-
-
 		// 获取当前音量并计算新音量（每次滚动调整 2%）
 
 
 
+
+
 		float vol = m_mediaMonitor.GetVolume();
+
+
 
 
 
@@ -3119,13 +3841,15 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-
-
 		// 限制在 0.0 到 1.0 之间
 
 
 
+
+
 		if (vol > 1.0f) vol = 1.0f;
+
+
 
 
 
@@ -3135,9 +3859,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-
-
 		m_mediaMonitor.SetVolume(vol);
+
+
 
 
 
@@ -3147,9 +3871,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-
-
 		// 触发音量条 UI
+
+
 
 
 
@@ -3157,7 +3881,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			m_isVolumeControlActive = true;
+
+
 
 
 
@@ -3165,7 +3893,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			if (m_state == IslandState::Collapsed && !m_isAlertActive) {
+
+
 
 
 
@@ -3173,7 +3905,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			} else {
+
+
 
 
 
@@ -3181,13 +3917,15 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			}
 
 
 
+
+
 		}
-
-
 
 
 
@@ -3197,7 +3935,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		SetTimer(hwnd, m_volumeTimerId, 2000, nullptr);
+
+
 
 
 
@@ -3205,9 +3947,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 	}
-
-
 
 
 
@@ -3217,7 +3959,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 	{
+
+
 
 
 
@@ -3225,11 +3971,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-		if (path)
 
 
+		if (path) {
 
-		{
+
 
 
 
@@ -3237,7 +3983,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			free(path);  // 释放 _wcsdup 分配的内存
+
+
 
 
 
@@ -3245,11 +3995,17 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		return 0;
 
 
 
+
+
 	}
+
+
 
 
 
@@ -3257,7 +4013,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 	{
+
+
 
 
 
@@ -3265,19 +4025,17 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-		if (imgData)
+
+
+		if (imgData) {
 
 
 
-		{
 
 
-
-			if (!imgData->data.empty())
-
+			if (!imgData->data.empty()) {
 
 
-			{
 
 
 
@@ -3285,7 +4043,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			}
+
+
 
 
 
@@ -3293,7 +4055,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			delete imgData;
+
+
 
 
 
@@ -3301,11 +4067,17 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		return 0;
 
 
 
+
+
 	}
+
+
 
 
 
@@ -3313,7 +4085,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 	{
+
+
 
 
 
@@ -3321,11 +4097,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-		if (info)
 
 
+		if (info) {
 
-		{
+
 
 
 
@@ -3333,7 +4109,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			// 注意：不要删除 info->iconData，因为它还在队列中使用
+
+
 
 
 
@@ -3341,7 +4121,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			ProcessNextAlert();
+
+
 
 
 
@@ -3349,13 +4133,15 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		return 0;
 
 
 
+
+
 	}
-
-
 
 
 
@@ -3365,7 +4151,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 	{
+
+
 
 
 
@@ -3373,7 +4163,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		{
+
+
 
 
 
@@ -3381,7 +4175,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			AppendMenu(hMenu, MF_STRING, 1, L"退出");
+
+
 
 
 
@@ -3389,7 +4187,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			GetCursorPos(&pt);
+
+
 
 
 
@@ -3397,7 +4199,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			int cmd = TrackPopupMenu(hMenu, TPM_RETURNCMD | TPM_NONOTIFY, pt.x, pt.y, 0, hwnd, nullptr);
+
+
 
 
 
@@ -3405,11 +4211,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-			if (cmd == 1)
 
 
+			if (cmd == 1) {
 
-			{
+
 
 
 
@@ -3417,7 +4223,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 			}
+
+
 
 
 
@@ -3425,21 +4235,15 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		return 0;
 
 
 
+
+
 	}
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -3449,13 +4253,15 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		m_systemMonitor.OnPowerEvent(wParam, lParam);
 
 
 
+
+
 		return 0;
-
-
 
 
 
@@ -3465,7 +4271,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 		PostQuitMessage(0);
+
+
 
 
 
@@ -3473,9 +4283,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 	}
-
-
 
 
 
@@ -3485,15 +4295,17 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
+
 }
 
 
 
-void DynamicIsland::CreateTrayIcon()
 
 
+void DynamicIsland::CreateTrayIcon() {
 
-{
+
 
 
 
@@ -3501,7 +4313,11 @@ void DynamicIsland::CreateTrayIcon()
 
 
 
+
+
 	m_nid.cbSize = sizeof(m_nid);
+
+
 
 
 
@@ -3509,7 +4325,11 @@ void DynamicIsland::CreateTrayIcon()
 
 
 
+
+
 	m_nid.uID = 1001;               // 自定义ID
+
+
 
 
 
@@ -3517,11 +4337,17 @@ void DynamicIsland::CreateTrayIcon()
 
 
 
+
+
 	m_nid.uCallbackMessage = WM_TRAYICON;
 
 
 
+
+
 	m_nid.hIcon = LoadIcon(nullptr, IDI_APPLICATION); // 可替换为自己的图标
+
+
 
 
 
@@ -3531,9 +4357,9 @@ void DynamicIsland::CreateTrayIcon()
 
 
 
-
-
 	Shell_NotifyIcon(NIM_ADD, &m_nid);
+
+
 
 
 
@@ -3543,13 +4369,9 @@ void DynamicIsland::CreateTrayIcon()
 
 
 
+void DynamicIsland::RemoveTrayIcon() {
 
 
-void DynamicIsland::RemoveTrayIcon()
-
-
-
-{
 
 
 
@@ -3557,17 +4379,15 @@ void DynamicIsland::RemoveTrayIcon()
 
 
 
+
+
 }
 
 
 
-void DynamicIsland::UpdateWindowRegion()
 
 
-
-{
-
-
+void DynamicIsland::UpdateWindowRegion() {
 
 
 
@@ -3577,7 +4397,11 @@ void DynamicIsland::UpdateWindowRegion()
 
 
 
-	float left = (CANVAS_WIDTH - m_currentWidth) / 2.0f;
+
+
+	float left = (CANVAS_WIDTH - GetCurrentWidth()) / 2.0f;
+
+
 
 
 
@@ -3585,11 +4409,17 @@ void DynamicIsland::UpdateWindowRegion()
 
 
 
-	float right = left + m_currentWidth;
+
+
+	float right = left + GetCurrentWidth();
 
 
 
-	float bottom = top + m_currentHeight;
+
+
+	float bottom = top + GetCurrentHeight();
+
+
 
 
 
@@ -3597,9 +4427,9 @@ void DynamicIsland::UpdateWindowRegion()
 
 
 
-	float radius = (m_currentHeight < 60.0f) ? (m_currentHeight / 2.0f) : 20.0f;
 
 
+	float radius = (GetCurrentHeight() < 60.0f) ? (GetCurrentHeight() / 2.0f) : 20.0f;
 
 
 
@@ -3609,7 +4439,11 @@ void DynamicIsland::UpdateWindowRegion()
 
 
 
+
+
 	int ileft = (int)(left * m_dpiScale + 0.5f);
+
+
 
 
 
@@ -3617,7 +4451,11 @@ void DynamicIsland::UpdateWindowRegion()
 
 
 
+
+
 	int iright = (int)(right * m_dpiScale + 0.5f);
+
+
 
 
 
@@ -3625,7 +4463,11 @@ void DynamicIsland::UpdateWindowRegion()
 
 
 
+
+
 	int iradius = (int)(radius * m_dpiScale + 0.5f);
+
+
 
 
 
@@ -3633,15 +4475,17 @@ void DynamicIsland::UpdateWindowRegion()
 
 
 
+
+
 	HRGN hRgn = CreateRoundRectRgn(ileft, itop, iright, ibottom, iradius, iradius);
 
 
 
-	if (hRgn)
 
 
+	if (hRgn) {
 
-	{
+
 
 
 
@@ -3649,9 +4493,9 @@ void DynamicIsland::UpdateWindowRegion()
 
 
 
+
+
 	}
-
-
 
 
 
@@ -3660,176 +4504,6 @@ void DynamicIsland::UpdateWindowRegion()
 }
 
 
-
-int DynamicIsland::HitTestPlaybackButtons(POINT pt) {
-
-
-
-	if (m_state != IslandState::Expanded || !m_mediaMonitor.HasSession()) return -1;
-
-
-
-
-
-
-
-	float left = (CANVAS_WIDTH - m_currentWidth) / 2.0f;
-
-
-
-	float top = 10.0f;
-
-
-
-	float right = left + m_currentWidth;
-
-
-
-	float artSize = 60.0f;
-
-
-
-	float artLeft = left + 20.0f;
-
-
-
-	float artTop = top + 30.0f;
-
-
-
-	float textLeft = artLeft + artSize + 15.0f;
-
-
-
-	float textRight = right - 20.0f;
-
-
-
-	float titleMaxWidth = textRight - textLeft;
-
-
-
-	float buttonSize = Constants::UI::BUTTON_SIZE;
-
-
-
-	float spacing = Constants::UI::BUTTON_SPACING;
-
-
-
-	float buttonGroupWidth = buttonSize * 3 + spacing * 2;
-
-
-
-	float artistBottom = artTop + 60.0f;
-
-
-
-	float progressBarY = artistBottom + 20.0f;
-
-
-
-	float progressBarHeight = 6.0f;
-
-
-
-	float buttonY = progressBarY + progressBarHeight + 10.0f;
-
-
-
-	float buttonX = textLeft + (titleMaxWidth - buttonGroupWidth) / 2.0f - 45.0f;
-
-
-
-	if (buttonX < textLeft) buttonX = textLeft;
-
-
-
-
-
-
-
-	RECT prevRect = { (long)buttonX, (long)buttonY, (long)(buttonX + buttonSize), (long)(buttonY + buttonSize) };
-
-
-
-	RECT playRect = { (long)(buttonX + buttonSize + spacing), (long)buttonY, (long)(buttonX + 2 * buttonSize + spacing), (long)(buttonY + buttonSize) };
-
-
-
-	RECT nextRect = { (long)(buttonX + 2 * (buttonSize + spacing)), (long)buttonY, (long)(buttonX + 3 * buttonSize + 2 * spacing), (long)(buttonY + buttonSize) };
-
-
-
-
-
-
-
-	if (PtInRect(&prevRect, pt)) return 0;
-
-
-
-	if (PtInRect(&playRect, pt)) return 1;
-
-
-
-	if (PtInRect(&nextRect, pt)) return 2;
-
-
-
-
-
-
-
-	return -1;
-
-
-
-}
-
-
-
-// Extract icon path for app notifications (QQ/WeChat)
-
-std::wstring ExtractIconFromExe(const std::wstring& appName) {
-
-	std::wstring iconPath;
-
-	wchar_t exePath[MAX_PATH];
-
-	if (!GetModuleFileNameW(nullptr, exePath, MAX_PATH)) return iconPath;
-
-
-
-	// 关键修复：只移除一次，定位到当前 .exe 所在的目录
-
-	PathRemoveFileSpecW(exePath);
-
-	std::wstring base(exePath);
-
-
-
-	// 匹配应用名称并指定图片路径
-
-	if (appName.find(L"QQ") != std::wstring::npos &&
-
-		appName.find(L"音乐") == std::wstring::npos) {
-
-		iconPath = base + L"\\icon\\QQ.png";
-
-	}
-
-	else if (appName.find(L"微信") != std::wstring::npos ||
-
-		appName.find(L"WeChat") != std::wstring::npos) {
-
-		iconPath = base + L"\\icon\\Wechat.png";
-
-	}
-
-	return iconPath;
-
-}
 
 
 
@@ -3837,7 +4511,11 @@ void DynamicIsland::ProcessNextAlert() {
 
 
 
+
+
 	if (!m_isAlertActive && !m_alertQueue.empty()) {
+
+
 
 
 
@@ -3845,7 +4523,11 @@ void DynamicIsland::ProcessNextAlert() {
 
 
 
+
+
 		m_alertQueue.pop();
+
+
 
 
 
@@ -3855,9 +4537,9 @@ void DynamicIsland::ProcessNextAlert() {
 
 
 
-
-
 		// 如果是通知，提前让画板去加载真实的 App 图标（优先使用内存数据）
+
+
 
 
 
@@ -3865,7 +4547,11 @@ void DynamicIsland::ProcessNextAlert() {
 
 
 
+
+
 			if (!m_currentAlert.iconData.empty()) {
+
+
 
 
 
@@ -3873,7 +4559,11 @@ void DynamicIsland::ProcessNextAlert() {
 
 
 
+
+
 			}
+
+
 
 
 
@@ -3881,7 +4571,11 @@ void DynamicIsland::ProcessNextAlert() {
 
 
 
+
+
 				m_renderer.LoadAlertIcon(m_currentAlert.iconPath);
+
+
 
 
 
@@ -3889,9 +4583,9 @@ void DynamicIsland::ProcessNextAlert() {
 
 
 
+
+
 		}
-
-
 
 
 
@@ -3901,7 +4595,11 @@ void DynamicIsland::ProcessNextAlert() {
 
 
 
+
+
 			TransitionTo(IslandDisplayMode::Alert);
+
+
 
 
 
@@ -3909,7 +4607,11 @@ void DynamicIsland::ProcessNextAlert() {
 
 
 
+
+
 			StartAnimation();
+
+
 
 
 
@@ -3919,9 +4621,9 @@ void DynamicIsland::ProcessNextAlert() {
 
 
 
-
-
 		SetTimer(m_window.GetHWND(), m_alertTimerId, 3000, nullptr);
+
+
 
 
 
@@ -3929,9 +4631,9 @@ void DynamicIsland::ProcessNextAlert() {
 
 
 
+
+
 }
-
-
 
 
 
@@ -3941,7 +4643,11 @@ std::wstring DynamicIsland::GetCurrentTimeString() {
 
 
 
+
+
 	SYSTEMTIME st;
+
+
 
 
 
@@ -3951,9 +4657,9 @@ std::wstring DynamicIsland::GetCurrentTimeString() {
 
 
 
-
-
 	wchar_t timeStr[64];
+
+
 
 
 
@@ -3961,127 +4667,12 @@ std::wstring DynamicIsland::GetCurrentTimeString() {
 
 
 
+
+
 	return std::wstring(timeStr);
 
 
 
-}
-
-
-
-
-
-
-
-int DynamicIsland::HitTestProgressBar(POINT pt) {
-
-
-
-	if (m_state != IslandState::Expanded || !m_mediaMonitor.HasSession()) return -1;
-
-
-
-
-
-
-
-	float left = (CANVAS_WIDTH - m_currentWidth) / 2.0f;
-
-
-
-	float top = 10.0f;
-
-
-
-	float right = left + m_currentWidth;
-
-
-
-	float artSize = 60.0f;
-
-
-
-	float artLeft = left + 20.0f;
-
-
-
-	float artTop = top + 30.0f;
-
-
-
-	float textLeft = artLeft + artSize + 15.0f;
-
-
-
-	float titleMaxWidth = (right - 20.0f) - textLeft;
-
-
-
-	float progressBarLeft = textLeft - 80.0f;
-
-
-
-	float progressBarRight = textLeft + titleMaxWidth;
-
-
-
-
-
-
-
-	float artistBottom = artTop + 60.0f;
-
-
-
-	float progressBarY = artistBottom + 20.0f;
-
-
-
-	float progressBarHeight = 6.0f;
-
-
-
-
-
-
-
-	// 扩大点击区域方便操作
-
-
-
-	float hitTop = progressBarY - 10.0f;
-
-
-
-	float hitBottom = progressBarY + progressBarHeight + 10.0f;
-
-
-
-
-
-
-
-	if (pt.x >= progressBarLeft && pt.x <= progressBarRight && pt.y >= hitTop && pt.y <= hitBottom) {
-
-
-
-		return 1;  // 点击了进度条
-
-
-
-	}
-
-
-
-
-
-
-
-	return -1;
-
 
 
 }
-
-
-

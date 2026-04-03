@@ -12,6 +12,7 @@
 #include "LyricsMonitor.h"
 #include "SystemMonitor.h"
 #include "FilePanelWindow.h"
+#include "LayoutController.h"
 #include "Spring.h"
 #include "Constants.h"
 #pragma comment(lib, "shell32.lib")
@@ -40,6 +41,13 @@ private:
     void TransitionTo(IslandDisplayMode mode);
     void SetTargetSize(float width, float height);
     IslandDisplayMode DetermineDisplayMode() const;
+
+    float GetCurrentWidth() const { return m_layoutController.GetCurrentWidth(); }
+    float GetCurrentHeight() const { return m_layoutController.GetCurrentHeight(); }
+    float GetTargetWidth() const { return m_layoutController.GetTargetWidth(); }
+    float GetTargetHeight() const { return m_layoutController.GetTargetHeight(); }
+    float GetCurrentAlpha() const { return m_layoutController.GetCurrentAlpha(); }
+    bool IsAnimating() const { return m_layoutController.IsAnimating(); }
 
     bool m_dragging = false;
     POINT m_dragStart{};
@@ -86,20 +94,12 @@ private:
     // ============================================
     IslandState m_state = IslandState::Collapsed;
     bool m_isHovering = false;  // 鼠标是否悬停
-    float m_currentWidth;
-    float m_currentHeight;
-    float m_targetWidth;
-    float m_targetHeight;
 
-    float m_currentAlpha = 1.0f;
-    float m_targetAlpha = 1.0f;
+    // LayoutController handles size, alpha, springs, and hit testing
+    LayoutController m_layoutController;
 
-    Spring m_widthSpring;
-    Spring m_heightSpring;
-    Spring m_alphaSpring;
     const int HOTKEY_ID = 1001;
     UINT_PTR m_timerId = 1;
-    bool m_isAnimating = false;
 
     UINT_PTR m_displayTimerId = 2;
     ULONGLONG m_lastUpdateTime = 0;
@@ -111,7 +111,6 @@ private:
 
     int m_hoveredButtonIndex = -1;
     int m_pressedButtonIndex = -1;
-    int HitTestPlaybackButtons(POINT pt); // 抽离出来的碰撞检测函数
 
     // 进度条相关
     bool m_isDraggingProgress = false;
@@ -120,7 +119,6 @@ private:
     float m_tempProgress = 0.0f; // 拖动时的临时进度
     int m_hoveredProgress = -1;
     int m_pressedProgress = -1;
-    int HitTestProgressBar(POINT pt); // 进度条碰撞检测
 
 
     UINT m_currentDpi = 96;       // 当前屏幕的 DPI
