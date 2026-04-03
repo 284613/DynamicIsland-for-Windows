@@ -12,6 +12,7 @@ public:
     float GetTargetWidth() const { return m_targetWidth; }
     float GetTargetHeight() const { return m_targetHeight; }
     float GetCurrentAlpha() const { return m_currentAlpha; }
+    float GetTargetAlpha() const { return m_targetAlpha; }
     bool IsAnimating() const { return m_isAnimating; }
 
     void SetTargetSize(float w, float h);
