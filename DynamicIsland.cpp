@@ -731,7 +731,16 @@ bool DynamicIsland::Initialize(HINSTANCE hInstance) {
 		AlertInfo* info = (AlertInfo*)e.userData;
 
 		if (info) {
-
+			// 【OPT-03】设置优先级
+			info->priority = GetAlertPriority(info->type, info->name);
+			
+			// 【OPT-03】P0 最高优先级可打断当前动画
+			if (info->priority == PRIORITY_P0_CRITICAL && m_isAlertActive) {
+				ProcessAlertWithPriority(*info);
+				delete info;
+				return;
+			}
+			
 			m_alertQueue.push(*info);
 
 			// 注意：不要删除 info->iconData，因为它还在队列中使用
@@ -4532,6 +4541,15 @@ void DynamicIsland::UpdateWindowRegion() {
 
 
 
+
+// 【OPT-03】处理P0紧急警告（可打断当前显示）
+void DynamicIsland::ProcessAlertWithPriority(const AlertInfo& alert) {
+	m_isAlertActive = true;
+	m_currentAlert = alert;
+	ShowWindow(m_window.GetHWND(), SW_SHOW);
+	SetTimer(m_window.GetHWND(), m_alertTimerId, 3000, nullptr);
+	InvalidateRect(m_window.GetHWND(), nullptr, FALSE);
+}
 
 void DynamicIsland::ProcessNextAlert() {
 

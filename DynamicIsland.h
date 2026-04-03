@@ -85,7 +85,8 @@ private:
     std::queue<AlertInfo> m_alertQueue;         // 排队队列
     UINT_PTR m_alertTimerId = 3;                // 弹窗持续时间定时器
 
-    void ProcessNextAlert();                    // 处理下一个提示的函数
+    void ProcessNextAlert();
+    void ProcessAlertWithPriority(const AlertInfo& alert); // 【OPT-03】处理高优先级警告                    // 处理下一个提示的函数
     ConnectionMonitor m_connectionMonitor;      // 连接监听器
     NotificationMonitor m_notificationMonitor;
     LyricsMonitor m_lyricsMonitor; // 歌词监听器
