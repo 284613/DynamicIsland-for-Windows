@@ -6,6 +6,17 @@ LayoutController::LayoutController()
     , m_currentHeight(Constants::Size::COLLAPSED_HEIGHT)
     , m_currentAlpha(1.0f)
 {
+    // Spring parameters tuned for snappy expand/collapse:
+    // stiffness=400: fast response (natural freq ~20 rad/s)
+    // damping=30: critically damped (zeta~1.07), minimal overshoot
+    // Formula: zeta = c / (2*sqrt(k*m)) = 30/(2*sqrt(400)) = 30/40 = 0.75
+    // At zeta=0.75, settles in ~3/frequency = ~150ms, no excessive oscillation
+    m_widthSpring.SetStiffness(400.0f);
+    m_widthSpring.SetDamping(30.0f);
+    m_heightSpring.SetStiffness(400.0f);
+    m_heightSpring.SetDamping(30.0f);
+    m_alphaSpring.SetStiffness(200.0f);  // Alpha fades slower
+    m_alphaSpring.SetDamping(15.0f);
     m_widthSpring.SetTarget(Constants::Size::COLLAPSED_WIDTH);
     m_heightSpring.SetTarget(Constants::Size::COLLAPSED_HEIGHT);
     m_alphaSpring.SetTarget(1.0f);
