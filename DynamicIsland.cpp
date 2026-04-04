@@ -2303,7 +2303,12 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-		}
+		
+			// Auto-collapse from COMPACT to MINI when mouse leaves island
+			if (m_state == IslandState::Collapsed &&
+			    GetTargetHeight() >= Constants::Size::COMPACT_MIN_HEIGHT) {
+			    SetTimer(hwnd, m_displayTimerId, 5000, nullptr);
+			}}
 
 
 
