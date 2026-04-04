@@ -632,7 +632,10 @@ bool DynamicIsland::Initialize(HINSTANCE hInstance) {
 
 	initCtx.pressedProgress = -1;
 
-	initCtx.lyric = L"";
+	initCtx.lyric.text = L"";
+	initCtx.lyric.currentMs = -1;
+	initCtx.lyric.nextMs = -1;
+	initCtx.lyric.positionMs = 0;
 
 	initCtx.isVolumeActive = false;
 
@@ -1026,7 +1029,6 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
-	m_renderer.UpdateScroll(deltaTime, realAudioLevel, GetCurrentHeight());
 
 
 
@@ -1356,7 +1358,7 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
-	std::wstring currentLyric;
+	LyricData currentLyricData;
 
 
 
@@ -1374,7 +1376,11 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
-		currentLyric = m_lyricsMonitor.GetCurrentLyric(positionMs);
+		LyricsMonitor::LyricData monData = m_lyricsMonitor.GetLyricData(positionMs);
+        currentLyricData.text = monData.text;
+        currentLyricData.currentMs = monData.currentMs;
+        currentLyricData.nextMs = monData.nextMs;
+        currentLyricData.positionMs = monData.positionMs;
 
 
 
@@ -1456,7 +1462,7 @@ void DynamicIsland::UpdatePhysics() {
 
 	ctx.pressedProgress = m_pressedProgress;
 
-	ctx.lyric = currentLyric;
+	ctx.lyric = currentLyricData;
 
 	ctx.isVolumeActive = m_isVolumeControlActive;
 
@@ -1476,6 +1482,7 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
+	m_renderer.UpdateScroll(deltaTime, realAudioLevel, GetCurrentHeight(), ctx.lyric);
 	m_renderer.DrawCapsule(ctx);
 
 

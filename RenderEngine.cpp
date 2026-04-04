@@ -774,7 +774,7 @@ void RenderEngine::DrawCapsule(const RenderContext& ctx)
 
 
 
-	const std::wstring& lyric = ctx.lyric;
+	const std::wstring& lyric = ctx.lyric.text;
 
 
 
@@ -3434,7 +3434,7 @@ bool RenderEngine::LoadAlbumArt(const std::wstring& file)
 
 
 
-void RenderEngine::UpdateScroll(float deltaTime, float audioLevel, float islandHeight)
+void RenderEngine::UpdateScroll(float deltaTime, float audioLevel, float islandHeight, const struct LyricData& lyric)
 
 
 
@@ -3623,25 +3623,26 @@ void RenderEngine::UpdateScroll(float deltaTime, float audioLevel, float islandH
 
 
 	if (m_lyricScrolling) {
-
-
-
-		m_lyricScrollOffset += Constants::Animation::SCROLL_SPEED * deltaTime;
-
-
-
+		float scrollSpeed = Constants::Animation::SCROLL_SPEED;
+		// Smart deceleration: reduce speed in last 2 seconds of lyric
+		if (lyric.nextMs > 0 && lyric.positionMs > 0) {
+			float remaining = (float)(lyric.nextMs - lyric.positionMs) / 1000.0f;
+			if (remaining > 0.0f && remaining < 2.0f) {
+				float t = remaining / 2.0f;
+				float ease = t * t * (3.0f - 2.0f * t);  // smoothstep
+				scrollSpeed *= ease;
+			}
+		}
+		// Spring physics for smooth scrolling
+		const float stiffness = 8.0f;
+		const float damping = 0.5f;
+		m_lyricScrollVelocity += (scrollSpeed - m_lyricScrollVelocity) * stiffness * 0.016f;
+		m_lyricScrollVelocity *= (1.0f - damping * 0.016f);
+		m_lyricScrollOffset += m_lyricScrollVelocity * deltaTime;
 	}
-
-
-
 	else {
-
-
-
 		m_lyricScrollOffset = 0.0f;
-
-
-
+		m_lyricScrollVelocity = 0.0f;
 	}
 
 

@@ -27,6 +27,15 @@ public:
     // 根据播放位置（毫秒）获取当前歌词
     std::wstring GetCurrentLyric(int64_t positionMs);
 
+    // 获取歌词完整数据（含当前行和下一行时间戳）
+    struct LyricData {
+        std::wstring text;
+        int64_t currentMs;
+        int64_t nextMs;
+        int64_t positionMs;
+    };
+    LyricData GetLyricData(int64_t positionMs);
+
     std::vector<LyricLine> GetAllLyrics() const;
     bool HasLyrics() const;
     void ClearLyrics();

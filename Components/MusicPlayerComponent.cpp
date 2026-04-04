@@ -181,10 +181,10 @@ void MusicPlayerComponent::RenderExpanded(float left, float top, float width, fl
         RenderAlbumArt(artLeft, artTop, artSize, ctx_data.contentAlpha);
 
         // 显示歌词（在歌名和歌手上面，左对齐）
-        if (!ctx_data.lyric.empty()) {
+        if (!ctx_data.lyric.text.empty()) {
             float lyricLeft = artLeft + artSize + 15.0f;
             float lyricWidth = textRight - lyricLeft;
-            RenderLyrics(lyricLeft, artTop, lyricWidth, ctx_data.lyric, ctx_data.contentAlpha);
+            RenderLyrics(lyricLeft, artTop, lyricWidth, ctx_data.lyric.text, ctx_data.contentAlpha);
         }
 
         // 绘制"歌名 - 歌手"（在歌词下方，左对齐）

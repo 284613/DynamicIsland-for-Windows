@@ -41,7 +41,7 @@ public:
     // 新增：加载通知图标
 
 
-    void UpdateScroll(float deltaTime, float audioLevel, float islandHeight);
+    void UpdateScroll(float deltaTime, float audioLevel, float islandHeight, const struct LyricData& lyric);
     void SetAlertState(int alert) { m_currentAlertAlert = alert; }
     static constexpr float BUTTON_AREA_WIDTH = Constants::UI::BUTTON_SIZE * 3 + Constants::UI::BUTTON_SPACING * 2;
     void SetPlaybackButtonStates(int hoveredIndex, int pressedIndex) {
@@ -169,6 +169,8 @@ private:
     AlertInfo m_currentAlert;
     std::wstring m_lastDrawnLyric;      // 上次绘制的歌词，用于检测变化重置滚动
     float m_lyricScrollOffset = 0.0f;    // 歌词滚动偏移量
+    float m_lyricScrollVelocity = 0.0f;    // spring velocity for smooth scroll
+    float m_lastLyricDuration = 0.0f;     // last known lyric duration for deceleration
     bool m_lyricScrolling = false;       // 当前歌词是否需要滚动
     float m_dpi = 96.0f;  // 【新增】保存当前的 DPI 值
     float m_lastIslandHeight = 0.0f;  // 上次绘制时的岛屿高度

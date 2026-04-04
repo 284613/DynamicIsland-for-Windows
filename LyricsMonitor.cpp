@@ -177,6 +177,32 @@ static bool IsArtistMatch(const std::wstring& searchArtist, const std::wstring& 
         searchArtist.find(songArtist) != std::wstring::npos;
 }
 
+
+LyricsMonitor::LyricData LyricsMonitor::GetLyricData(int64_t positionMs) {
+    LyricData data = {L"", -1, -1, positionMs};
+    std::lock_guard<std::mutex> lock(m_lyricsMutex);
+    if (m_lyrics.empty())
+        return data;
+
+    const int64_t offsetMs = 1000;
+    int64_t adjustedPosition = positionMs + offsetMs;
+    if (adjustedPosition < 0) adjustedPosition = 0;
+
+    auto it = std::upper_bound(m_lyrics.begin(), m_lyrics.end(), adjustedPosition,
+        [](int64_t ts, const LyricLine& line) { return ts < line.timestamp; });
+
+    if (it != m_lyrics.begin()) {
+        --it;
+        data.text = it->text;
+        data.currentMs = it->timestamp;
+        // 下一行
+        auto nextIt = std::next(it);
+        if (nextIt != m_lyrics.end())
+            data.nextMs = nextIt->timestamp;
+    }
+    return data;
+}
+
 std::wstring LyricsMonitor::SearchSong(const std::wstring& keyword, const std::wstring& searchArtist) {
     try {
         HttpClient httpClient;

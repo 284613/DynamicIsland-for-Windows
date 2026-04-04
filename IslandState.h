@@ -1,7 +1,8 @@
-﻿#pragma once
-
+// IslandState.h
+#pragma once
 #include <windows.h>
 #include <string>
+#include <vector>
 
 enum class IslandDisplayMode
 {
@@ -11,6 +12,13 @@ enum class IslandDisplayMode
     Alert,
     Volume,
     FileDrop
+};
+
+struct LyricData {
+    std::wstring text;        // 当前歌词
+    int64_t currentMs;         // 当前行开始时间戳(ms)
+    int64_t nextMs;           // 下一行开始时间戳(ms)
+    int64_t positionMs;       // 当前播放位置(ms)
 };
 
 struct RenderContext
@@ -38,7 +46,7 @@ struct RenderContext
     int pressedProgress;
 
     // 歌词
-    std::wstring lyric;
+    LyricData lyric;
 
     // 音量条
     bool isVolumeActive;
