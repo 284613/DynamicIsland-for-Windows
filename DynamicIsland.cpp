@@ -1830,7 +1830,7 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 			float islandHeight = GetCurrentHeight();
 
-			float baseIconSize = islandHeight * 0.4f;
+			float baseIconSize = islandHeight < 60.0f ? islandHeight * 0.5f : islandHeight * 0.4f;
 
 			float iconX = right - baseIconSize - 15.0f;
 
