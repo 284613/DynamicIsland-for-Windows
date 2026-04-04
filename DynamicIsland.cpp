@@ -1773,6 +1773,18 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+					m_renderer.TriggerWeatherAnimOnce();
+
+
+
+
+
+					
+
+
+
+
+
 				}
 
 
@@ -1817,7 +1829,8 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 		// Weather icon hover detection: trigger animation on first hover
 
-		if (m_state == IslandState::Expanded && !m_mediaMonitor.IsPlaying()) {
+		if ((m_state == IslandState::Expanded && !m_mediaMonitor.IsPlaying()) ||
+			 m_state == IslandState::Collapsed) {
 
 			float left = (CANVAS_WIDTH - GetCurrentWidth()) / 2.0f;
 
