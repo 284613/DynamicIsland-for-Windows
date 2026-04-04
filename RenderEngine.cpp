@@ -2126,7 +2126,8 @@ void RenderEngine::DrawCapsule(const RenderContext& ctx)
 
 
 
-					float iconSize = islandHeight * 0.4f;
+					float iconScale = m_isWeatherIconHovered ? 1.15f : 1.0f;
+							float iconSize = islandHeight * 0.4f * iconScale;
 
 
 

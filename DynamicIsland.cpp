@@ -1774,18 +1774,8 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 					m_renderer.TriggerWeatherAnimOnce();
-
-
-
-
-
+					m_renderer.SetWeatherIconHovered(true);
 					
-
-
-
-
-
-				}
 
 
 
@@ -1854,13 +1844,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-			if (isOverWeather) {
+			m_renderer.SetWeatherIconHovered(isOverWeather);
 
-				m_renderer.TriggerWeatherAnimOnce();
-
-			}
-
-		}
+		}			}
 
 // 进度条拖动
 

@@ -61,6 +61,12 @@ public:
     void SetDpi(float dpi);
     void Resize(int width, int height); // 应对窗口物理大小的改变
     void TriggerWeatherAnimOnce() { m_weatherAnimPhase = 0.0f; }
+    void SetWeatherIconHovered(bool hovered) {
+        if (hovered && !m_isWeatherIconHovered) {
+            m_weatherAnimPhase = 0.0f; // trigger on enter
+        }
+        m_isWeatherIconHovered = hovered;
+    }
 private:
 
     // 新增：绘制播放控制按钮（仅在展开模式且有媒体会话时显示）
@@ -110,6 +116,7 @@ private:
     enum class WeatherType { Clear, PartlyCloudy, Cloudy, Rainy, Thunder, Snow, Fog, Default };
     WeatherType m_weatherType = WeatherType::Default;
     float m_weatherAnimPhase = 0.0f;
+    bool m_isWeatherIconHovered = false;
     ULONGLONG m_lastWeatherAnimTime = 0;
 
     void DrawWeatherIcon(float x, float y, float size, float alpha, ULONGLONG currentTime);
