@@ -1830,17 +1830,17 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 			float islandHeight = GetCurrentHeight();
 
-			float iconSize = islandHeight * 0.4f;
+			float baseIconSize = islandHeight * 0.4f;
 
-			float iconX = right - iconSize - 15.0f;
+			float iconX = right - baseIconSize - 15.0f;
 
-			float iconY = top + (islandHeight - iconSize) / 2.0f;
+			float iconY = top + (islandHeight - baseIconSize) / 2.0f;
 
 
 
-			bool isOverWeather = (pt.x >= iconX && pt.x <= iconX + iconSize &&
+			bool isOverWeather = (pt.x >= iconX && pt.x <= iconX + baseIconSize &&
 
-			                      pt.y >= iconY && pt.y <= iconY + iconSize);
+			                      pt.y >= iconY && pt.y <= iconY + baseIconSize);
 
 
 
