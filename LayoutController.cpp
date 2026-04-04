@@ -23,6 +23,8 @@ LayoutController::LayoutController()
 }
 
 void LayoutController::SetTargetSize(float w, float h) {
+    m_targetWidth = w;
+    m_targetHeight = h;
     m_widthSpring.SetTarget(w);
     m_heightSpring.SetTarget(h);
 }
