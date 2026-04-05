@@ -9,39 +9,63 @@
 #include <cctype>
 #include <zlib.h>
 
-// ==================== 配置文件读取 ====================
-static std::string GetConfigString(const char* section, const char* key, const char* defaultValue = "") {
-    char buffer[256] = { 0 };
-    GetPrivateProfileStringA(section, key, defaultValue, buffer, sizeof(buffer), "config.ini");
-    return buffer;
+// ==================== QWeather API Key（免费key，每天1000次）====================
+// API key loaded from config.ini at runtime
+static std::string g_qweatherKey;
+static const char* GetQWeatherKey() {
+    if (g_qweatherKey.empty()) {
+        char buffer[256] = { 0 };
+        char exePath[MAX_PATH] = { 0 };
+        GetModuleFileNameA(NULL, exePath, sizeof(exePath));
+        char* lastSlash = strrchr(exePath, 92);  // 92 = ASCII for backslash
+        if (lastSlash) {
+            *lastSlash = 0;  // Terminate at last backslash to get directory
+            strcat_s(exePath, "\\config.ini");
+            GetPrivateProfileStringA("Weather", "APIKey", "", buffer, sizeof(buffer), exePath);
+        }
+        g_qweatherKey = buffer;
+    }
+    return g_qweatherKey.c_str();
 }
-
-// ==================== QWeather API 配置（从 config.ini 读取）====================
-static std::string QWEATHER_KEY = GetConfigString("Weather", "APIKey", "");
 static const char* QWEATHER_HOST = "n94ewu37fy.re.qweatherapi.com";
 
-// ==================== 动态位置数据（从 config.ini 读取）====================
-static char g_locationId[32];
-static char g_locationLon[16];
-static char g_locationLat[16];
-static wchar_t g_cityName[64];
-static wchar_t g_districtName[64];
-
-static void LoadLocationConfig() {
-    GetPrivateProfileStringA("Weather", "LocationId", "101250109", g_locationId, sizeof(g_locationId), "config.ini");
-    GetPrivateProfileStringA("Weather", "Longitude", "112.93", g_locationLon, sizeof(g_locationLon), "config.ini");
-    GetPrivateProfileStringA("Weather", "Latitude", "27.87", g_locationLat, sizeof(g_locationLat), "config.ini");
-
-    char cityBuffer[64] = { 0 };
-    char districtBuffer[64] = { 0 };
-    GetPrivateProfileStringA("Weather", "City", "长沙", cityBuffer, sizeof(cityBuffer), "config.ini");
-    GetPrivateProfileStringA("Weather", "District", "岳麓区", districtBuffer, sizeof(districtBuffer), "config.ini");
-
-    MultiByteToWideChar(CP_UTF8, 0, cityBuffer, -1, g_cityName, sizeof(g_cityName) / sizeof(wchar_t));
-    MultiByteToWideChar(CP_UTF8, 0, districtBuffer, -1, g_districtName, sizeof(g_districtName) / sizeof(wchar_t));
-}
-
+// ==================== 动态位置数据（GeoAPI获取）====================
+static char g_locationId[32] = "101250109";   // 岳麓区 LocationID
+static char g_locationLon[16] = "112.93";      // 经度
+static char g_locationLat[16] = "27.87";       // 纬度
+static wchar_t g_cityName[64] = L"长沙";       // 显示用城市名
+static wchar_t g_districtName[64] = L"岳麓区"; // 显示用区县名
 static std::atomic<bool> g_locationFetched{ false };
+
+// ==================== 从 config.ini 加载天气配置 ====================
+static void LoadWeatherConfig() {
+    char buffer[256] = { 0 };
+    char exePath[MAX_PATH] = { 0 };
+    GetModuleFileNameA(NULL, exePath, sizeof(exePath));
+    char* lastSlash = strrchr(exePath, 92);  // 92 = backslash
+    if (lastSlash) {
+        *lastSlash = 0;
+        strcat_s(exePath, "\\config.ini");
+
+        GetPrivateProfileStringA("Weather", "LocationId", "", buffer, sizeof(buffer), exePath);
+        if (buffer[0]) {
+            strncpy_s(g_locationId, buffer, sizeof(g_locationId) - 1);
+            g_locationId[sizeof(g_locationId) - 1] = 0;
+        }
+
+        GetPrivateProfileStringA("Weather", "Longitude", "", buffer, sizeof(buffer), exePath);
+        if (buffer[0]) {
+            strncpy_s(g_locationLon, buffer, sizeof(g_locationLon) - 1);
+            g_locationLon[sizeof(g_locationLon) - 1] = 0;
+        }
+
+        GetPrivateProfileStringA("Weather", "Latitude", "", buffer, sizeof(buffer), exePath);
+        if (buffer[0]) {
+            strncpy_s(g_locationLat, buffer, sizeof(g_locationLat) - 1);
+            g_locationLat[sizeof(g_locationLat) - 1] = 0;
+        }
+    }
+}
 
 // ==================== 辅助函数：GBK 转 UTF-8 ====================
 static std::string GbkToUtf8(const std::string& gbkStr) {
@@ -55,40 +79,6 @@ static std::string GbkToUtf8(const std::string& gbkStr) {
     WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, &utf8Str[0], utf8Len, NULL, NULL);
     while (!utf8Str.empty() && utf8Str.back() == '\0') utf8Str.pop_back();
     return utf8Str;
-}
-
-// ==================== 获取公网 IP ====================
-static std::string GetPublicIP() {
-    HINTERNET hSession = WinHttpOpen(
-        L"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        WINHTTP_ACCESS_TYPE_NO_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
-    if (!hSession) return "";
-
-    WinHttpSetTimeouts(hSession, 3000, 3000, 3000, 3000);
-
-    HINTERNET hConnect = WinHttpConnect(hSession, L"api.ipify.org", 80, 0);
-    if (!hConnect) { WinHttpCloseHandle(hSession); return ""; }
-
-    HINTERNET hRequest = WinHttpOpenRequest(hConnect, L"GET", L"/", NULL, WINHTTP_NO_REFERER,
-        WINHTTP_DEFAULT_ACCEPT_TYPES, 0);
-    if (!hRequest) { WinHttpCloseHandle(hConnect); WinHttpCloseHandle(hSession); return ""; }
-
-    std::string ip;
-    if (WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
-        WINHTTP_NO_REQUEST_DATA, 0, 0, 0)) {
-        if (WinHttpReceiveResponse(hRequest, NULL)) {
-            char buffer[64];
-            DWORD size = sizeof(buffer);
-            if (WinHttpReadData(hRequest, buffer, size, &size)) {
-                ip = std::string(buffer, size);
-            }
-        }
-    }
-
-    WinHttpCloseHandle(hRequest);
-    WinHttpCloseHandle(hConnect);
-    WinHttpCloseHandle(hSession);
-    return ip;
 }
 
 // ==================== 辅助：URL 编码 ====================
@@ -241,121 +231,79 @@ static std::string ExtractJsonNestedField(const std::string& json, const char* o
     return ExtractJsonField(innerObj, inner);
 }
 
-// ==================== GeoAPI：位置解析 ====================
-// 优先使用 IP 自动定位，也可以指定城市名
+// ==================== GeoAPI：城市搜索 ====================
+// 通过城市名查 LocationID 和坐标（使用 GeoAPI v2）
 static void FetchLocation() {
     if (g_locationFetched.load()) return;
 
     OutputDebugStringA("[Weather] Fetching location via GeoAPI...\n");
 
-    // 优先尝试 IP 自动定位
-    std::string publicIP = GetPublicIP();
-    if (!publicIP.empty()) {
-        OutputDebugStringA(("[Weather] Detected public IP: " + publicIP + "\n").c_str());
+    std::string encodedLocation = UrlEncode("岳麓区");
+    char path[512];
+    snprintf(path, sizeof(path),
+        "/geo/v2/city/lookup?location=%s&range=cn&number=1&key=%s",
+        encodedLocation.c_str(), GetQWeatherKey());
 
-        char path[512];
-        snprintf(path, sizeof(path),
-            "/geo/v2/city/lookup?location=%s&key=%s",
-            publicIP.c_str(), QWEATHER_KEY.c_str());
+    std::string resp = HttpGetGzip(QWEATHER_HOST, path, true);
 
-        std::string resp = HttpGetGzip(QWEATHER_HOST, path, true);
+    if (resp.empty()) {
+        OutputDebugStringA("[Weather] GeoAPI returned empty response, using defaults\n");
+        g_locationFetched.store(true);
+        return;
+    }
 
-        if (!resp.empty()) {
-            std::string code = ExtractJsonField(resp, "code");
-            if (code == "200") {
-                size_t locArrStart = resp.find("\"location\":[{");
-                if (locArrStart != std::string::npos) {
-                    std::string nameVal = ExtractJsonField(resp, "name");
-                    std::string idVal = ExtractJsonField(resp, "id");
-                    std::string lonVal = ExtractJsonField(resp, "lon");
-                    std::string latVal = ExtractJsonField(resp, "lat");
-                    std::string adm2Val = ExtractJsonField(resp, "adm2");
+    OutputDebugStringA(("[Weather] GeoAPI raw: " + resp.substr(0, 300) + "\n").c_str());
 
-                    if (!idVal.empty()) {
-                        strncpy_s(g_locationId, idVal.c_str(), sizeof(g_locationId) - 1);
-                        g_locationId[sizeof(g_locationId) - 1] = '\0';
-                    }
-                    if (!lonVal.empty()) {
-                        strncpy_s(g_locationLon, lonVal.c_str(), sizeof(g_locationLon) - 1);
-                        g_locationLon[sizeof(g_locationLon) - 1] = '\0';
-                    }
-                    if (!latVal.empty()) {
-                        strncpy_s(g_locationLat, latVal.c_str(), sizeof(g_locationLat) - 1);
-                        g_locationLat[sizeof(g_locationLat) - 1] = '\0';
-                    }
-                    if (!adm2Val.empty() && !nameVal.empty()) {
-                        std::string cityDistrict = adm2Val + " " + nameVal;
-                        int wlen = MultiByteToWideChar(CP_UTF8, 0, cityDistrict.c_str(), -1, NULL, 0);
-                        if (wlen > 0 && wlen < 64) {
-                            MultiByteToWideChar(CP_UTF8, 0, cityDistrict.c_str(), -1, g_cityName, wlen);
-                            g_cityName[wlen - 1] = L'\0';
-                        }
-                    }
+    std::string code = ExtractJsonField(resp, "code");
+    if (code != "200") {
+        OutputDebugStringA(("[Weather] GeoAPI error: " + code + "\n").c_str());
+        g_locationFetched.store(true);
+        return;
+    }
 
-                    OutputDebugStringA(("[Weather] IP location success: " + std::string(g_cityName) +
-                        " ID=" + g_locationId + "\n").c_str());
-                    g_locationFetched.store(true);
-                    return;
-                }
-            }
+    // 解析 location[0]: name, id, lon, lat, adm2, adm1
+    // 找 "location":[{ ... }]
+    size_t locArrStart = resp.find("\"location\":[{");
+    if (locArrStart == std::string::npos) {
+        OutputDebugStringA("[Weather] GeoAPI: location array not found\n");
+        g_locationFetched.store(true);
+        return;
+    }
+
+    // 提取 name
+    std::string nameVal = ExtractJsonField(resp, "name");
+    std::string idVal = ExtractJsonField(resp, "id");
+    std::string lonVal = ExtractJsonField(resp, "lon");
+    std::string latVal = ExtractJsonField(resp, "lat");
+    std::string adm2Val = ExtractJsonField(resp, "adm2");
+    std::string adm1Val = ExtractJsonField(resp, "adm1");
+
+    if (!idVal.empty()) {
+        strncpy_s(g_locationId, idVal.c_str(), sizeof(g_locationId) - 1);
+        g_locationId[sizeof(g_locationId) - 1] = '\0';
+    }
+    if (!lonVal.empty()) {
+        strncpy_s(g_locationLon, lonVal.c_str(), sizeof(g_locationLon) - 1);
+        g_locationLon[sizeof(g_locationLon) - 1] = '\0';
+    }
+    if (!latVal.empty()) {
+        strncpy_s(g_locationLat, latVal.c_str(), sizeof(g_locationLat) - 1);
+        g_locationLat[sizeof(g_locationLat) - 1] = '\0';
+    }
+
+    // 城市名显示为 "长沙 岳麓区"
+    if (!adm2Val.empty() && !nameVal.empty()) {
+        std::string cityDistrict = adm2Val + " " + nameVal;
+        int wlen = MultiByteToWideChar(CP_UTF8, 0, cityDistrict.c_str(), -1, NULL, 0);
+        if (wlen > 0 && wlen < 64) {
+            MultiByteToWideChar(CP_UTF8, 0, cityDistrict.c_str(), -1, g_cityName, wlen);
+            g_cityName[wlen - 1] = L'\0';
         }
     }
 
-    // IP 定位失败，尝试从 config.ini 读取城市名
-    std::string cityName = GetConfigString("Weather", "City", "岳麓区");
-    if (!cityName.empty()) {
-        OutputDebugStringA(("[Weather] Trying city name: " + cityName + "\n").c_str());
+    OutputDebugStringA(("[Weather] Location: " + nameVal + " ID=" + idVal +
+        " Lon=" + lonVal + " Lat=" + latVal + "\n").c_str());
 
-        std::string encodedLocation = UrlEncode(cityName);
-        char path[512];
-        snprintf(path, sizeof(path),
-            "/geo/v2/city/lookup?location=%s&range=cn&number=1&key=%s",
-            encodedLocation.c_str(), QWEATHER_KEY.c_str());
-
-        std::string resp = HttpGetGzip(QWEATHER_HOST, path, true);
-
-        if (!resp.empty()) {
-            std::string code = ExtractJsonField(resp, "code");
-            if (code == "200") {
-                size_t locArrStart = resp.find("\"location\":[{");
-                if (locArrStart != std::string::npos) {
-                    std::string nameVal = ExtractJsonField(resp, "name");
-                    std::string idVal = ExtractJsonField(resp, "id");
-                    std::string lonVal = ExtractJsonField(resp, "lon");
-                    std::string latVal = ExtractJsonField(resp, "lat");
-                    std::string adm2Val = ExtractJsonField(resp, "adm2");
-
-                    if (!idVal.empty()) {
-                        strncpy_s(g_locationId, idVal.c_str(), sizeof(g_locationId) - 1);
-                        g_locationId[sizeof(g_locationId) - 1] = '\0';
-                    }
-                    if (!lonVal.empty()) {
-                        strncpy_s(g_locationLon, lonVal.c_str(), sizeof(g_locationLon) - 1);
-                        g_locationLon[sizeof(g_locationLon) - 1] = '\0';
-                    }
-                    if (!latVal.empty()) {
-                        strncpy_s(g_locationLat, latVal.c_str(), sizeof(g_locationLat) - 1);
-                        g_locationLat[sizeof(g_locationLat) - 1] = '\0';
-                    }
-                    if (!adm2Val.empty() && !nameVal.empty()) {
-                        std::string cityDistrict = adm2Val + " " + nameVal;
-                        int wlen = MultiByteToWideChar(CP_UTF8, 0, cityDistrict.c_str(), -1, NULL, 0);
-                        if (wlen > 0 && wlen < 64) {
-                            MultiByteToWideChar(CP_UTF8, 0, cityDistrict.c_str(), -1, g_cityName, wlen);
-                            g_cityName[wlen - 1] = L'\0';
-                        }
-                    }
-
-                    OutputDebugStringA(("[Weather] City location success: " + std::string(g_cityName) +
-                        " ID=" + g_locationId + "\n").c_str());
-                    g_locationFetched.store(true);
-                    return;
-                }
-            }
-        }
-    }
-
-    OutputDebugStringA("[Weather] Using config.ini defaults for location\n");
     g_locationFetched.store(true);
 }
 
@@ -399,8 +347,6 @@ PluginInfo WeatherPlugin::GetInfo() const {
 }
 
 bool WeatherPlugin::Initialize() {
-    // 从配置文件加载设置
-    LoadLocationConfig();
     // 初始化时获取一次位置
     FetchLocation();
     FetchWeather();
@@ -435,7 +381,7 @@ void WeatherPlugin::FetchWeather() {
         char path[512];
         snprintf(path, sizeof(path),
             "/v7/weather/now?location=%s&key=%s",
-            g_locationId, QWEATHER_KEY);
+            g_locationId, GetQWeatherKey());
 
         std::string resp = HttpGetGzip(QWEATHER_HOST, path, true);
 
