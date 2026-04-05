@@ -1,0 +1,13 @@
+[Weather]
+# 和风天气 API Key（从 https://console.qweather.com 获取）
+APIKey=your_api_key_here
+# 位置ID（城市代码）
+LocationId=101250109
+# 经度
+Longitude=112.93
+# 纬度
+Latitude=27.87
+# 城市名（显示用）
+City=长沙
+# 区县名
+District=岳麓区

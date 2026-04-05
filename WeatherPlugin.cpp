@@ -9,16 +9,38 @@
 #include <cctype>
 #include <zlib.h>
 
-// ==================== QWeather API Key（免费key，每天1000次）====================
-static const char* QWEATHER_KEY = "e39f683f91cc40688a1a8b59afdce0f5";
+// ==================== 配置文件读取 ====================
+static std::string GetConfigString(const char* section, const char* key, const char* defaultValue = "") {
+    char buffer[256] = { 0 };
+    GetPrivateProfileStringA(section, key, defaultValue, buffer, sizeof(buffer), "config.ini");
+    return buffer;
+}
+
+// ==================== QWeather API 配置（从 config.ini 读取）====================
+static std::string QWEATHER_KEY = GetConfigString("Weather", "APIKey", "");
 static const char* QWEATHER_HOST = "n94ewu37fy.re.qweatherapi.com";
 
-// ==================== 动态位置数据（GeoAPI获取）====================
-static char g_locationId[32] = "101250109";   // 岳麓区 LocationID
-static char g_locationLon[16] = "112.93";      // 经度
-static char g_locationLat[16] = "27.87";       // 纬度
-static wchar_t g_cityName[64] = L"长沙";       // 显示用城市名
-static wchar_t g_districtName[64] = L"岳麓区"; // 显示用区县名
+// ==================== 动态位置数据（从 config.ini 读取）====================
+static char g_locationId[32];
+static char g_locationLon[16];
+static char g_locationLat[16];
+static wchar_t g_cityName[64];
+static wchar_t g_districtName[64];
+
+static void LoadLocationConfig() {
+    GetPrivateProfileStringA("Weather", "LocationId", "101250109", g_locationId, sizeof(g_locationId), "config.ini");
+    GetPrivateProfileStringA("Weather", "Longitude", "112.93", g_locationLon, sizeof(g_locationLon), "config.ini");
+    GetPrivateProfileStringA("Weather", "Latitude", "27.87", g_locationLat, sizeof(g_locationLat), "config.ini");
+
+    char cityBuffer[64] = { 0 };
+    char districtBuffer[64] = { 0 };
+    GetPrivateProfileStringA("Weather", "City", "长沙", cityBuffer, sizeof(cityBuffer), "config.ini");
+    GetPrivateProfileStringA("Weather", "District", "岳麓区", districtBuffer, sizeof(districtBuffer), "config.ini");
+
+    MultiByteToWideChar(CP_UTF8, 0, cityBuffer, -1, g_cityName, sizeof(g_cityName) / sizeof(wchar_t));
+    MultiByteToWideChar(CP_UTF8, 0, districtBuffer, -1, g_districtName, sizeof(g_districtName) / sizeof(wchar_t));
+}
+
 static std::atomic<bool> g_locationFetched{ false };
 
 // ==================== 辅助函数：GBK 转 UTF-8 ====================
@@ -301,6 +323,8 @@ PluginInfo WeatherPlugin::GetInfo() const {
 }
 
 bool WeatherPlugin::Initialize() {
+    // 从配置文件加载设置
+    LoadLocationConfig();
     // 初始化时获取一次位置
     FetchLocation();
     FetchWeather();
