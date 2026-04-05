@@ -15,19 +15,10 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="VolumeComponent.h">
-      <Filter>头文件</Filter>
-    </ClInclude>
     <ClInclude Include="NetworkDiscovery.h">
       <Filter>头文件</Filter>
     </ClInclude>
-    <ClInclude Include="MusicPlayerComponent.h">
-      <Filter>头文件</Filter>
-    </ClInclude>
     <ClInclude Include="IslandManager_temp.h">
-      <Filter>头文件</Filter>
-    </ClInclude>
-    <ClInclude Include="AlertComponent.h">
       <Filter>头文件</Filter>
     </ClInclude>
     <ClInclude Include="SpotifyClient.h">
@@ -99,17 +90,23 @@
     <ClInclude Include="IMessageHandler.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="Components\AlertComponent.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="Components\MusicPlayerComponent.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="Components\VolumeComponent.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="IslandState.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="WeatherPlugin.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="VolumeComponent.cpp">
-      <Filter>源文件</Filter>
-    </ClCompile>
-    <ClCompile Include="MusicPlayerComponent.cpp">
-      <Filter>源文件</Filter>
-    </ClCompile>
-    <ClCompile Include="AlertComponent.cpp">
-      <Filter>源文件</Filter>
-    </ClCompile>
     <ClCompile Include="RenderEngine.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
@@ -141,6 +138,21 @@
       <Filter>源文件</Filter>
     </ClCompile>
     <ClCompile Include="TaskDetector.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="Components\AlertComponent.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="Components\MusicPlayerComponent.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="Components\VolumeComponent.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="WeatherPlugin.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="LayoutController.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>

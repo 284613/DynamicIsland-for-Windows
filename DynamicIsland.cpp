@@ -1773,9 +1773,7 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-					m_renderer.TriggerWeatherAnimOnce();
-					m_renderer.SetWeatherIconHovered(true);
-					
+				}
 
 
 
@@ -1819,8 +1817,7 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 		// Weather icon hover detection: trigger animation on first hover
 
-		if ((m_state == IslandState::Expanded && !m_mediaMonitor.IsPlaying()) ||
-			 m_state == IslandState::Collapsed) {
+		if (m_state == IslandState::Expanded && !m_mediaMonitor.IsPlaying()) {
 
 			float left = (CANVAS_WIDTH - GetCurrentWidth()) / 2.0f;
 
@@ -1830,23 +1827,27 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 			float islandHeight = GetCurrentHeight();
 
-			float baseIconSize = islandHeight * 0.4f;
+			float iconSize = islandHeight * 0.4f;
 
-			float iconX = right - baseIconSize - 15.0f;
+			float iconX = right - iconSize - 15.0f;
 
-			float iconY = top + (islandHeight - baseIconSize) / 2.0f;
-
-
-
-			bool isOverWeather = (pt.x >= iconX && pt.x <= iconX + baseIconSize &&
-
-			                      pt.y >= iconY && pt.y <= iconY + baseIconSize);
+			float iconY = top + (islandHeight - iconSize) / 2.0f;
 
 
 
-			m_renderer.SetWeatherIconHovered(isOverWeather);
+			bool isOverWeather = (pt.x >= iconX && pt.x <= iconX + iconSize &&
 
-		}			}
+			                      pt.y >= iconY && pt.y <= iconY + iconSize);
+
+
+
+			if (isOverWeather) {
+
+				m_renderer.TriggerWeatherAnimOnce();
+
+			}
+
+		}
 
 // 进度条拖动
 
