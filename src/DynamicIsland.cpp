@@ -706,8 +706,12 @@ bool DynamicIsland::Initialize(HINSTANCE hInstance) {
 		std::wstring realTitle = m_mediaMonitor.GetTitle();
 		std::wstring realArtist = m_mediaMonitor.GetArtist();
 		m_lyricsMonitor.UpdateSong(realTitle, realArtist);
+        
+        m_cachedTitle = realTitle;
+        m_cachedArtist = realArtist;
+
 		// 触发重绘
-		StartAnimation();
+		PostMessage(m_window.GetHWND(), WM_APP_INVALIDATE, Dirty_MediaState, 0);
 	});
 
 
@@ -736,13 +740,20 @@ bool DynamicIsland::Initialize(HINSTANCE hInstance) {
 		}
 	});
 
+    EventBus::GetInstance().Subscribe(EventType::MediaPlaybackStateChanged, [this](const Event& e) {
+        m_cachedIsPlaying = (e.wParam != 0);
+        PostMessage(m_window.GetHWND(), WM_APP_INVALIDATE, Dirty_MediaState | Dirty_AudioLevel, 0);
+    });
 
+    EventBus::GetInstance().Subscribe(EventType::MediaSessionChanged, [this](const Event& e) {
+        m_cachedHasSession = (e.wParam != 0);
+        PostMessage(m_window.GetHWND(), WM_APP_INVALIDATE, Dirty_MediaState, 0);
+    });
 
-
-
-
-
-
+    m_cachedIsPlaying = m_mediaMonitor.IsPlaying();
+    m_cachedHasSession = m_mediaMonitor.HasSession();
+    m_cachedTitle = m_mediaMonitor.GetTitle();
+    m_cachedArtist = m_mediaMonitor.GetArtist();
 
 	return true;
 
@@ -773,6 +784,30 @@ void DynamicIsland::Run() {
 
 
 
+
+void DynamicIsland::EnsureRenderLoopRunning() {
+    if (!m_renderLoopActive) {
+        m_renderLoopActive = true;
+        m_idleFrameCount = 0;
+        SetTimer(m_window.GetHWND(), m_timerId, 16, nullptr);
+    }
+}
+
+void DynamicIsland::Invalidate(uint32_t flags) {
+    m_dirtyFlags |= flags;
+    EnsureRenderLoopRunning();
+}
+
+bool DynamicIsland::ShouldKeepRendering() const {
+    if (!m_layoutController.IsSettled()) return true;       // 弹簧动画中
+    if (m_cachedIsPlaying && m_state != IslandState::Alert) return true;  // 音频可视化
+    if (m_renderer.IsScrolling()) return true;              // 文字滚动中
+    if (m_isVolumeControlActive) return true;               // 音量条显示中
+    if (m_isAlertActive) return true;                       // 通知显示中
+    if (m_isDraggingProgress) return true;                  // 拖动进度条
+    if (m_isDragHovering) return true;                      // 文件拖拽悬停
+    return false;
+}
 
 void DynamicIsland::StartAnimation() {
 
@@ -826,7 +861,7 @@ void DynamicIsland::StartAnimation() {
 
 
 
-		SetTimer(m_window.GetHWND(), m_timerId, 16, nullptr);
+		EnsureRenderLoopRunning();
 	SetTimer(m_window.GetHWND(), m_fullscreenTimerId, 1000, nullptr); // 全屏检测定时器（每秒）
 
 
@@ -847,43 +882,17 @@ void DynamicIsland::StartAnimation() {
 
 void DynamicIsland::UpdatePhysics() {
 
+	float realAudioLevel = 0.0f;
+	if (m_cachedIsPlaying) {
+		realAudioLevel = m_mediaMonitor.GetAudioLevel();
+		m_smoothedAudio += (realAudioLevel - m_smoothedAudio) * 0.2f;
+		realAudioLevel = m_smoothedAudio;
+	} else {
+		m_smoothedAudio = 0.0f;
+	}
 
-
-
-
-	float realAudioLevel = m_mediaMonitor.GetAudioLevel();
-
-
-
-
-
-	m_smoothedAudio += (realAudioLevel - m_smoothedAudio) * 0.2f;
-
-
-
-
-
-	realAudioLevel = m_smoothedAudio;
-
-
-
-
-
-
-
-
-
-	bool isPlaying = m_mediaMonitor.IsPlaying();
-
-
-
-
-
-	bool hasSession = m_mediaMonitor.HasSession();
-
-
-
-
+	bool isPlaying = m_cachedIsPlaying;
+	bool hasSession = m_cachedHasSession;
 
 	static ULONGLONG lastUpdate = GetTickCount64();
 
@@ -1023,49 +1032,8 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
-	std::wstring realTitle = m_mediaMonitor.GetTitle();
-
-
-
-
-
-	std::wstring realArtist = m_mediaMonitor.GetArtist();
-
-
-
-
-
-	m_lyricsMonitor.UpdateSong(realTitle, realArtist);
-
-
-
-
-
-	std::wstring albumArt = m_mediaMonitor.GetAlbumArt();
-
-
-
-
-
-	if (!albumArt.empty() && albumArt != m_lastAlbumArt) {
-
-
-
-
-
-		m_lastAlbumArt = albumArt;
-
-
-
-
-
-		m_renderer.LoadAlbumArt(albumArt);
-
-
-
-
-
-	}
+	std::wstring realTitle = m_cachedTitle;
+	std::wstring realArtist = m_cachedArtist;
 
 
 
@@ -1159,47 +1127,28 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
-	// 获取音乐进度
-
-
-
-
-
-	float progress = 0.0f;
-
-
-
-
-
+	// 获取音乐进度与歌词（节流到 100ms）
+	static ULONGLONG lastProgressPoll = 0;
+	static float cachedProgress = 0.0f;
+	static LyricData cachedLyricData;
+    
 	auto duration = m_mediaMonitor.GetDuration();
-
-
-
-
-
 	auto position = m_mediaMonitor.GetPosition();
 
-
-
-
-
-	if (duration.count() > 0) {
-
-
-
-
-
-		progress = (float)position.count() / (float)duration.count();
-
-
-
-
-
+	if (nowMs - lastProgressPoll > 100) {
+		lastProgressPoll = nowMs;
+		cachedProgress = (duration.count() > 0)
+			? static_cast<float>(position.count()) / duration.count()
+			: 0.0f;
+		if (hasSession) {
+			int64_t positionMs = position.count() * 1000;
+			auto monData = m_lyricsMonitor.GetLyricData(positionMs);
+			cachedLyricData = { monData.text, monData.currentMs, monData.nextMs, monData.positionMs };
+		}
 	}
 
-
-
-
+	float progress = cachedProgress;
+	LyricData currentLyricData = cachedLyricData;
 
 	// 如果正在拖动或刚松开进度条，使用临时进度
 
@@ -1341,46 +1290,6 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
-	// 使用LyricsMonitor获取当前歌词
-
-
-
-
-
-	LyricData currentLyricData;
-
-
-
-
-
-	if (hasSession) {
-
-
-
-
-
-		int64_t positionMs = position.count() * 1000;
-
-
-
-
-
-		LyricsMonitor::LyricData monData = m_lyricsMonitor.GetLyricData(positionMs);
-        currentLyricData.text = monData.text;
-        currentLyricData.currentMs = monData.currentMs;
-        currentLyricData.nextMs = monData.nextMs;
-        currentLyricData.positionMs = monData.positionMs;
-
-
-
-
-
-	}
-
-
-
-
-
 	if (m_systemMonitor.GetWeatherPlugin()) {
 
 		m_weatherDesc = m_systemMonitor.GetWeatherPlugin()->GetWeatherDescription();
@@ -1474,7 +1383,26 @@ void DynamicIsland::UpdatePhysics() {
 	m_renderer.UpdateScroll(deltaTime, realAudioLevel, GetCurrentHeight(), ctx.lyric);
 	m_renderer.DrawCapsule(ctx);
 
-	UpdateWindowRegion();
+	// 仅在尺寸变化时更新 Region
+	static float lastRegionW = 0, lastRegionH = 0;
+	float curW = GetCurrentWidth(), curH = GetCurrentHeight();
+	if (std::abs(curW - lastRegionW) > 0.5f || std::abs(curH - lastRegionH) > 0.5f) {
+		UpdateWindowRegion();
+		lastRegionW = curW;
+		lastRegionH = curH;
+	}
+
+	// === 自适应渲染循环控制 ===
+	if (ShouldKeepRendering()) {
+		m_idleFrameCount = 0;
+	} else {
+		m_idleFrameCount++;
+		if (m_idleFrameCount > IDLE_COOLDOWN) {
+			KillTimer(m_window.GetHWND(), m_timerId);
+			m_renderLoopActive = false;
+			m_dirtyFlags = Dirty_None;
+		}
+	}
 
 }
 
@@ -1485,6 +1413,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 	switch (uMsg) {
+
+	case WM_APP_INVALIDATE:
+		m_dirtyFlags |= (uint32_t)wParam;
+		EnsureRenderLoopRunning();
+		return 0;
 
 
 
@@ -1586,6 +1519,7 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+		Invalidate(Dirty_Hover);
 		return HTTRANSPARENT;
 
 
@@ -2287,10 +2221,7 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 			    SetTimer(hwnd, m_displayTimerId, 5000, nullptr);
 			}}
 
-
-
-
-
+		Invalidate(Dirty_Hover);
 		return 0;
 
 
@@ -2894,384 +2825,135 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 		// 文件拖来时，强制展开成大面板迎接它
-
-
-
-
-
 		TransitionTo(IslandDisplayMode::FileDrop);
 
-
-
-
-
+		Invalidate(Dirty_FileDrop);
 		return 0;
 
-
-
-
-
 	}
-
-
-
-
 
 	case WM_DRAG_LEAVE: {
 
-
-
-
-
 		m_isDragHovering = false;
-
-
-
-
 
 		// 文件移走时，如果没有其他任务，恢复折叠
 
-
-
-
-
 		if (m_state == IslandState::Collapsed && !m_isAlertActive && !m_mediaMonitor.HasSession()) {
-
-
-
-
 
 			TransitionTo(IslandDisplayMode::Idle);
 
-
-
-
-
 		} else {
-
-
-
-
 
 			// 否则根据当前状态重新确定显示模式
 
-
-
-
-
 			TransitionTo(DetermineDisplayMode());
-
-
-
-
 
 		}
 
-
-
-
-
+		Invalidate(Dirty_FileDrop);
 		return 0;
 
-
-
-
-
 	}
-
-
-
-
 
 	case WM_DROP_FILE: {
 
-
-
-
-
 		HDROP hDrop = (HDROP)wParam;
-
-
-
-
 
 		UINT fileCount = DragQueryFileW(hDrop, 0xFFFFFFFF, nullptr, 0);
 
-
-
-
-
 		for (UINT i = 0; i < fileCount; ++i) {
-
-
-
-
 
 			wchar_t path[MAX_PATH];
 
-
-
-
-
 			DragQueryFileW(hDrop, i, path, MAX_PATH);
-
-
-
-
 
 			std::wstring newPath(path);
 
-
-
-
-
 			if (std::find(m_storedFiles.begin(), m_storedFiles.end(), newPath) == m_storedFiles.end()) {
-
-
-
-
 
 				m_storedFiles.push_back(newPath);
 
-
-
-
-
 			}
 
-
-
-
-
 		}
-
-
-
-
 
 		DragFinish(hDrop);
 
-
-
-
-
 		m_isDragHovering = false;
-
-
-
-
 
 		// 显示文件面板（独立于胶囊展开状态）
 
-
-
-
-
 		m_filePanel.UpdateFiles(m_storedFiles);
-
-
-
-
 
 		m_filePanel.Show();
 
-
-
-
-
 		// 不再展开胶囊 - 文件面板独立显示
-
-
-
-
 
 		if (m_storedFiles.empty()) {
 
-
-
-
-
 			SetTimer(hwnd, m_displayTimerId, 3000, nullptr);
-
-
-
-
 
 		}
 
-
-
-
-
+		Invalidate(Dirty_FileDrop);
 		return 0;
 
-
-
-
-
 	}
-
-
-
-
 
 	case WM_FILE_REMOVED: {
 
-
-
-
-
 		int index = (int)wParam;
-
-
-
-
 
 		if (index >= 0 && index < (int)m_storedFiles.size()) {
 
-
-
-
-
 			m_storedFiles.erase(m_storedFiles.begin() + index);
-
-
-
-
 
 			m_filePanel.UpdateFiles(m_storedFiles);
 
-
-
-
-
 			if (m_storedFiles.empty()) {
-
-
-
-
 
 				m_filePanel.Hide();
 
-
-
-
-
 				// Collapse to Compact state (not Mini)
-
-
-
-
 
 				m_state = IslandState::Collapsed;
 
-
-
-
-
 				TransitionTo(IslandDisplayMode::MusicCompact);
-
-
-
-
 
 			}
 
-
-
-
-
 		}
 
-
-
-
-
 		return 0;
-
-
-
-
 
 	}
 
-
-
-
-
 	case WM_HOTKEY: {
-
-
-
-
 
 		if (wParam == HOTKEY_ID) {
 
-
-
-
-
 			if (m_state == IslandState::Collapsed) {
-
-
-
-
 
 				// 模拟收到通知，展开岛屿
 
-
-
-
-
 				m_state = IslandState::Expanded;
-
-
-
-
 
 				TransitionTo(IslandDisplayMode::MusicExpanded);
 
-
-
-
-
 				if (m_systemMonitor.GetWeatherPlugin()) {
-
 					m_systemMonitor.GetWeatherPlugin()->RequestRefresh();
-
 				}
-
 			}
-
-
-
-
 
 			// 设定自动隐藏定时器 (4000 毫秒 = 4秒后自动收缩)
 
-
-
-
-
 			SetTimer(hwnd, m_displayTimerId, 4000, nullptr);
-
-
-
-
 
 		}
 
-
-
-
-
 		// Weather test: Ctrl+Alt+W cycles weather types (7 types)
-
+		Invalidate(Dirty_SpringAnim);
 		return 0;
-
-
-
-
 
 	}
 
@@ -3749,69 +3431,42 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 		else if (wParam == m_volumeTimerId) {
 
-
-
-
-
 			KillTimer(hwnd, m_volumeTimerId);
-
-
-
-
 
 			m_isVolumeControlActive = false;
 
-
-
-
-
 			// 恢复折叠状态（如果没有其他弹窗的话）
-
-
-
-
 
 			if (m_state == IslandState::Collapsed && !m_isAlertActive) {
 
-
-
-
-
 				TransitionTo(DetermineDisplayMode());
-
-
-
-
 
 			} else {
 
-
-
-
-
 				StartAnimation();
-
-
-
-
 
 			}
 
-
-
-
-
+		}
+		else if (wParam == m_fullscreenTimerId) {
+			bool isNowFullscreen = IsFullscreen();
+			if (isNowFullscreen != m_isFullscreen) {
+				m_isFullscreen = isNowFullscreen;
+				
+				// 状态变化时触发更新，包括 Region 和悬浮状态
+				if (m_isFullscreen) {
+					// 进入全屏，隐藏岛屿：将尺寸置 0 或移动到屏幕外，或者移除 WS_EX_TOPMOST
+					// 简单处理：更新 Region 为空（隐藏）或只设置透明
+					UpdateWindowRegion(); // UpdateWindowRegion 内部可能需要改，或者直接 Invalidate
+				} else {
+					// 退出全屏，恢复岛屿
+					UpdateWindowRegion();
+				}
+				Invalidate(Dirty_Region);
+			}
 		}
 
-
-
-
-
 		return 0;
-
-
-
-
 
 	}
 
@@ -3936,28 +3591,12 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 		// 刷新定时器：停止滚动 2 秒后自动收缩
-
-
-
-
-
 		SetTimer(hwnd, m_volumeTimerId, 2000, nullptr);
 
-
-
-
-
+		Invalidate(Dirty_Volume);
 		return 0;
 
-
-
-
-
 	}
-
-
-
-
 
 	case WM_UPDATE_ALBUM_ART:
 

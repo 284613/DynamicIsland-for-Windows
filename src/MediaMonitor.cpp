@@ -87,6 +87,9 @@ void MediaMonitor::BackgroundMediaWorker() {
 		auto manager = GlobalSystemMediaTransportControlsSessionManager::RequestAsync().get();
 
 		while (m_running) {
+			bool wasPlaying = m_isPlaying.load();
+			bool hadSession = m_hasSession.load();
+
 			try {
 				if (manager) {
 					auto session = manager.GetCurrentSession();
@@ -186,6 +189,13 @@ void MediaMonitor::BackgroundMediaWorker() {
 			}
 			catch (winrt::hresult_error const&) {}
 			catch (...) {}
+
+			if (m_isPlaying.load() != wasPlaying) {
+				EventBus::GetInstance().PublishMediaPlaybackStateChanged(m_isPlaying.load());
+			}
+			if (m_hasSession.load() != hadSession) {
+				EventBus::GetInstance().PublishMediaSessionChanged(m_hasSession.load());
+			}
 
 			if (m_isPlaying) m_pollIntervalMs = 1000;
 			else if (m_hasSession) m_pollIntervalMs = 5000;

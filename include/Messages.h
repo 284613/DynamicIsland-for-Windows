@@ -12,6 +12,7 @@
 #define WM_DRAG_LEAVE (WM_USER + 202)
 #define WM_DROP_FILE  (WM_USER + 203)
 #define WM_FILE_REMOVED (WM_USER + 204)
+#define WM_APP_INVALIDATE (WM_APP + 50)  // wParam = DirtyFlags
 
 // 内存图像数据结构
 struct ImageData {

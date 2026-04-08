@@ -19,6 +19,23 @@
 
 #define WM_TRAYICON (WM_USER + 101)
 
+enum DirtyFlags : uint32_t {
+    Dirty_None           = 0,
+    Dirty_SpringAnim     = 1 << 0,   // 弹簧动画未稳定
+    Dirty_AudioLevel     = 1 << 1,   // 音频可视化活跃
+    Dirty_TextScroll     = 1 << 2,   // 标题/歌词滚动中
+    Dirty_MediaState     = 1 << 3,   // 播放/暂停/曲目变化
+    Dirty_Progress       = 1 << 4,   // 播放进度变化
+    Dirty_Lyrics         = 1 << 5,   // 歌词行变化
+    Dirty_Volume         = 1 << 6,   // 音量条激活
+    Dirty_Alert          = 1 << 7,   // 通知显示中
+    Dirty_Hover          = 1 << 8,   // 鼠标交互
+    Dirty_FileDrop       = 1 << 9,   // 拖拽状态变化
+    Dirty_Weather        = 1 << 10,  // 天气数据更新
+    Dirty_Time           = 1 << 11,  // 时间字符串更新
+    Dirty_Region         = 1 << 12,  // 窗口区域需更新
+};
+
 enum class IslandState {
     Collapsed,  // 现在是Mini尺寸
     Expanded,
@@ -35,6 +52,22 @@ public:
     virtual LRESULT HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) override;
 
 private:
+    // 按需渲染基础设施
+    uint32_t m_dirtyFlags = 0;
+    bool m_renderLoopActive = false;
+    int m_idleFrameCount = 0;          // 连续空闲帧计数（防抖动）
+    static constexpr int IDLE_COOLDOWN = 5;  // 连续5帧无变化才停止
+
+    void Invalidate(uint32_t flags);         // 标脏并确保渲染循环运行
+    void EnsureRenderLoopRunning();          // 按需启动定时器
+    bool ShouldKeepRendering() const;        // 判断是否继续渲染
+
+    // 缓存的媒体状态（从事件驱动更新，替代逐帧轮询）
+    std::wstring m_cachedTitle;
+    std::wstring m_cachedArtist;
+    bool m_cachedIsPlaying = false;
+    bool m_cachedHasSession = false;
+
     void StartAnimation();
     void UpdatePhysics();
     void LoadConfig(); // 【新增】加载配置文件的函数

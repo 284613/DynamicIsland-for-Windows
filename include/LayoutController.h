@@ -14,6 +14,11 @@ public:
     float GetCurrentAlpha() const { return m_currentAlpha; }
     float GetTargetAlpha() const { return m_targetAlpha; }
     bool IsAnimating() const { return m_isAnimating; }
+    bool IsSettled() const {
+        return m_widthSpring.IsSettled() && m_heightSpring.IsSettled() 
+            && m_alphaSpring.IsSettled() && m_secHeightSpring.IsSettled() 
+            && m_secAlphaSpring.IsSettled();
+    }
 
     void SetTargetSize(float w, float h);
     void SetTargetAlpha(float a);

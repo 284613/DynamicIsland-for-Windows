@@ -30,6 +30,10 @@ public:
     RenderEngine();
     ~RenderEngine();
 
+    bool IsScrolling() const { 
+        return m_titleScrolling || m_artistScrolling || m_lyricScrolling; 
+    }
+
     bool Initialize(HWND hwnd, int canvasWidth, int canvasHeight);
     void DrawCapsule(const RenderContext& ctx);
     void SetWeatherInfo(const std::wstring& desc, float temp) {
