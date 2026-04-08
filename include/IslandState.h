@@ -73,6 +73,7 @@ struct RenderContext
     struct HourlyForecast {
         std::wstring time;
         std::wstring icon;
+        std::wstring text;
         float temp;
     };
     std::vector<HourlyForecast> hourlyForecasts;

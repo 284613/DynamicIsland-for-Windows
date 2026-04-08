@@ -9,9 +9,46 @@
 #include <cctype>
 #include <zlib.h>
 
-// ==================== QWeather API Key（免费key，每天1000次）====================
-static const char* QWEATHER_KEY = "e39f683f91cc40688a1a8b59afdce0f5";
-static const char* QWEATHER_HOST = "n94ewu37fy.re.qweatherapi.com";
+// ==================== QWeather 配置（从 config.ini 读取）====================
+// config.ini 位于 exe 同目录，格式：
+//   [Weather]
+//   APIKey=xxxxxxxx
+static const char* QWEATHER_HOST = "n94ewu37fy.re.qweatherapi.com";  // GeoAPI 与天气 API 共用自定义域名
+
+static std::string g_apiKey;   // 从 config.ini 动态加载
+
+static void LoadConfig() {
+    static std::atomic<bool> s_loaded{ false };
+    if (s_loaded.load()) return;
+    s_loaded.store(true);
+
+    // 获取 exe 所在目录
+    wchar_t exePath[MAX_PATH] = {};
+    GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+    // 截断到目录
+    wchar_t* lastSlash = wcsrchr(exePath, L'\\');
+    if (lastSlash) *(lastSlash + 1) = L'\0';
+
+    wchar_t iniPath[MAX_PATH];
+    wcscpy_s(iniPath, exePath);
+    wcscat_s(iniPath, L"config.ini");
+
+    wchar_t keyBuf[128] = {};
+    GetPrivateProfileStringW(L"Weather", L"APIKey", L"", keyBuf, 128, iniPath);
+
+    if (keyBuf[0] != L'\0') {
+        int len = WideCharToMultiByte(CP_UTF8, 0, keyBuf, -1, nullptr, 0, nullptr, nullptr);
+        if (len > 0) {
+            g_apiKey.resize(len - 1);
+            WideCharToMultiByte(CP_UTF8, 0, keyBuf, -1, &g_apiKey[0], len, nullptr, nullptr);
+        }
+        OutputDebugStringA(("[Weather] Loaded APIKey from config.ini: " + g_apiKey.substr(0, 8) + "...\n").c_str());
+    } else {
+        // 回退：使用硬编码 key
+        g_apiKey = "bf25bfa431394152adb2f4ed57ac092e";
+        OutputDebugStringA("[Weather] config.ini not found or empty, using fallback key\n");
+    }
+}
 
 // ==================== 动态位置数据（GeoAPI获取）====================
 static char g_locationId[32] = "101250109";   // 岳麓区 LocationID
@@ -234,7 +271,7 @@ static void FetchLocation() {
     char path[512];
     snprintf(path, sizeof(path),
         "/geo/v2/city/lookup?location=%s&range=cn&number=1&key=%s",
-        encodedLocation.c_str(), QWEATHER_KEY);
+        encodedLocation.c_str(), g_apiKey.c_str());
 
     std::string resp = HttpGetGzip(QWEATHER_HOST, path, true);
 
@@ -333,6 +370,8 @@ void WeatherPlugin::Update(float deltaTime) {
 }
 
 void WeatherPlugin::FetchWeather() {
+    LoadConfig();  // 确保 APIKey 已从 config.ini 加载
+
     static std::atomic<bool> isFetching{ false };
     if (isFetching) return;
     isFetching = true;
@@ -349,7 +388,7 @@ void WeatherPlugin::FetchWeather() {
         char path[512];
         snprintf(path, sizeof(path),
             "/v7/weather/now?location=%s&key=%s",
-            g_locationId, QWEATHER_KEY);
+            g_locationId, g_apiKey.c_str());
 
         std::string resp = HttpGetGzip(QWEATHER_HOST, path, true);
 
@@ -361,12 +400,14 @@ void WeatherPlugin::FetchWeather() {
 
         OutputDebugStringA(("[Weather] Weather raw JSON: " + resp.substr(0, 200) + "\n").c_str());
 
-        // 解析 JSON
-        std::string code = ExtractJsonField(resp, "code");
-        std::string temp = ExtractJsonField(resp, "temp");
-        std::string text = ExtractJsonNestedField(resp, "now", "text");
-        std::string humidity = ExtractJsonNestedField(resp, "now", "humidity");
-        std::string windDir = ExtractJsonNestedField(resp, "now", "windDir");
+        // 解析 JSON —— 字段路径对应 /v7/weather/now 响应结构
+        std::string code      = ExtractJsonField(resp, "code");
+        std::string temp      = ExtractJsonNestedField(resp, "now", "temp");
+        std::string feelsLike = ExtractJsonNestedField(resp, "now", "feelsLike");
+        std::string icon      = ExtractJsonNestedField(resp, "now", "icon");
+        std::string text      = ExtractJsonNestedField(resp, "now", "text");
+        std::string humidity  = ExtractJsonNestedField(resp, "now", "humidity");
+        std::string windDir   = ExtractJsonNestedField(resp, "now", "windDir");
         std::string windScale = ExtractJsonNestedField(resp, "now", "windScale");
 
         if (code != "200") {
@@ -375,14 +416,22 @@ void WeatherPlugin::FetchWeather() {
             return;
         }
 
-        // 处理天气文字描述
+        // 天气图标 ID（如 "100" = 晴）
+        if (!icon.empty()) {
+            int wlen = MultiByteToWideChar(CP_UTF8, 0, icon.c_str(), -1, NULL, 0);
+            if (wlen > 0) {
+                m_iconId.resize(wlen - 1);
+                MultiByteToWideChar(CP_UTF8, 0, icon.c_str(), -1, &m_iconId[0], wlen);
+            }
+        }
+
+        // 天气文字描述（如 "晴"）
         std::wstring desc;
         if (!text.empty()) {
-            std::string textUtf8 = text;
-            int wlen = MultiByteToWideChar(CP_UTF8, 0, textUtf8.c_str(), -1, NULL, 0);
+            int wlen = MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, NULL, 0);
             if (wlen > 0) {
                 desc.resize(wlen - 1);
-                MultiByteToWideChar(CP_UTF8, 0, textUtf8.c_str(), -1, &desc[0], wlen);
+                MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, &desc[0], wlen);
             }
         }
 
@@ -401,36 +450,67 @@ void WeatherPlugin::FetchWeather() {
         // ------------------ 获取逐小时预报 ------------------
         snprintf(path, sizeof(path),
             "/v7/weather/24h?location=%s&key=%s",
-            g_locationId, QWEATHER_KEY);
+            g_locationId, g_apiKey.c_str());
         std::string respHourly = HttpGetGzip(QWEATHER_HOST, path, true);
-        if (!respHourly.empty() && ExtractJsonField(respHourly, "code") == "200") {
-            std::vector<HourlyForecast> forecasts;
-            for (int i = 0; i < 6; ++i) {
-                std::string timeStr = ExtractJsonArrayField(respHourly, "hourly", i, "fxTime");
-                std::string htempStr = ExtractJsonArrayField(respHourly, "hourly", i, "temp");
-                if (timeStr.empty() || htempStr.empty()) break;
-                
-                HourlyForecast hf;
-                // fxTime 格式 "2021-02-16T15:00+08:00"，提取 "15:00"
-                size_t tPos = timeStr.find('T');
-                if (tPos != std::string::npos && tPos + 6 <= timeStr.length()) {
-                    std::string timeOnly = timeStr.substr(tPos + 1, 5);
-                    int wlen = MultiByteToWideChar(CP_UTF8, 0, timeOnly.c_str(), -1, NULL, 0);
-                    if (wlen > 0) {
-                        hf.time.resize(wlen - 1);
-                        MultiByteToWideChar(CP_UTF8, 0, timeOnly.c_str(), -1, &hf.time[0], wlen);
+        if (respHourly.empty()) {
+            OutputDebugStringA("[Weather] Hourly API returned empty response\n");
+        } else {
+            std::string hourlyCode = ExtractJsonField(respHourly, "code");
+            OutputDebugStringA(("[Weather] Hourly API code: " + hourlyCode + "\n").c_str());
+            if (hourlyCode == "200") {
+                std::vector<HourlyForecast> forecasts;
+                for (int i = 0; i < 6; ++i) {
+                    std::string timeStr  = ExtractJsonArrayField(respHourly, "hourly", i, "fxTime");
+                    std::string htempStr = ExtractJsonArrayField(respHourly, "hourly", i, "temp");
+                    std::string iconStr  = ExtractJsonArrayField(respHourly, "hourly", i, "icon");
+                    std::string textStr  = ExtractJsonArrayField(respHourly, "hourly", i, "text");
+                    if (timeStr.empty() || htempStr.empty()) {
+                        OutputDebugStringA(("[Weather] Hourly[" + std::to_string(i) + "] missing fxTime/temp, stopping\n").c_str());
+                        break;
                     }
+
+                    HourlyForecast hf;
+                    // fxTime 格式 "2021-02-16T15:00+08:00"，提取 "15:00"
+                    size_t tPos = timeStr.find('T');
+                    if (tPos != std::string::npos && tPos + 6 <= timeStr.length()) {
+                        std::string timeOnly = timeStr.substr(tPos + 1, 5);
+                        int wlen = MultiByteToWideChar(CP_UTF8, 0, timeOnly.c_str(), -1, NULL, 0);
+                        if (wlen > 0) {
+                            hf.time.resize(wlen - 1);
+                            MultiByteToWideChar(CP_UTF8, 0, timeOnly.c_str(), -1, &hf.time[0], wlen);
+                        }
+                    }
+                    hf.temp = (float)std::atof(htempStr.c_str());
+
+                    // icon ID（如 "100"）
+                    if (!iconStr.empty()) {
+                        int wlen = MultiByteToWideChar(CP_UTF8, 0, iconStr.c_str(), -1, NULL, 0);
+                        if (wlen > 0) {
+                            hf.icon.resize(wlen - 1);
+                            MultiByteToWideChar(CP_UTF8, 0, iconStr.c_str(), -1, &hf.icon[0], wlen);
+                        }
+                    }
+
+                    // 天气描述文字（如 "晴"）
+                    if (!textStr.empty()) {
+                        int wlen = MultiByteToWideChar(CP_UTF8, 0, textStr.c_str(), -1, NULL, 0);
+                        if (wlen > 0) {
+                            hf.text.resize(wlen - 1);
+                            MultiByteToWideChar(CP_UTF8, 0, textStr.c_str(), -1, &hf.text[0], wlen);
+                        }
+                    }
+
+                    forecasts.push_back(hf);
                 }
-                hf.temp = (float)std::atof(htempStr.c_str());
-                forecasts.push_back(hf);
+                m_hourlyForecasts = forecasts;
+                OutputDebugStringA(("[Weather] Hourly parsed count: " + std::to_string(forecasts.size()) + "\n").c_str());
             }
-            m_hourlyForecasts = forecasts;
         }
 
         // ------------------ 获取生活指数 (建议) ------------------
         snprintf(path, sizeof(path),
             "/v7/indices/1d?location=%s&key=%s&type=1,3,9",
-            g_locationId, QWEATHER_KEY);
+            g_locationId, g_apiKey.c_str());
         std::string respIndex = HttpGetGzip(QWEATHER_HOST, path, true);
         if (!respIndex.empty() && ExtractJsonField(respIndex, "code") == "200") {
             // 尝试找 type=9 (感冒指数) 或第一个
