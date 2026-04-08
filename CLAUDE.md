@@ -1,63 +1,116 @@
 # CLAUDE.md - Dynamic Island for Windows
 
-Project guide and instructions for AI assistants.
+## 项目概览
 
-## 项目背景 (Project Background)
+将 iPhone 14 Pro 灵动岛移植到 Windows 10/11 的桌面应用。屏幕顶部胶囊形悬浮窗，集中展示音乐、天气、通知、音量等系统状态。
 
-**Dynamic Island for Windows** 是一款旨在将 iPhone 14 Pro 的“灵动岛”交互体验移植到 Windows 10/11 系统的桌面应用。
+**技术栈**：C++17 / Win32 API / Direct2D 1.1 + DirectComposition + D3D11 / MSBuild VS2022
 
-- **核心价值**：在屏幕顶部提供一个美观、非侵入式的交互入口，集中展示系统状态（音乐、通知、音量、天气、文件传输等）。
-- **目标用户**：追求桌面美化、高效多任务处理以及希望获得沉浸式 Windows 使用体验的用户。
+## 架构（三层）
 
-## 技术架构 (Technical Architecture)
+```
+输入层  MediaMonitor / NotificationMonitor / WeatherPlugin / SystemMonitor
+处理层  TaskDetector → LayoutController（弹簧物理）→ DynamicIsland（主控）
+渲染层  RenderEngine（Direct2D）+ src/components/（各功能组件）
+```
 
-项目采用解耦的分层架构设计，确保监控模块与 UI 渲染的高度分离。
+**核心机制**：EventBus 事件总线 · 弹簧物理动画 · DirtyFlags 按需渲染（空闲 0% CPU）· Win32 Region 多岛合并
 
-### 1. 架构分层
-- **输入层 (Monitoring)**：负责捕获外部事件。包括 `MediaMonitor`, `NotificationMonitor`, `WeatherPlugin`, `SystemMonitor` 等。
-- **处理层 (State Machine)**：负责逻辑判定与布局计算。
-  - `TaskDetector`：聚合各监控模块状态。
-  - `LayoutController`：基于弹簧物理 (`Spring.h`) 的平滑布局过渡。
-  - `DynamicIsland`：主控类，管理窗口生命周期及优先级调度。
-- **渲染层 (Component System)**：基于组件化的渲染设计。
-  - `RenderEngine`：Direct2D 核心绘制引擎。
-  - `src/components/`：各个功能模块的绘制实现。
+## 关键文件
 
-### 2. 核心机制
-- **事件总线 (EventBus)**：各模块间通过线程安全的发布/订阅模式通信。
-- **弹簧物理 (Spring Physics)**：UI 动画由弹簧算法驱动，提供流体感。
-- **按需渲染 (On-Demand Rendering)**：引擎不再采用固定 16ms 轮询。通过 `DirtyFlags` 标脏机制与事件驱动（如媒体状态变更事件）按需唤醒渲染。在岛屿稳定且无交互的空闲态，定时器完全停止，实现 0% CPU 占用。
-- **天气详情增强 (Weather Detail)**：支持天气图标 Hover 交互触发轻量动画，点击可展开为 400x180 的左右分栏玻璃拟态面板，右侧 2×3 网格显示 6 小时逐小时预报（时间 / 温度 / 天气描述），左侧显示实时天气与生活建议。
-- **多岛交互 (Multi-Island)**：支持主副双岛协同显示（如音乐展开态下的音量弹出），通过 Win32 Region 合并实现。
-- **本地缓存 (Caching)**：专辑封面与歌词支持本地持久化缓存，提升二次加载速度。
-- **图形栈**：`Direct2D 1.1` + `DirectComposition` + `D3D11`。
+| 文件 | 作用 |
+|------|------|
+| `src/DynamicIsland.cpp` | 主窗口逻辑、状态机、优先级调度 |
+| `src/RenderEngine.cpp` | Direct2D 绘制，含天气展开面板 `DrawWeatherExpanded()` |
+| `src/WeatherPlugin.cpp` | 和风天气 API（Now/Hourly/Daily/Indices）|
+| `src/LayoutController.cpp` | 弹簧布局，坐标计算含 `m_dpiScale` |
+| `include/IslandState.h` | `RenderContext` · `IslandDisplayMode` 定义 |
+| `include/PluginManager.h` | `HourlyForecast` · `IWeatherPlugin` 接口 |
+| `include/EventBus.h` | 线程安全发布/订阅 |
 
-## Build Commands
+## 天气模块现状
 
-- **Build with MSBuild:** `msbuild DynamicIsland.sln /p:Configuration=Release /p:Platform=x64`
-- **Run Executable:** `x64\Release\DynamicIsland.exe`
+**API**：和风天气企业版，Host `n94ewu37fy.re.qweatherapi.com`，Key 从 `x64/Release/config.ini` `[Weather] APIKey` 读取。
 
-## Project Structure
+**已实现**：
+- `/v7/weather/now` → 实时天气（`now.temp` / `now.icon` / `now.text`）
+- `/v7/weather/24h` → 逐小时预报（`hourly[].fxTime` / `.temp` / `.icon` / `.text`）
+- `/v7/indices/1d` → 生活指数建议
+- 天气展开面板（400×180）：左侧实时天气 + 右侧 2×3 逐小时网格（时间/温度/描述）
 
-- `src/`: Core logic and window implementation (`.cpp`).
-- `src/components/`: UI rendering components implementation.
-- `include/`: Header files and interfaces (`.h`).
-- `include/components/`: UI rendering components headers.
-- `resources/`: Icon assets and `.rc` scripts.
-- `docs/`: Design and optimization documentation.
+**`HourlyForecast` 结构体**（`PluginManager.h` / `IslandState.h`）：
+```cpp
+struct HourlyForecast { std::wstring time, icon, text; float temp; };
+```
 
-## 开发规范 (Development Guidelines)
+## 开发规范
 
-- **作用域隔离**：各组件逻辑封装在 `src/components/`，通过 `IMessageHandler` 处理特定窗口消息。
-- **UI 布局**：采用 `LayoutController` 管理弹簧状态，坐标计算需考虑 `m_dpiScale`。
-- **渲染管线**：`RenderEngine::DrawCapsule` 为入口，根据 `RenderContext` 的 `mode` 分发。
-- **异步安全**：严禁在 UI 线程执行阻塞式网络请求，插件必须在独立线程异步拉取数据。
+- UI 线程禁止阻塞网络请求，天气 API 必须在独立线程（`std::thread::detach`）
+- 新组件放 `src/components/`，实现 `IMessageHandler`
+- 布局坐标乘 `m_dpiScale`
+- 渲染入口 `RenderEngine::DrawCapsule` → 按 `RenderContext.mode` 分发
 
-## 关键文件 (Important Files)
+## Build
 
-- `src/main.cpp`: Entry point.
-- `src/DynamicIsland.cpp`: Main window logic and state machine.
-- `src/RenderEngine.cpp`: Direct2D drawing logic and expanded weather view.
-- `src/WeatherPlugin.cpp`: QWeather API integration (Now/Hourly/Indices). API Key 从 `x64/Release/config.ini` 的 `[Weather] APIKey` 读取，Host 使用企业自定义域名。
-- `include/IslandState.h`: `RenderContext` and `IslandDisplayMode` definitions.
-- `include/EventBus.h`: Thread-safe communication.
+```
+msbuild DynamicIsland.sln /p:Configuration=Release /p:Platform=x64
+x64\Release\DynamicIsland.exe
+```
+
+---
+
+## 📋 下一步规划：未来几天天气预报功能
+
+### 目标
+
+点击天气展开面板时，除逐小时预报外，支持查看**未来 3~7 天逐日预报**（日期 / 最高最低温 / 天气图标）。
+
+### API
+
+```
+GET /v7/weather/7d?location={locationId}&key={apiKey}
+```
+字段：`daily[].fxDate`（日期）、`daily[].tempMax`、`daily[].tempMin`、`daily[].iconDay`、`daily[].textDay`
+
+### 数据层
+
+1. **`PluginManager.h`**：新增结构体
+   ```cpp
+   struct DailyForecast {
+       std::wstring date;     // "MM-DD"
+       std::wstring iconDay;  // 图标 ID
+       std::wstring textDay;  // 如 "晴"
+       float tempMax;
+       float tempMin;
+   };
+   ```
+2. **`IWeatherPlugin`**：添加 `virtual std::vector<DailyForecast> GetDailyForecast() const = 0;`
+3. **`WeatherPlugin.h/.cpp`**：
+   - 成员 `std::vector<DailyForecast> m_dailyForecasts`
+   - `FetchWeather()` 末尾追加 `/v7/weather/7d` 请求，解析 `daily[0..6]`
+4. **`IslandState.h`**：`RenderContext` 新增 `std::vector<DailyForecast> dailyForecasts`（结构体同上）
+5. **`DynamicIsland.cpp`**：`BuildRenderContext()` 中复制 `dailyForecasts`
+
+### 显示模式（二选一，用 `weatherViewMode` 枚举切换）
+
+#### 模式 A — 副岛（Secondary Island）
+- 天气图标展开时，主岛下方弹出副岛（已有副岛机制可复用）
+- 副岛显示 7 条逐日预报，横向排列，每格：图标 + 日期 + 最高/最低温
+- 上下键 / 鼠标滚轮 切换焦点行高亮
+
+#### 模式 B — 展开面板内切换视图
+- 天气展开（400×180）面板内新增视图页：**逐小时** ↔ **逐日**
+- 鼠标滚轮或上下键在两个视图间切换（淡入淡出动画）
+- 逐日视图：7 列网格，每列显示日期 / 天气图标（矢量）/ 最高温 / 最低温
+
+### 渲染
+
+- **`RenderEngine.cpp`**：新增 `DrawWeatherDaily()` 方法，布局与 `DrawWeatherExpanded()` 的右侧网格对齐风格一致
+- 天气图标复用已有 `DrawWeatherIcon()` 或按 `iconDay` ID 映射到 `WeatherType`
+- 切换动画：`contentAlpha` 淡出 → 更新 `weatherViewMode` → 淡入
+
+### 状态
+
+- `IslandState.h` 新增 `enum class WeatherViewMode { Hourly, Daily };`
+- `RenderContext` 新增 `WeatherViewMode weatherViewMode`
+- `DynamicIsland.cpp` 处理 `WM_KEYDOWN`（↑↓）和 `WM_MOUSEWHEEL` 时切换 `weatherViewMode`
