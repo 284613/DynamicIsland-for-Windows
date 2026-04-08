@@ -9,6 +9,7 @@ enum class IslandDisplayMode
     Idle,
     MusicCompact,
     MusicExpanded,
+    WeatherExpanded,
     Alert,
     Volume,
     FileDrop
@@ -66,6 +67,15 @@ struct RenderContext
     // 天气
     std::wstring weatherDesc;
     float weatherTemp;
+    std::wstring weatherIconId;
+    std::wstring weatherSuggestion;
+    bool weatherHasWarning;
+    struct HourlyForecast {
+        std::wstring time;
+        std::wstring icon;
+        float temp;
+    };
+    std::vector<HourlyForecast> hourlyForecasts;
 
     // 警报数据
     bool isAlertActive;

@@ -93,6 +93,12 @@ public:
 // ============================================
 // 示例插件接口 - 天气插件
 // ============================================
+struct HourlyForecast {
+    std::wstring time;
+    std::wstring icon;
+    float temp;
+};
+
 class IWeatherPlugin : public IPlugin {
 public:
     // 获取天气描述
@@ -100,6 +106,18 @@ public:
     
     // 获取温度
     virtual float GetTemperature() const = 0;
+
+    // 获取当前天气图标ID
+    virtual std::wstring GetIconId() const = 0;
+
+    // 获取逐小时预报 (返回未来6小时)
+    virtual std::vector<HourlyForecast> GetHourlyForecast() const = 0;
+
+    // 获取生活指数建议
+    virtual std::wstring GetLifeSuggestion() const = 0;
+
+    // 获取极端天气预警级别 (如需要高亮)
+    virtual bool HasSevereWarning() const = 0;
 };
 
 

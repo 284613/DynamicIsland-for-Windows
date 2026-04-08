@@ -159,7 +159,8 @@ private:
     float m_dpiScale = 1.0f;      // 缩放比例 (100% = 1.0f, 150% = 1.5f)
 
 
-    bool m_isVolumeControlActive = false; // 是否正在显示音量条
+    bool m_isVolumeControlActive = false;
+    bool m_isWeatherExpanded = false; // 是否正在显示音量条
     float m_currentVolume = 0.0f;         // 当前音量值
     UINT_PTR m_volumeTimerId = 4;         // 音量条自动隐藏定时器
     UINT_PTR m_fullscreenTimerId = 5;      // 全屏检测定时器

@@ -162,6 +162,10 @@ void DynamicIsland::TransitionTo(IslandDisplayMode mode) {
 
 			break;
 
+		case IslandDisplayMode::WeatherExpanded:
+			SetTargetSize(Constants::Size::WEATHER_EXPANDED_WIDTH, Constants::Size::WEATHER_EXPANDED_HEIGHT);
+			break;
+
 		case IslandDisplayMode::FileDrop:
 
 			SetTargetSize(Constants::Size::EXPANDED_WIDTH, Constants::Size::EXPANDED_HEIGHT);
@@ -196,6 +200,10 @@ IslandDisplayMode DynamicIsland::DetermineDisplayMode() const {
 
 		return IslandDisplayMode::Alert;
 
+	}
+
+	if (m_isWeatherExpanded) {
+		return IslandDisplayMode::WeatherExpanded;
 	}
 
 	if (m_isDragHovering || !m_storedFiles.empty()) {
@@ -1290,47 +1298,37 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
-	if (m_systemMonitor.GetWeatherPlugin()) {
-
-		m_weatherDesc = m_systemMonitor.GetWeatherPlugin()->GetWeatherDescription();
-
-		m_weatherTemp = m_systemMonitor.GetWeatherPlugin()->GetTemperature();
-
-	}
-
-
-
-
-
 	m_renderer.SetPlaybackButtonStates(m_hoveredButtonIndex, m_pressedButtonIndex);
-
-
-
-
 
 	m_renderer.SetAlertState(m_isAlertActive, m_currentAlert);
 
-
-
-
-
 	m_renderer.SetProgressBarStates(m_hoveredProgress, m_pressedProgress);
-
-
-
-
 
 	// Determine IslandDisplayMode based on current state
 
 	IslandDisplayMode mode = DetermineDisplayMode();
 
-
-
-
-
 	// Construct RenderContext
 
 	RenderContext ctx;
+
+	if (m_systemMonitor.GetWeatherPlugin()) {
+		m_weatherDesc = m_systemMonitor.GetWeatherPlugin()->GetWeatherDescription();
+		m_weatherTemp = m_systemMonitor.GetWeatherPlugin()->GetTemperature();
+		ctx.weatherIconId = m_systemMonitor.GetWeatherPlugin()->GetIconId();
+		ctx.weatherSuggestion = m_systemMonitor.GetWeatherPlugin()->GetLifeSuggestion();
+		ctx.weatherHasWarning = m_systemMonitor.GetWeatherPlugin()->HasSevereWarning();
+		
+		auto srcForecasts = m_systemMonitor.GetWeatherPlugin()->GetHourlyForecast();
+		ctx.hourlyForecasts.clear();
+		for (const auto& hf : srcForecasts) {
+			ctx.hourlyForecasts.push_back({hf.time, hf.icon, hf.temp});
+		}
+	} else {
+		ctx.weatherIconId = L"100";
+		ctx.weatherSuggestion = L"无数据";
+		ctx.weatherHasWarning = false;
+	}
 
 	ctx.islandWidth = GetCurrentWidth();
 
@@ -1727,37 +1725,21 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 		// Weather icon hover detection: trigger animation on first hover
-
-		if (m_state == IslandState::Expanded && !m_mediaMonitor.IsPlaying()) {
-
+		if (m_state == IslandState::Collapsed && !m_mediaMonitor.IsPlaying() && !m_isWeatherExpanded) {
 			float left = (CANVAS_WIDTH - GetCurrentWidth()) / 2.0f;
-
 			float right = left + GetCurrentWidth();
-
-			float top = (CANVAS_HEIGHT - GetCurrentHeight()) / 2.0f;
-
+			float top = 10.0f;
 			float islandHeight = GetCurrentHeight();
-
 			float iconSize = islandHeight * 0.4f;
-
 			float iconX = right - iconSize - 15.0f;
-
 			float iconY = top + (islandHeight - iconSize) / 2.0f;
 
-
-
-			bool isOverWeather = (pt.x >= iconX && pt.x <= iconX + iconSize &&
-
-			                      pt.y >= iconY && pt.y <= iconY + iconSize);
-
-
+			bool isOverWeather = (pt.x >= iconX - 40.0f && pt.x <= iconX + iconSize &&
+			                      pt.y >= top && pt.y <= top + islandHeight);
 
 			if (isOverWeather) {
-
 				m_renderer.TriggerWeatherAnimOnce();
-
 			}
-
 		}
 
 // 进度条拖动
@@ -2464,9 +2446,27 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 		}
 
+		// --- 检查是否点中了天气图标 ---
+		if (m_state == IslandState::Collapsed && !m_mediaMonitor.IsPlaying() && !m_isWeatherExpanded) {
+			float left = (CANVAS_WIDTH - GetCurrentWidth()) / 2.0f;
+			float right = left + GetCurrentWidth();
+			float top = 10.0f;
+			float islandHeight = GetCurrentHeight();
+			float iconSize = islandHeight * 0.4f;
+			float iconX = right - iconSize - 15.0f;
+			float iconY = top + (islandHeight - iconSize) / 2.0f;
 
+			// 扩大点击区域，包含图标和温度文字
+			bool isOverWeather = (pt.x >= iconX - 40.0f && pt.x <= iconX + iconSize &&
+			                      pt.y >= top && pt.y <= top + islandHeight);
 
-
+			if (isOverWeather) {
+				m_isWeatherExpanded = true;
+				m_state = IslandState::Expanded; // 必须将状态置为Expanded，这样收缩时才能正确处理
+				TransitionTo(IslandDisplayMode::WeatherExpanded);
+				return 0;
+			}
+		}
 
 		// 如果没点中按钮，执行原有的拖动和折叠逻辑
 
@@ -2551,6 +2551,7 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 			// 从 Expanded 状态点击 → Compact（不经过 Mini）
 
 			m_state = IslandState::Collapsed;
+			m_isWeatherExpanded = false;
 
 			// 【修复】点击收缩时，立即关闭副岛音量显示，防止收缩后主岛变成音量条
 			if (m_isVolumeControlActive) {

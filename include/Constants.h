@@ -24,6 +24,10 @@ namespace Size {
     
     // 音乐展开高度
     constexpr float MUSIC_EXPANDED_HEIGHT = 160.0f;
+
+    // 天气展开尺寸
+    constexpr float WEATHER_EXPANDED_WIDTH = 400.0f;
+    constexpr float WEATHER_EXPANDED_HEIGHT = 180.0f;
     
     // Compact 紧凑态
     constexpr float COMPACT_WIDTH = 200.0f;

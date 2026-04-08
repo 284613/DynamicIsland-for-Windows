@@ -1063,9 +1063,10 @@ void RenderEngine::DrawCapsule(const RenderContext& ctx)
 
 		bool compactMode = (islandHeight >= 35.0f && islandHeight < COMPACT_THRESHOLD);
 
-		if (m_isAlertActive)
-
-
+		if (ctx.mode == IslandDisplayMode::WeatherExpanded) {
+			DrawWeatherExpanded(ctx, left, top, right, bottom, islandWidth, islandHeight);
+		}
+		else if (m_isAlertActive)
 
 		{
 
@@ -5102,8 +5103,92 @@ case WeatherType::PartlyCloudy: {
 
     }
 
+}
 
+void RenderEngine::DrawWeatherExpanded(const RenderContext& ctx, float left, float top, float right, float bottom, float islandWidth, float islandHeight) {
+    float padding = 15.0f;
+    float cardTop = top + padding;
+    float cardBottom = bottom - padding;
+    float cardWidth = (islandWidth - padding * 3) / 2.0f;
+    float leftCardLeft = left + padding;
+    float rightCardLeft = leftCardLeft + cardWidth + padding;
 
+    // 半透明深色玻璃拟态底板
+    ComPtr<ID2D1SolidColorBrush> glassBrush;
+    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.15f, 0.15f, 0.15f, 0.4f * ctx.contentAlpha), &glassBrush);
+
+    D2D1_ROUNDED_RECT leftCard = D2D1::RoundedRect(D2D1::RectF(leftCardLeft, cardTop, leftCardLeft + cardWidth, cardBottom), 16.0f, 16.0f);
+    D2D1_ROUNDED_RECT rightCard = D2D1::RoundedRect(D2D1::RectF(rightCardLeft, cardTop, rightCardLeft + cardWidth, cardBottom), 16.0f, 16.0f);
+
+    m_d2dContext->FillRoundedRectangle(&leftCard, glassBrush.Get());
+    m_d2dContext->FillRoundedRectangle(&rightCard, glassBrush.Get());
+
+    // ======= 左侧：Hero Section =======
+    ULONGLONG currentTime = GetTickCount64();
+    float iconSize = 60.0f;
+    float iconX = leftCardLeft + 15.0f;
+    float iconY = cardTop + 15.0f;
+    
+    // 复用天气动画机制
+    WeatherType oldType = m_weatherType;
+    m_weatherType = MapWeatherDescToType(ctx.weatherDesc);
+    DrawWeatherIcon(iconX, iconY, iconSize, ctx.contentAlpha, currentTime);
+    m_weatherType = oldType; // 恢复原来的Type避免影响小图标状态
+
+    // 当前温度 (超大字号)
+    std::wstring tempText = std::to_wstring((int)ctx.weatherTemp) + L"\u00B0";
+    ComPtr<IDWriteTextFormat> hugeTempFormat;
+    m_dwriteFactory->CreateTextFormat(L"Microsoft YaHei", nullptr, DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 36.0f, L"zh-cn", &hugeTempFormat);
+    m_whiteBrush->SetOpacity(ctx.contentAlpha);
+    m_d2dContext->DrawTextW(tempText.c_str(), tempText.length(), hugeTempFormat.Get(), D2D1::RectF(iconX + iconSize + 15.0f, iconY - 5.0f, leftCardLeft + cardWidth, cardBottom), m_whiteBrush.Get());
+
+    // 描述 (例如 晴天)
+    m_d2dContext->DrawTextW(ctx.weatherDesc.c_str(), ctx.weatherDesc.length(), m_textFormatTitle.Get(), D2D1::RectF(iconX + iconSize + 15.0f, iconY + 35.0f, leftCardLeft + cardWidth, cardBottom), m_whiteBrush.Get());
+
+    // 生活建议 (底部)
+    std::wstring suggestion = ctx.weatherSuggestion.empty() ? L"适宜出行" : ctx.weatherSuggestion;
+    ComPtr<ID2D1SolidColorBrush> suggestionBrush = ctx.weatherHasWarning ? m_notificationBrush : m_whiteBrush;
+    suggestionBrush->SetOpacity(ctx.contentAlpha);
+    
+    auto suggLayout = GetOrCreateTextLayout(suggestion, m_textFormatSub.Get(), cardWidth - 30.0f, L"sugg_" + suggestion);
+    suggLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+    m_d2dContext->DrawTextLayout(D2D1::Point2F(leftCardLeft + 15.0f, cardBottom - 25.0f), suggLayout.Get(), suggestionBrush.Get());
+
+    // ======= 右侧：逐小时预报 2x3 网格 =======
+    if (!ctx.hourlyForecasts.empty()) {
+        int rows = 2;
+        int cols = 3;
+        float cellWidth = cardWidth / cols;
+        float cellHeight = (cardBottom - cardTop) / rows;
+
+        for (size_t i = 0; i < ctx.hourlyForecasts.size() && i < 6; ++i) {
+            int row = i / cols;
+            int col = i % cols;
+            float cellX = rightCardLeft + col * cellWidth;
+            float cellY = cardTop + row * cellHeight;
+
+            // 时间
+            std::wstring timeText = ctx.hourlyForecasts[i].time;
+            m_grayBrush->SetOpacity(ctx.contentAlpha);
+            
+            auto timeLayout = GetOrCreateTextLayout(timeText, m_textFormatSub.Get(), cellWidth, L"hf_time_" + timeText);
+            timeLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+            m_d2dContext->DrawTextLayout(D2D1::Point2F(cellX, cellY + 10.0f), timeLayout.Get(), m_grayBrush.Get());
+
+            // 温度
+            std::wstring hTempText = std::to_wstring((int)ctx.hourlyForecasts[i].temp) + L"\u00B0";
+            m_whiteBrush->SetOpacity(ctx.contentAlpha);
+            auto tempLayout = GetOrCreateTextLayout(hTempText, m_textFormatTitle.Get(), cellWidth, L"hf_temp_" + hTempText);
+            tempLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+            m_d2dContext->DrawTextLayout(D2D1::Point2F(cellX, cellY + 35.0f), tempLayout.Get(), m_whiteBrush.Get());
+        }
+    } else {
+        std::wstring emptyText = L"暂无预报数据";
+        m_grayBrush->SetOpacity(ctx.contentAlpha);
+        auto emptyLayout = GetOrCreateTextLayout(emptyText, m_textFormatSub.Get(), cardWidth, L"hf_empty");
+        emptyLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        m_d2dContext->DrawTextLayout(D2D1::Point2F(rightCardLeft, cardTop + (cardBottom - cardTop) / 2.0f - 10.0f), emptyLayout.Get(), m_grayBrush.Get());
+    }
 }
 
 

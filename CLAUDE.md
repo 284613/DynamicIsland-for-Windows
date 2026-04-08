@@ -26,7 +26,8 @@ Project guide and instructions for AI assistants.
 ### 2. 核心机制
 - **事件总线 (EventBus)**：各模块间通过线程安全的发布/订阅模式通信。
 - **弹簧物理 (Spring Physics)**：UI 动画由弹簧算法驱动，提供流体感。
-- **按需渲染 (On-Demand Rendering)**：[NEW] 引擎不再采用固定 16ms 轮询。通过 `DirtyFlags` 标脏机制与事件驱动（如媒体状态变更事件）按需唤醒渲染。在岛屿稳定且无交互的空闲态，定时器完全停止，实现 0% CPU 占用。
+- **按需渲染 (On-Demand Rendering)**：引擎不再采用固定 16ms 轮询。通过 `DirtyFlags` 标脏机制与事件驱动（如媒体状态变更事件）按需唤醒渲染。在岛屿稳定且无交互的空闲态，定时器完全停止，实现 0% CPU 占用。
+- **天气详情增强 (Weather Detail)**：支持天气图标 Hover 交互触发轻量动画，点击可展开为 400x180 的左右分栏玻璃拟态面板，显示 6 小时逐小时预报与生活建议。
 - **多岛交互 (Multi-Island)**：支持主副双岛协同显示（如音乐展开态下的音量弹出），通过 Win32 Region 合并实现。
 - **本地缓存 (Caching)**：专辑封面与歌词支持本地持久化缓存，提升二次加载速度。
 - **图形栈**：`Direct2D 1.1` + `DirectComposition` + `D3D11`。
@@ -45,21 +46,18 @@ Project guide and instructions for AI assistants.
 - `resources/`: Icon assets and `.rc` scripts.
 - `docs/`: Design and optimization documentation.
 
-## Coding Style & Conventions
+## 开发规范 (Development Guidelines)
 
-- **Language:** C++17.
-- **Naming Conventions:**
-  - Classes/Methods: `PascalCase`.
-  - Member Variables: `m_` prefix with `camelCase` (e.g., `m_window`).
-- **Indentation:** 4 spaces.
-- **Includes:** 
-  - Prefer `#include "components/xxx.h"` for component headers.
-  - `include/` directory is in `AdditionalIncludeDirectories`.
+- **作用域隔离**：各组件逻辑封装在 `src/components/`，通过 `IMessageHandler` 处理特定窗口消息。
+- **UI 布局**：采用 `LayoutController` 管理弹簧状态，坐标计算需考虑 `m_dpiScale`。
+- **渲染管线**：`RenderEngine::DrawCapsule` 为入口，根据 `RenderContext` 的 `mode` 分发。
+- **异步安全**：严禁在 UI 线程执行阻塞式网络请求，插件必须在独立线程异步拉取数据。
 
-## Important Files
+## 关键文件 (Important Files)
 
 - `src/main.cpp`: Entry point.
 - `src/DynamicIsland.cpp`: Main window logic and state machine.
-- `src/RenderEngine.cpp`: Direct2D drawing logic.
-- `include/IslandState.h`: `RenderContext` definition.
+- `src/RenderEngine.cpp`: Direct2D drawing logic and expanded weather view.
+- `src/WeatherPlugin.cpp`: QWeather API integration (Now/Hourly/Indices).
+- `include/IslandState.h`: `RenderContext` and `IslandDisplayMode` definitions.
 - `include/EventBus.h`: Thread-safe communication.

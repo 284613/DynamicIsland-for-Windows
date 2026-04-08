@@ -133,56 +133,94 @@ static std::string HttpGetGzip(const char* host, const char* path, bool useHttps
 }
 
 // ==================== 简单 JSON 解析（手写，无外部依赖）====================
+// 核心原则：回归最原始的字符串查找，确保与当前天气提取逻辑高度一致
 static std::string ExtractJsonField(const std::string& json, const char* key) {
-    std::string pattern = "\"" + std::string(key) + "\":";
-    size_t pos = json.find(pattern);
-    if (pos == std::string::npos) return "";
-    pos += pattern.size();
+    std::string pattern = "\"" + std::string(key) + "\"";
+    size_t p = json.find(pattern);
+    if (p == std::string::npos) return "";
+    
+    // 找冒号
+    p = json.find(':', p + pattern.length());
+    if (p == std::string::npos) return "";
+    p++;
+    
+    // 跳过空白
+    while (p < json.size() && (json[p] == ' ' || json[p] == '\t' || json[p] == '\r' || json[p] == '\n')) p++;
+    if (p >= json.size()) return "";
 
-    while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t' ||
-        json[pos] == '\n' || json[pos] == '\r')) pos++;
-    if (pos >= json.size()) return "";
-
-    if (json[pos] == '"') {
-        pos++;
+    // 字符串值
+    if (json[p] == '"') {
+        p++;
         std::string val;
-        while (pos < json.size() && json[pos] != '"') {
-            if (json[pos] == '\\' && pos + 1 < json.size()) {
-                pos++;
-                val += json[pos++];
-            } else {
-                val += json[pos++];
-            }
+        while (p < json.size() && json[p] != '"') {
+            if (json[p] == '\\' && p + 1 < json.size()) { p++; val += json[p++]; }
+            else val += json[p++];
         }
         return val;
     }
 
+    // 数值
     std::string val;
-    while (pos < json.size() && json[pos] != ',' && json[pos] != '}') {
-        val += json[pos++];
+    while (p < json.size() && json[p] != ',' && json[p] != '}' && json[p] != ']') {
+        if (json[p] != ' ' && json[p] != '\t' && json[p] != '\r' && json[p] != '\n') val += json[p];
+        p++;
     }
-    while (!val.empty() && (val.back() == ' ' || val.back() == '\t')) val.pop_back();
-    while (!val.empty() && (val.front() == ' ' || val.front() == '\t')) val.erase(val.begin());
     return val;
 }
 
-// 嵌套 JSON 字段提取
 static std::string ExtractJsonNestedField(const std::string& json, const char* outer, const char* inner) {
-    std::string outerPattern = "\"" + std::string(outer) + "\":{";
-    size_t oPos = json.find(outerPattern);
-    if (oPos == std::string::npos) return "";
-    oPos += outerPattern.size() - 1;
-
-    int depth = 1;
-    size_t p = oPos + 1;
-    while (p < json.size() && depth > 0) {
-        if (json[p] == '{') depth++;
-        else if (json[p] == '}') depth--;
-        p++;
+    std::string pattern = "\"" + std::string(outer) + "\"";
+    size_t p = json.find(pattern);
+    if (p == std::string::npos) return "";
+    
+    p = json.find('{', p + pattern.length());
+    if (p == std::string::npos) return "";
+    
+    int depth = 0;
+    size_t start = p;
+    size_t end = std::string::npos;
+    for (size_t i = p; i < json.size(); ++i) {
+        if (json[i] == '{') depth++;
+        else if (json[i] == '}') {
+            depth--;
+            if (depth == 0) { end = i; break; }
+        }
     }
+    if (end == std::string::npos) return "";
+    
+    std::string obj = json.substr(start, end - start + 1);
+    return ExtractJsonField(obj, inner);
+}
 
-    std::string innerObj = json.substr(oPos, p - oPos);
-    return ExtractJsonField(innerObj, inner);
+static std::string ExtractJsonArrayField(const std::string& json, const char* arrayName, int index, const char* field) {
+    std::string pattern = "\"" + std::string(arrayName) + "\"";
+    size_t p = json.find(pattern);
+    if (p == std::string::npos) return "";
+    
+    p = json.find('[', p + pattern.length());
+    if (p == std::string::npos) return "";
+    
+    size_t objStart = p;
+    for (int i = 0; i <= index; ++i) {
+        objStart = json.find('{', objStart + (i == 0 ? 0 : 1));
+        if (objStart == std::string::npos) return "";
+        
+        if (i == index) {
+            int depth = 0;
+            size_t objEnd = std::string::npos;
+            for (size_t j = objStart; j < json.size(); ++j) {
+                if (json[j] == '{') depth++;
+                else if (json[j] == '}') {
+                    depth--;
+                    if (depth == 0) { objEnd = j; break; }
+                }
+            }
+            if (objEnd == std::string::npos) return "";
+            std::string obj = json.substr(objStart, objEnd - objStart + 1);
+            return ExtractJsonField(obj, field);
+        }
+    }
+    return "";
 }
 
 // ==================== GeoAPI：城市搜索 ====================
@@ -215,37 +253,16 @@ static void FetchLocation() {
         return;
     }
 
-    // 解析 location[0]: name, id, lon, lat, adm2, adm1
-    // 找 "location":[{ ... }]
-    size_t locArrStart = resp.find("\"location\":[{");
-    if (locArrStart == std::string::npos) {
-        OutputDebugStringA("[Weather] GeoAPI: location array not found\n");
-        g_locationFetched.store(true);
-        return;
-    }
-
-    // 提取 name
-    std::string nameVal = ExtractJsonField(resp, "name");
-    std::string idVal = ExtractJsonField(resp, "id");
-    std::string lonVal = ExtractJsonField(resp, "lon");
-    std::string latVal = ExtractJsonField(resp, "lat");
-    std::string adm2Val = ExtractJsonField(resp, "adm2");
-    std::string adm1Val = ExtractJsonField(resp, "adm1");
+    // 解析 location[0]
+    std::string idVal = ExtractJsonArrayField(resp, "location", 0, "id");
+    std::string nameVal = ExtractJsonArrayField(resp, "location", 0, "name");
+    std::string adm2Val = ExtractJsonArrayField(resp, "location", 0, "adm2");
 
     if (!idVal.empty()) {
         strncpy_s(g_locationId, idVal.c_str(), sizeof(g_locationId) - 1);
         g_locationId[sizeof(g_locationId) - 1] = '\0';
     }
-    if (!lonVal.empty()) {
-        strncpy_s(g_locationLon, lonVal.c_str(), sizeof(g_locationLon) - 1);
-        g_locationLon[sizeof(g_locationLon) - 1] = '\0';
-    }
-    if (!latVal.empty()) {
-        strncpy_s(g_locationLat, latVal.c_str(), sizeof(g_locationLat) - 1);
-        g_locationLat[sizeof(g_locationLat) - 1] = '\0';
-    }
 
-    // 城市名显示为 "长沙 岳麓区"
     if (!adm2Val.empty() && !nameVal.empty()) {
         std::string cityDistrict = adm2Val + " " + nameVal;
         int wlen = MultiByteToWideChar(CP_UTF8, 0, cityDistrict.c_str(), -1, NULL, 0);
@@ -254,9 +271,6 @@ static void FetchLocation() {
             g_cityName[wlen - 1] = L'\0';
         }
     }
-
-    OutputDebugStringA(("[Weather] Location: " + nameVal + " ID=" + idVal +
-        " Lon=" + lonVal + " Lat=" + latVal + "\n").c_str());
 
     g_locationFetched.store(true);
 }
@@ -384,11 +398,56 @@ void WeatherPlugin::FetchWeather() {
             m_temperature = (float)std::atof(temp.c_str());
         }
 
+        // ------------------ 获取逐小时预报 ------------------
+        snprintf(path, sizeof(path),
+            "/v7/weather/24h?location=%s&key=%s",
+            g_locationId, QWEATHER_KEY);
+        std::string respHourly = HttpGetGzip(QWEATHER_HOST, path, true);
+        if (!respHourly.empty() && ExtractJsonField(respHourly, "code") == "200") {
+            std::vector<HourlyForecast> forecasts;
+            for (int i = 0; i < 6; ++i) {
+                std::string timeStr = ExtractJsonArrayField(respHourly, "hourly", i, "fxTime");
+                std::string htempStr = ExtractJsonArrayField(respHourly, "hourly", i, "temp");
+                if (timeStr.empty() || htempStr.empty()) break;
+                
+                HourlyForecast hf;
+                // fxTime 格式 "2021-02-16T15:00+08:00"，提取 "15:00"
+                size_t tPos = timeStr.find('T');
+                if (tPos != std::string::npos && tPos + 6 <= timeStr.length()) {
+                    std::string timeOnly = timeStr.substr(tPos + 1, 5);
+                    int wlen = MultiByteToWideChar(CP_UTF8, 0, timeOnly.c_str(), -1, NULL, 0);
+                    if (wlen > 0) {
+                        hf.time.resize(wlen - 1);
+                        MultiByteToWideChar(CP_UTF8, 0, timeOnly.c_str(), -1, &hf.time[0], wlen);
+                    }
+                }
+                hf.temp = (float)std::atof(htempStr.c_str());
+                forecasts.push_back(hf);
+            }
+            m_hourlyForecasts = forecasts;
+        }
+
+        // ------------------ 获取生活指数 (建议) ------------------
+        snprintf(path, sizeof(path),
+            "/v7/indices/1d?location=%s&key=%s&type=1,3,9",
+            g_locationId, QWEATHER_KEY);
+        std::string respIndex = HttpGetGzip(QWEATHER_HOST, path, true);
+        if (!respIndex.empty() && ExtractJsonField(respIndex, "code") == "200") {
+            // 尝试找 type=9 (感冒指数) 或第一个
+            std::string suggestion = ExtractJsonArrayField(respIndex, "daily", 0, "text");
+            if (!suggestion.empty()) {
+                int wlen = MultiByteToWideChar(CP_UTF8, 0, suggestion.c_str(), -1, NULL, 0);
+                if (wlen > 0) {
+                    m_lifeSuggestion.resize(wlen - 1);
+                    MultiByteToWideChar(CP_UTF8, 0, suggestion.c_str(), -1, &m_lifeSuggestion[0], wlen);
+                }
+            }
+        }
+
         // 调试输出
         wchar_t dbg[512];
-        swprintf_s(dbg, L"[Weather] %ls | %sC | humidity: %s%% | wind: %s %s\n",
-            m_description.c_str(), temp.c_str(), humidity.c_str(),
-            windDir.c_str(), windScale.c_str());
+        swprintf_s(dbg, L"[Weather] %ls | %hsC | hourly count: %zu\n",
+            m_description.c_str(), temp.c_str(), m_hourlyForecasts.size());
         OutputDebugStringW(dbg);
 
         isFetching = false;
