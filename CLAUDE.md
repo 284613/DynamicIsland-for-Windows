@@ -26,6 +26,8 @@ Project guide and instructions for AI assistants.
 ### 2. 核心机制
 - **事件总线 (EventBus)**：各模块间通过线程安全的发布/订阅模式通信。
 - **弹簧物理 (Spring Physics)**：UI 动画由弹簧算法驱动，提供流体感。
+- **多岛交互 (Multi-Island)**：支持主副双岛协同显示（如音乐展开态下的音量弹出），通过 Win32 Region 合并实现。
+- **本地缓存 (Caching)**：专辑封面与歌词支持本地持久化缓存，提升二次加载速度。
 - **图形栈**：`Direct2D 1.1` + `DirectComposition` + `D3D11`。
 
 ## Build Commands

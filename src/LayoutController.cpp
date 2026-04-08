@@ -7,19 +7,24 @@ LayoutController::LayoutController()
     , m_currentAlpha(1.0f)
 {
     // Spring parameters tuned for snappy expand/collapse:
-    // stiffness=400: fast response (natural freq ~20 rad/s)
-    // damping=30: critically damped (zeta~1.07), minimal overshoot
-    // Formula: zeta = c / (2*sqrt(k*m)) = 30/(2*sqrt(400)) = 30/40 = 0.75
-    // At zeta=0.75, settles in ~3/frequency = ~150ms, no excessive oscillation
     m_widthSpring.SetStiffness(400.0f);
     m_widthSpring.SetDamping(30.0f);
     m_heightSpring.SetStiffness(400.0f);
     m_heightSpring.SetDamping(30.0f);
     m_alphaSpring.SetStiffness(200.0f);  // Alpha fades slower
     m_alphaSpring.SetDamping(15.0f);
+    
+    // 副岛弹簧 [新增]
+    m_secHeightSpring.SetStiffness(180.0f); // 降低劲度，让动画更慢、更优雅
+    m_secHeightSpring.SetDamping(18.0f);    // 相应降低阻尼，保持自然的弹簧质感
+    m_secAlphaSpring.SetStiffness(150.0f);
+    m_secAlphaSpring.SetDamping(15.0f);
+
     m_widthSpring.SetTarget(Constants::Size::COLLAPSED_WIDTH);
     m_heightSpring.SetTarget(Constants::Size::COLLAPSED_HEIGHT);
     m_alphaSpring.SetTarget(1.0f);
+    m_secHeightSpring.SetTarget(0.0f);
+    m_secAlphaSpring.SetTarget(0.0f);
 }
 
 void LayoutController::SetTargetSize(float w, float h) {
@@ -34,6 +39,13 @@ void LayoutController::SetTargetAlpha(float a) {
     m_alphaSpring.SetTarget(a);
 }
 
+void LayoutController::SetSecondaryTarget(float h, float a) {
+    m_targetSecHeight = h;
+    m_targetSecAlpha = a;
+    m_secHeightSpring.SetTarget(h);
+    m_secAlphaSpring.SetTarget(a);
+}
+
 void LayoutController::StartAnimation() {
     m_isAnimating = true;
 }
@@ -43,14 +55,19 @@ void LayoutController::UpdatePhysics() {
     m_widthSpring.Update(0.016f);   // ~60fps delta
     m_heightSpring.Update(0.016f);
     m_alphaSpring.Update(0.016f);
+    m_secHeightSpring.Update(0.016f); // [新增]
+    m_secAlphaSpring.Update(0.016f);  // [新增]
 
     // Sample current values
     m_currentWidth = m_widthSpring.GetValue();
     m_currentHeight = m_heightSpring.GetValue();
     m_currentAlpha = m_alphaSpring.GetValue();
+    m_currentSecHeight = m_secHeightSpring.GetValue(); // [新增]
+    m_currentSecAlpha = m_secAlphaSpring.GetValue();   // [新增]
 
     // Check if settled
-    if (m_widthSpring.IsSettled() && m_heightSpring.IsSettled() && m_alphaSpring.IsSettled()) {
+    if (m_widthSpring.IsSettled() && m_heightSpring.IsSettled() && m_alphaSpring.IsSettled() &&
+        m_secHeightSpring.IsSettled() && m_secAlphaSpring.IsSettled()) {
         m_isAnimating = false;
     }
 }

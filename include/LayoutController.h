@@ -17,8 +17,13 @@ public:
 
     void SetTargetSize(float w, float h);
     void SetTargetAlpha(float a);
+    void SetSecondaryTarget(float h, float a); // [新增] 设置副岛目标状态
     void StartAnimation();
     void UpdatePhysics();
+
+    // 副岛状态 [新增]
+    float GetSecondaryHeight() const { return m_currentSecHeight; }
+    float GetSecondaryAlpha() const { return m_currentSecAlpha; }
 
     // 碰撞检测（供 DynamicIsland 调用）
     int HitTestPlaybackButtons(POINT pt, bool isExpanded, bool hasSession, float canvasWidth,
@@ -43,7 +48,15 @@ private:
     float m_targetAlpha = 1.0f;
     bool m_isAnimating = false;
 
+    // 副岛物理状态 [新增]
+    float m_currentSecHeight = 0.0f;
+    float m_targetSecHeight = 0.0f;
+    float m_currentSecAlpha = 0.0f;
+    float m_targetSecAlpha = 0.0f;
+
     Spring m_widthSpring;
     Spring m_heightSpring;
     Spring m_alphaSpring;
+    Spring m_secHeightSpring; // [新增]
+    Spring m_secAlphaSpring;  // [新增]
 };

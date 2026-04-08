@@ -29,6 +29,10 @@ struct RenderContext
     float canvasWidth;
     float contentAlpha;
 
+    // 副岛动画状态 [新增]
+    float secondaryHeight;
+    float secondaryAlpha;
+
     // 音乐数据
     float audioLevel;
     std::wstring title;

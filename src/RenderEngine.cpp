@@ -971,13 +971,8 @@ void RenderEngine::DrawCapsule(const RenderContext& ctx)
 
 
 	// 1. 绘制底板
-
-
-
 	D2D1_ROUNDED_RECT capsuleRect = D2D1::RoundedRect(D2D1::RectF(left, top, right, bottom), radius, radius);
-
-
-
+	m_blackBrush->SetOpacity(1.0f); // 【修复】确保主岛背景始终不透明
 	m_d2dContext->FillRoundedRectangle(&capsuleRect, m_blackBrush.Get());
 
 
@@ -1056,35 +1051,17 @@ void RenderEngine::DrawCapsule(const RenderContext& ctx)
 
 		m_whiteBrush->SetOpacity(contentAlpha);
 
-
-
 		m_grayBrush->SetOpacity(contentAlpha);
 
-
-
 		m_themeBrush->SetOpacity(contentAlpha);
-
-
-
-
-
-
-
-
-
 
 
 		const float COMPACT_THRESHOLD = 55.0f; // 紧凑模式高度阈值（降低以减少动画时的闪烁）
 
 
-
 		// Mini态(<35)不进入紧凑模式渲染，Compact态(35-54)进入
 
-
-
 		bool compactMode = (islandHeight >= 35.0f && islandHeight < COMPACT_THRESHOLD);
-
-
 
 		if (m_isAlertActive)
 
@@ -3240,12 +3217,64 @@ void RenderEngine::DrawCapsule(const RenderContext& ctx)
 
 		}
 
-
-
 		m_d2dContext->PopLayer();  // 对应 PushLayer
 
 
 
+	}
+
+
+
+	// --- [新增] 在展开模式下，渲染一个独立的“副岛” (Multi-Island) ---
+	// 使用动画高度驱动，不再仅依赖 isVolumeActive 布尔值，以允许弹簧缩回动画
+	float secHeight = ctx.secondaryHeight;
+	float secAlpha = ctx.secondaryAlpha;
+
+	if (secHeight > 0.1f)
+	{
+		float secWidth = Constants::Size::SECONDARY_WIDTH;
+		float secLeft = left + (islandWidth - secWidth) / 2.0f;
+		float secTop = bottom + 12.0f; 
+		float secRight = secLeft + secWidth;
+		float secBottom = secTop + secHeight;
+		float secRadius = secHeight / 2.0f;
+
+		// 1. 绘制副岛底色
+		D2D1_ROUNDED_RECT secRect = D2D1::RoundedRect(D2D1::RectF(secLeft, secTop, secRight, secBottom), secRadius, secRadius);
+		m_blackBrush->SetOpacity(secAlpha);
+		m_d2dContext->FillRoundedRectangle(&secRect, m_blackBrush.Get());
+
+		// 2. 绘制副岛内部内容 (仅在高度足够时显示内容，防止挤压感)
+		if (secHeight > 15.0f) {
+			float contentAlpha = secAlpha * ((secHeight - 15.0f) / (Constants::Size::SECONDARY_HEIGHT - 15.0f));
+			float iconSize = 18.0f;
+			float barWidth = secWidth - iconSize - 40.0f;
+			float barHeight = 5.0f;
+			float startX = secLeft + (secWidth - (iconSize + 15.0f + barWidth)) / 2.0f;
+			float barY = secTop + (secHeight - barHeight) / 2.0f;
+
+			// 选择图标
+			const wchar_t* volIcon = L"\uE995";
+			if (volumeLevel <= 0.0f) volIcon = L"\uE74F";
+			else if (volumeLevel <= 0.35f) volIcon = L"\uE992";
+			else if (volumeLevel <= 0.65f) volIcon = L"\uE993";
+
+			// 绘制图标
+			m_whiteBrush->SetOpacity(contentAlpha);
+			m_d2dContext->DrawTextW(volIcon, 1, m_iconTextFormat.Get(),
+				D2D1::RectF(startX, secTop, startX + iconSize, secBottom), m_whiteBrush.Get());
+
+			// 绘制进度槽
+			float barX = startX + iconSize + 15.0f;
+			m_grayBrush->SetOpacity(0.4f * contentAlpha);
+			m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(barX, barY, barX + barWidth, barY + barHeight), barHeight / 2.0f, barHeight / 2.0f), m_grayBrush.Get());
+
+			// 绘制进度条
+			if (volumeLevel > 0.0f) {
+				m_whiteBrush->SetOpacity(contentAlpha);
+				m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(barX, barY, barX + barWidth * volumeLevel, barY + barHeight), barHeight / 2.0f, barHeight / 2.0f), m_whiteBrush.Get());
+			}
+		}
 	}
 
 

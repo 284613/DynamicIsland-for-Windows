@@ -190,7 +190,7 @@ void DynamicIsland::SetTargetSize(float width, float height) {
 
 IslandDisplayMode DynamicIsland::DetermineDisplayMode() const {
 
-	// Priority: Alert > FileDrop > Volume > MusicExpanded > MusicCompact > Idle
+	// Priority: Alert > FileDrop > MusicExpanded > Volume > MusicCompact > Idle
 
 	if (m_isAlertActive) {
 
@@ -204,15 +204,15 @@ IslandDisplayMode DynamicIsland::DetermineDisplayMode() const {
 
 	}
 
-	if (m_isVolumeControlActive) {
-
-		return IslandDisplayMode::Volume;
-
-	}
-
 	if (m_state == IslandState::Expanded && m_mediaMonitor.HasSession()) {
 
 		return IslandDisplayMode::MusicExpanded;
+
+	}
+
+	if (m_isVolumeControlActive) {
+
+		return IslandDisplayMode::Volume;
 
 	}
 
@@ -911,6 +911,15 @@ void DynamicIsland::UpdatePhysics() {
 
 	// 正常物理更新 - 使用弹簧动画系统
 
+	// --- [新增] 更新副岛动画目标 ---
+	const float COMPACT_THRESHOLD = 55.0f;
+	bool isExpanded = (GetCurrentHeight() >= COMPACT_THRESHOLD);
+	if (m_isVolumeControlActive && isExpanded && !m_isAlertActive) {
+		m_layoutController.SetSecondaryTarget(Constants::Size::SECONDARY_HEIGHT, 1.0f);
+	} else {
+		m_layoutController.SetSecondaryTarget(0.0f, 0.0f);
+	}
+
 	m_layoutController.UpdatePhysics();
 
 
@@ -1458,28 +1467,16 @@ void DynamicIsland::UpdatePhysics() {
 
 	ctx.mode = mode;
 
-
-
-
+	// [新增] 传递副岛动画状态
+	ctx.secondaryHeight = m_layoutController.GetSecondaryHeight();
+	ctx.secondaryAlpha = m_layoutController.GetSecondaryAlpha();
 
 	m_renderer.UpdateScroll(deltaTime, realAudioLevel, GetCurrentHeight(), ctx.lyric);
 	m_renderer.DrawCapsule(ctx);
 
-
-
-
-
 	UpdateWindowRegion();
 
-
-
-
-
 }
-
-
-
-
 
 LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
 
@@ -2620,27 +2617,17 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 		} else {
 
-
-
-
-
 			// 从 Expanded 状态点击 → Compact（不经过 Mini）
-
-
-
-
 
 			m_state = IslandState::Collapsed;
 
-
-
-
+			// 【修复】点击收缩时，立即关闭副岛音量显示，防止收缩后主岛变成音量条
+			if (m_isVolumeControlActive) {
+				m_isVolumeControlActive = false;
+				KillTimer(hwnd, m_volumeTimerId);
+			}
 
 			TransitionTo(IslandDisplayMode::MusicCompact);
-
-
-
-
 
 		}
 
@@ -3833,29 +3820,19 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 	case WM_MOUSEWHEEL: {
-
-
-
-
+		// 【修改】仅在音乐模式（展开/紧凑）且确实有音乐会话时允许调整音量
+		IslandDisplayMode currentMode = DetermineDisplayMode();
+		bool hasMusic = (currentMode == IslandDisplayMode::MusicCompact || 
+		                 (currentMode == IslandDisplayMode::MusicExpanded && m_mediaMonitor.HasSession()));
+		
+		if (!hasMusic && !m_isVolumeControlActive) {
+			return 0;
+		}
 
 		// 获取滚轮滚动的方向和大小 (+120 向上, -120 向下)
-
-
-
-
-
 		int delta = GET_WHEEL_DELTA_WPARAM(wParam);
 
-
-
-
-
 		// 获取当前音量并计算新音量（每次滚动调整 2%）
-
-
-
-
-
 		float vol = m_mediaMonitor.GetVolume();
 
 
@@ -4415,119 +4392,47 @@ void DynamicIsland::RemoveTrayIcon() {
 
 
 void DynamicIsland::UpdateWindowRegion() {
-
-
-
-
-
-	// 计算区域（与绘制逻辑完全一致）
-
-
-
-
-
+	// 计算主岛区域
 	float left = (CANVAS_WIDTH - GetCurrentWidth()) / 2.0f;
-
-
-
-
-
 	float top = 10.0f;
-
-
-
-
-
 	float right = left + GetCurrentWidth();
-
-
-
-
-
 	float bottom = top + GetCurrentHeight();
-
-
-
-
-
-	// 折叠状态用胶囊形，展开状态用更圆的圆角矩形
-
-
-
-
-
 	float radius = (GetCurrentHeight() < 60.0f) ? (GetCurrentHeight() / 2.0f) : 20.0f;
 
-
-
-
-
-	// 【新增】乘以 DPI 缩放比例，转换为物理像素
-
-
-
-
-
 	int ileft = (int)(left * m_dpiScale + 0.5f);
-
-
-
-
-
 	int itop = (int)(top * m_dpiScale + 0.5f);
-
-
-
-
-
 	int iright = (int)(right * m_dpiScale + 0.5f);
-
-
-
-
-
 	int ibottom = (int)(bottom * m_dpiScale + 0.5f);
-
-
-
-
-
 	int iradius = (int)(radius * m_dpiScale + 0.5f);
 
+	HRGN hMainRgn = CreateRoundRectRgn(ileft, itop, iright, ibottom, iradius, iradius);
 
+	// 使用动画高度更新副岛区域
+	float secHeight = m_layoutController.GetSecondaryHeight();
+	if (secHeight > 1.0f) {
+		float secWidth = Constants::Size::SECONDARY_WIDTH;
+		float secLeft = (CANVAS_WIDTH - secWidth) / 2.0f;
+		float secTop = bottom + 12.0f;
+		float secRight = secLeft + secWidth;
+		float secBottom = secTop + secHeight;
+		float secRadius = secHeight / 2.0f;
 
+		int sileft = (int)(secLeft * m_dpiScale + 0.5f);
+		int sitop = (int)(secTop * m_dpiScale + 0.5f);
+		int siright = (int)(secRight * m_dpiScale + 0.5f);
+		int sibottom = (int)(secBottom * m_dpiScale + 0.5f);
+		int siradius = (int)(secRadius * m_dpiScale + 0.5f);
 
-
-	// 创建圆角矩形区域
-
-
-
-
-
-	HRGN hRgn = CreateRoundRectRgn(ileft, itop, iright, ibottom, iradius, iradius);
-
-
-
-
-
-	if (hRgn) {
-
-
-
-
-
-		SetWindowRgn(m_window.GetHWND(), hRgn, TRUE);
-
-
-
-
-
+		HRGN hSecRgn = CreateRoundRectRgn(sileft, sitop, siright, sibottom, siradius, siradius);
+		if (hSecRgn) {
+			CombineRgn(hMainRgn, hMainRgn, hSecRgn, RGN_OR);
+			DeleteObject(hSecRgn);
+		}
 	}
 
-
-
-
-
+	if (hMainRgn) {
+		SetWindowRgn(m_window.GetHWND(), hMainRgn, TRUE);
+	}
 }
 
 

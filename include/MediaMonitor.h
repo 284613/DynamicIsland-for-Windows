@@ -59,6 +59,12 @@ private:
     void BackgroundMediaWorker(); // 后台拉取媒体信息的线程
     std::vector<uint8_t>* ReadThumbnailToMemory(const IRandomAccessStreamReference& thumbnail);
     void ClearAlbumArt();
+    
+    // 【新增】本地缓存辅助函数
+    std::wstring GetAlbumArtCachePath(const std::wstring& title, const std::wstring& artist);
+    void SaveToCache(const std::wstring& path, const std::vector<uint8_t>& data);
+    std::vector<uint8_t>* LoadFromCache(const std::wstring& path);
+    std::wstring CleanFileName(std::wstring name);
 private:
     // WASAPI 核心组件 (获取音量)
     Microsoft::WRL::ComPtr<IMMDeviceEnumerator> m_deviceEnumerator;
@@ -79,6 +85,7 @@ private:
     // 【新增】用于记录上次拉取的歌曲，防止每秒重复拉取封面！
     std::wstring m_lastPolledTitle = L"";
     std::wstring m_lastPolledArtist = L"";
+    std::atomic<bool> m_needAlbumArtUpdate{ false }; // 【新增】标记是否需要重试封面抓取
 
     // 音乐进度
     std::atomic<std::chrono::seconds::rep> m_position{ 0 };  // 当前位置（秒）

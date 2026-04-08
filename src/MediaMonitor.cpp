@@ -7,15 +7,26 @@
 #include <winrt/Windows.Storage.Streams.h>
 #include <winrt/Windows.Storage.h>
 #include <shlobj.h>
+#include <shlwapi.h>
 #include <vector>
 #include <cstdint>
 #include <chrono>
+#include <fstream>
 
 #pragma comment(lib, "windowsapp.lib") // 链接 WinRT 库
+#pragma comment(lib, "shlwapi.lib")
 
 // 加上 winrt:: 前缀，防止和 Win32 的 Windows 宏发生冲突
 using namespace winrt;
 using namespace winrt::Windows::Media::Control;
+
+// 辅助函数：获取 EXE 所在目录
+std::wstring GetAppDirectory() {
+	wchar_t buffer[MAX_PATH];
+	GetModuleFileNameW(NULL, buffer, MAX_PATH);
+	PathRemoveFileSpecW(buffer);
+	return std::wstring(buffer);
+}
 
 MediaMonitor::MediaMonitor() : m_running(false) {}
 
@@ -72,10 +83,6 @@ std::wstring MediaMonitor::GetArtist() {
 
 // 运行在独立的后台线程中，每隔1秒抓取一次正在播放的音乐信息
 void MediaMonitor::BackgroundMediaWorker() {
-	// 不要调用 winrt::init_apartment()，因为后台线程不需要初始化 WinRT
-	// 或者使用 MTA (多线程公寓)，不需要显式初始化
-	// winrt::init_apartment();  // 删除这行
-
 	try {
 		auto manager = GlobalSystemMediaTransportControlsSessionManager::RequestAsync().get();
 
@@ -87,6 +94,7 @@ void MediaMonitor::BackgroundMediaWorker() {
 					if (session) {
 						auto playbackInfo = session.GetPlaybackInfo();
 						auto status = playbackInfo.PlaybackStatus();
+						m_isPlaying = (status == GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing);
 
 						// 获取播放进度
 						auto timelineProperties = session.GetTimelineProperties();
@@ -97,62 +105,69 @@ void MediaMonitor::BackgroundMediaWorker() {
 							m_duration = std::chrono::duration_cast<std::chrono::seconds>(duration).count();
 						}
 
-						if (status == GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing) {
-							m_isPlaying = true;
-							auto props = session.TryGetMediaPropertiesAsync().get();
-							if (props) {
-								std::wstring currentTitle = props.Title().c_str();
-								std::wstring currentArtist = props.Artist().c_str();
+						auto props = session.TryGetMediaPropertiesAsync().get();
+						if (props) {
+							std::wstring currentTitle = props.Title().c_str();
+							std::wstring currentArtist = props.Artist().c_str();
 
-								// 【核心优化】只有在"切歌"时，才去更新UI和拉取封面
-								if (currentTitle != m_lastPolledTitle || currentArtist != m_lastPolledArtist) {
+							bool songChanged = (currentTitle != m_lastPolledTitle || currentArtist != m_lastPolledArtist);
+							
+							if (songChanged || m_needAlbumArtUpdate) {
+								if (songChanged) {
 									m_lastPolledTitle = currentTitle;
 									m_lastPolledArtist = currentArtist;
+									m_needAlbumArtUpdate = true;
 
+									std::lock_guard<std::mutex> lock(m_mutex);
+									m_title = currentTitle;
+									m_artist = currentArtist;
+								}
+
+								// --- [核心改进] 优先从本地缓存加载 ---
+								std::wstring cachePath = GetAlbumArtCachePath(currentTitle, currentArtist);
+								std::vector<uint8_t>* cachedData = LoadFromCache(cachePath);
+
+								if (cachedData) {
 									{
 										std::lock_guard<std::mutex> lock(m_mutex);
-										m_title = currentTitle;
-										m_artist = currentArtist;
+										if (m_albumArtData) delete m_albumArtData;
+										m_albumArtData = cachedData;
 									}
-
-									// 仅在切歌的这一瞬间，去向系统请求并保存专辑封面到内存
+									ImageData* imageData = new ImageData{ *cachedData };
+									Event e(EventType::MediaMetadataChanged, 0, 0);
+									e.userData = imageData;
+									EventBus::GetInstance().Publish(e);
+									m_needAlbumArtUpdate = false;
+								} else {
+									// 缓存没有，从系统抓取
 									auto thumbnail = props.Thumbnail();
 									if (thumbnail) {
-										Sleep(500);
 										std::vector<uint8_t>* newData = ReadThumbnailToMemory(thumbnail);
 										if (newData) {
-											// 清理旧数据
-											if (m_albumArtData) {
-												delete m_albumArtData;
+											{
+												std::lock_guard<std::mutex> lock(m_mutex);
+												if (m_albumArtData) delete m_albumArtData;
+												m_albumArtData = newData;
 											}
-											m_albumArtData = newData;
-
-											// 发送内存数据给主线程（通过EventBus）
 											ImageData* imageData = new ImageData{ *newData };
 											Event e(EventType::MediaMetadataChanged, 0, 0);
 											e.userData = imageData;
 											EventBus::GetInstance().Publish(e);
+											
+											// 保存到缓存供下次使用
+											SaveToCache(cachePath, *newData);
+											m_needAlbumArtUpdate = false;
 										}
-										else {
+									} else {
+										static int retryCount = 0;
+										if (songChanged) retryCount = 0;
+										if (++retryCount > 5) {
 											ClearAlbumArt();
+											m_needAlbumArtUpdate = false;
+											retryCount = 0;
 										}
-									}
-									else {
-										ClearAlbumArt();
 									}
 								}
-							}
-						}
-						else {
-							m_isPlaying = false;
-							// 避免每秒都在上锁和清空UI
-							if (m_lastPolledTitle != L"") {
-								m_lastPolledTitle = L"";
-								m_lastPolledArtist = L"";
-								std::lock_guard<std::mutex> lock(m_mutex);
-								m_title = L"已暂停";
-								m_artist = L"";
-								ClearAlbumArt();
 							}
 						}
 					}
@@ -169,24 +184,61 @@ void MediaMonitor::BackgroundMediaWorker() {
 					}
 				}
 			}
-			// 遇到 COM 代理错误（比如 Chrome 浏览器抛出的无封面异常）时，静默忽略
 			catch (winrt::hresult_error const&) {}
 			catch (...) {}
 
-			// 【OPT-02】智能休眠：根据播放状态和岛屿状态调整轮询间隔
-			if (m_isPlaying) {
-				m_pollIntervalMs = 1000; // 正在播放：1秒轮询
-			} else if (m_hasSession) {
-				m_pollIntervalMs = 5000; // 有会话但暂停：5秒轮询
-			} else {
-				m_pollIntervalMs = 10000; // 无会话：10秒轮询
-			}
+			if (m_isPlaying) m_pollIntervalMs = 1000;
+			else if (m_hasSession) m_pollIntervalMs = 5000;
+			else m_pollIntervalMs = 10000;
 			Sleep(m_pollIntervalMs);
 		}
 	}
 	catch (...) {
 		m_running = false;
 	}
+}
+
+// --- 本地缓存辅助函数实现 ---
+
+std::wstring MediaMonitor::CleanFileName(std::wstring name) {
+	std::wstring forbidden = L"\\/:*?\"<>|";
+	for (auto& c : name) {
+		if (forbidden.find(c) != std::wstring::npos) c = L'_';
+	}
+	return name;
+}
+
+std::wstring MediaMonitor::GetAlbumArtCachePath(const std::wstring& title, const std::wstring& artist) {
+	std::wstring baseDir = GetAppDirectory() + L"\\albumart_cache";
+	CreateDirectoryW(baseDir.c_str(), nullptr);
+	
+	std::wstring fileName = CleanFileName(artist) + L" - " + CleanFileName(title) + L".jpg";
+	return baseDir + L"\\" + fileName;
+}
+
+void MediaMonitor::SaveToCache(const std::wstring& path, const std::vector<uint8_t>& data) {
+	std::ofstream file(path, std::ios::binary);
+	if (file.is_open()) {
+		file.write(reinterpret_cast<const char*>(data.data()), data.size());
+		file.close();
+	}
+}
+
+std::vector<uint8_t>* MediaMonitor::LoadFromCache(const std::wstring& path) {
+	std::ifstream file(path, std::ios::binary | std::ios::ate);
+	if (!file.is_open()) return nullptr;
+
+	std::streamsize size = file.tellg();
+	if (size <= 0) return nullptr;
+
+	file.seekg(0, std::ios::beg);
+	std::vector<uint8_t>* buffer = new std::vector<uint8_t>(size);
+	if (file.read(reinterpret_cast<char*>(buffer->data()), size)) {
+		return buffer;
+	}
+	
+	delete buffer;
+	return nullptr;
 }
 bool MediaMonitor::IsPlaying() const {
 	return m_isPlaying.load();  // 原子变量无需锁

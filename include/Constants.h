@@ -33,9 +33,13 @@ namespace Size {
     constexpr float ALERT_WIDTH = 220.0f;
     constexpr float ALERT_HEIGHT = 40.0f;
     
+    // 副岛（音量/静音等）尺寸
+    constexpr float SECONDARY_WIDTH = 220.0f;
+    constexpr float SECONDARY_HEIGHT = 36.0f;
+    
     // 画布尺寸
     constexpr float CANVAS_WIDTH = 400.0f;
-    constexpr float CANVAS_HEIGHT = 200.0f;
+    constexpr float CANVAS_HEIGHT = 300.0f;
     
     // 紧凑模式阈值
     constexpr float COMPACT_THRESHOLD = 60.0f;
