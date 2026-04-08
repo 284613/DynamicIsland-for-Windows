@@ -5,6 +5,7 @@
 #include <vector>
 #include <mutex>
 #include <memory>
+#include <any>
 
 // ============================================
 // 统一事件驱动架构 - EventBus 系统
@@ -47,10 +48,10 @@ struct Event {
     EventType type;
     WPARAM wParam;
     LPARAM lParam;
-    void* userData;  // 携带额外数据
-    
-    Event(EventType t = EventType::Custom, WPARAM w = 0, LPARAM l = 0, void* data = nullptr)
-        : type(t), wParam(w), lParam(l), userData(data) {}
+    std::any userData;
+
+    Event(EventType t = EventType::Custom, WPARAM w = 0, LPARAM l = 0, std::any data = {})
+        : type(t), wParam(w), lParam(l), userData(std::move(data)) {}
 };
 
 // 事件回调函数类型
@@ -158,19 +159,16 @@ public:
     
     void PublishNotificationArrived(const AlertInfo& info) {
         Event e(EventType::NotificationArrived);
-        // 复制 AlertInfo 到 userData（需要手动管理内存或使用智能指针）
-        AlertInfo* pInfo = new AlertInfo(info);
-        e.userData = pInfo;
+        e.userData = info;
         Publish(e);
-        
-        // 注意：订阅者负责释放 userData
     }
     
     void PublishNetworkStatusChanged(bool connected, const std::wstring& ssid = L"") {
         Event e(EventType::NetworkStatusChanged);
         e.wParam = connected ? 1 : 0;
-        // ssid 可以通过 userData 传递
-        // 这里简化处理
+        if (!ssid.empty()) {
+            e.userData = ssid;
+        }
         Publish(e);
     }
     

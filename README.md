@@ -32,7 +32,7 @@ Dynamic Island for Windows 是一款基于 C++/Win32 API 和 Direct2D 构建的 
 | **通知监控** | 捕获并展示应用 Toast 通知消息 |
 | **任务检测** | 统一检测各类任务状态，智能决定显示内容 |
 | **天气插件** | 和风天气 API 获取实时天气，几何矢量图标，日夜自动切换 |
-| **文件暂存面板** | 拖放文件自动接收，便捷的临时文件管理 |
+| **文件中转站** | 彻底重构为内置 D2D 高性能组件，支持拖放接收、系统图标识别及流体交互（Apple 风格） |
 | **插件管理** | 支持 IPlugin / IWeatherPlugin / IClockPlugin 插件扩展机制 |
 | **全屏防打扰** | 检测全屏游戏/应用时自动隐藏（OPT-01） |
 | **智能媒体轮询** | 播放中 1s / 暂停时 5s / 空闲时 10s 自适应轮询（OPT-02） |
@@ -141,7 +141,7 @@ Dynamic Island for Windows 是一款基于 C++/Win32 API 和 Direct2D 构建的 
 | 文件 | 功能说明 |
 |------|---------|
 | `cpp/SettingsWindow.cpp` / `h/SettingsWindow.h` | 设置窗口：通用/外观/主UI/文件面板/关于，配置持久化到 DynamicIslandSettings.ini |
-| `cpp/FilePanelWindow.cpp` / `h/FilePanelWindow.h` | 文件暂存面板：拖放接收，暂存列表，支持删除 |
+| `Components/FilePanelComponent.cpp/h` | 文件暂存面板：内置 D2D 渲染组件，支持系统图标识别、点击打开、点击删除及阶梯收缩动画 |
 
 #### 基础设施
 
@@ -302,7 +302,8 @@ E:\vs\c++\DynamicIsland\
 ├── Components/                    # UI 渲染组件
 │   ├── AlertComponent.cpp/h       # 提示弹窗
 │   ├── MusicPlayerComponent.cpp/h # 音乐播放器
-│   └── VolumeComponent.cpp/h      # 音量显示
+│   ├── VolumeComponent.cpp/h      # 音量显示
+│   └── FilePanelComponent.cpp/h   # 文件暂存面板 (D2D 重构)
 │
 ├── vcxproj/                       # Visual Studio 项目文件
 ├── docs/                            # 设计文档

@@ -34,8 +34,8 @@ namespace Size {
     constexpr float ALERT_HEIGHT = 40.0f;
     
     // 画布尺寸
-    constexpr float CANVAS_WIDTH = 400.0f;
-    constexpr float CANVAS_HEIGHT = 200.0f;
+    constexpr float CANVAS_WIDTH = 500.0f;
+    constexpr float CANVAS_HEIGHT = 600.0f;
     
     // 紧凑模式阈值
     constexpr float COMPACT_THRESHOLD = 60.0f;

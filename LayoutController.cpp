@@ -120,6 +120,68 @@ int LayoutController::HitTestProgressBar(POINT pt, bool isExpanded, bool hasSess
     return -1;
 }
 
+int LayoutController::HitTestFileItem(POINT pt, const std::vector<std::wstring>& files, float canvasWidth,
+    float currentWidth, float currentHeight, float dpiScale) const
+{
+    float left = (canvasWidth - currentWidth) / 2.0f;
+    float top = 10.0f;
+    float PADDING = 12.0f;
+    float ITEM_HEIGHT = 40.0f;
+    float GAP = 4.0f;
+
+    float currentY = top + PADDING + 5.0f; // 匹配 RenderFileList 的偏移
+    float contentWidth = currentWidth - (PADDING * 2);
+
+    for (size_t i = 0; i < files.size(); ++i) {
+        RECT itemRect = { 
+            (long)(left + PADDING), 
+            (long)currentY, 
+            (long)(left + PADDING + contentWidth), 
+            (long)(currentY + ITEM_HEIGHT) 
+        };
+
+        if (PtInRect(&itemRect, pt)) {
+            return (int)i;
+        }
+
+        currentY += ITEM_HEIGHT + GAP;
+        if (currentY > top + currentHeight + 10.0f) break;
+    }
+
+    return -1;
+}
+
+bool LayoutController::HitTestFileDelete(POINT pt, int fileIndex, float canvasWidth,
+    float currentWidth, float currentHeight, float dpiScale) const
+{
+    if (fileIndex < 0) return false;
+
+    float left = (canvasWidth - currentWidth) / 2.0f;
+    float top = 10.0f;
+    float PADDING = 12.0f;
+    float ITEM_HEIGHT = 40.0f;
+    float GAP = 4.0f;
+    float DELETE_BTN_SIZE = 22.0f;
+
+    float itemY = top + PADDING + 5.0f + (float)fileIndex * (ITEM_HEIGHT + GAP);
+    float contentWidth = currentWidth - (PADDING * 2);
+
+    float delX = left + PADDING + contentWidth - DELETE_BTN_SIZE - 8.0f;
+    float delY = itemY + (ITEM_HEIGHT - DELETE_BTN_SIZE) / 2.0f;
+
+    RECT delRect = { 
+        (long)delX, 
+        (long)delY, 
+        (long)(delX + DELETE_BTN_SIZE), 
+        (long)(delY + DELETE_BTN_SIZE) 
+    };
+
+    // 适当扩大点击判定范围
+    InflateRect(&delRect, 8, 8);
+
+    return PtInRect(&delRect, pt);
+}
+
 LayoutController::LayoutRects LayoutController::ComputeLayout(float currentWidth, float currentHeight, float dpiScale) const {
     LayoutRects r{};
     r.albumArtLeft = 20.0f;

@@ -55,6 +55,10 @@ struct RenderContext
     // 文件拖拽
     bool isDragHovering;
     size_t storedFileCount;
+    std::vector<std::wstring> storedFiles;
+    int hoveredFileIndex = -1;
+    int pressedFileIndex = -1;
+    bool isFileDeleteHovered = false;
 
     // 天气
     std::wstring weatherDesc;

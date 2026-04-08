@@ -1,6 +1,8 @@
 #pragma once
 #include "Spring.h"
 #include <windows.h>
+#include <vector>
+#include <string>
 
 class LayoutController {
 public:
@@ -24,6 +26,12 @@ public:
     int HitTestPlaybackButtons(POINT pt, bool isExpanded, bool hasSession, float canvasWidth,
         float currentWidth, float currentHeight, float dpiScale) const;
     int HitTestProgressBar(POINT pt, bool isExpanded, bool hasSession, float canvasWidth,
+        float currentWidth, float currentHeight, float dpiScale) const;
+
+    // 文件面板碰撞检测
+    int HitTestFileItem(POINT pt, const std::vector<std::wstring>& files, float canvasWidth,
+        float currentWidth, float currentHeight, float dpiScale) const;
+    bool HitTestFileDelete(POINT pt, int fileIndex, float canvasWidth,
         float currentWidth, float currentHeight, float dpiScale) const;
 
     // 布局矩形（供 RenderEngine 调用）

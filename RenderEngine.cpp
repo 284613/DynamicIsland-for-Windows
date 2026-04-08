@@ -3,28 +3,18 @@
 
 
 #include "RenderEngine.h"
-
-
-
 #include "Components\VolumeComponent.h"
-
-
-
 #include "Components\MusicPlayerComponent.h"
-
-
-
 #include "Components\AlertComponent.h"
-
-
-
+#include "Components\FilePanelComponent.h"
 #include <cmath>
 
-
-
-RenderEngine::RenderEngine() : m_lastDrawnFullText(L"") {}
-
-
+RenderEngine::RenderEngine() : m_lastDrawnFullText(L"") {
+    m_musicComponent = std::make_unique<MusicPlayerComponent>();
+    m_alertComponent = std::make_unique<AlertComponent>();
+    m_volumeComponent = std::make_unique<VolumeComponent>();
+    m_filePanelComponent = std::make_unique<FilePanelComponent>();
+}
 
 RenderEngine::~RenderEngine() {}
 
@@ -527,34 +517,26 @@ bool RenderEngine::Initialize(HWND hwnd, int canvasWidth, int canvasHeight) {
 
 
 	CoCreateInstance(
-
-
-
 		CLSID_WICImagingFactory,
-
-
-
 		nullptr,
-
-
-
 		CLSCTX_INPROC_SERVER,
-
-
-
 		IID_PPV_ARGS(&m_wicFactory)
-
-
-
 	);
 
+	// Initialize Components
+	m_musicComponent->SetD2DResources(m_d2dContext, m_dwriteFactory, m_d2dFactory);
+	m_musicComponent->SetWicFactory(m_wicFactory);
+	m_musicComponent->SetTextFormats(m_textFormatTitle, m_textFormatSub, m_iconTextFormat);
+	m_musicComponent->SetBrushes(m_whiteBrush, m_grayBrush, m_themeBrush, m_progressBgBrush, m_progressFgBrush, m_buttonHoverBrush);
 
+	m_filePanelComponent->SetD2DResources(m_d2dContext, m_dwriteFactory, m_d2dFactory);
+	m_filePanelComponent->SetWicFactory(m_wicFactory);
+	m_filePanelComponent->SetTextFormats(m_textFormatTitle, m_textFormatSub, m_iconTextFormat, m_iconTextFormat);
+	m_filePanelComponent->SetBrushes(m_whiteBrush, m_grayBrush, m_themeBrush, m_buttonHoverBrush, m_fileBrush);
 
 	ComPtr<IDXGISurface> dxgiSurface;
-
-
-
 	POINT offset;
+
 
 
 
@@ -1031,21 +1013,10 @@ void RenderEngine::DrawCapsule(const RenderContext& ctx)
 
 
 		m_d2dContext->PushLayer(D2D1::LayerParameters(
-
-
-
-			D2D1::InfiniteRect(), clipGeometry.Get(),
-
-
-
+			D2D1::InfiniteRect(), 
+			(ctx.mode == IslandDisplayMode::FileDrop) ? nullptr : clipGeometry.Get(),
 			D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, D2D1::IdentityMatrix(), 1.0f, nullptr,
-
-
-
 			D2D1_LAYER_OPTIONS_NONE
-
-
-
 		), layer.Get());
 
 
@@ -1783,209 +1754,9 @@ void RenderEngine::DrawCapsule(const RenderContext& ctx)
 
 
 			// 显示时间：如果没有通知、没有播放、没有寄存文件需要显示时间（暂停也显示时间）
-
-
-
-			else if (storedFileCount > 0) {
-
-
-
-
-
-
-
-				if (compactMode) {
-
-
-
-					// 紧凑模式：显示一个文件夹图标 + 数量
-
-
-
-					float iconSize = 18.0f;
-
-
-
-					std::wstring text = L"已暂存 " + std::to_wstring(storedFileCount) + L" 个文件";
-
-
-
-
-
-
-
-					// 使用缓存的 TextLayout（key包含文件数量）
-
-
-
-					auto textLayout = GetOrCreateTextLayout(text, m_textFormatTitle.Get(), 200.0f, L"stored_count_" + std::to_wstring(storedFileCount));
-
-
-
-					DWRITE_TEXT_METRICS metrics;
-
-
-
-					textLayout->GetMetrics(&metrics);
-
-
-
-
-
-
-
-					float totalWidth = iconSize + 8.0f + metrics.width;
-
-
-
-					float startX = left + (islandWidth - totalWidth) / 2.0f;
-
-
-
-					float textY = top + (islandHeight - metrics.height) / 2.0f;
-
-
-
-
-
-
-
-					// 绘制文件夹图标 \uE8B7
-
-
-
-					m_d2dContext->DrawTextW(L"\uE8B7", 1, m_iconTextFormat.Get(),
-
-
-
-						D2D1::RectF(startX, top + (islandHeight - iconSize) / 2.0f, startX + iconSize, top + (islandHeight - iconSize) / 2.0f + iconSize), m_themeBrush.Get());
-
-
-
-					m_d2dContext->DrawTextLayout(D2D1::Point2F(startX + iconSize + 8.0f, textY), textLayout.Get(), m_whiteBrush.Get());
-
-
-
-				}
-
-
-
-				else
-
-
-
-				{
-
-
-
-					// 展开模式：大图标展示
-
-
-
-					float artSize = 60.0f;
-
-
-
-					float artLeft = left + 20.0f;
-
-
-
-					float artTop = top + 30.0f;
-
-
-
-					D2D1_ROUNDED_RECT artRect = D2D1::RoundedRect(D2D1::RectF(artLeft, artTop, artLeft + artSize, artTop + artSize), 12.0f, 12.0f);
-
-
-
-
-
-
-
-					// 深灰色底板 - 使用预创建的画刷
-
-
-
-					m_darkGrayBrush->SetOpacity(contentAlpha);
-
-
-
-					m_d2dContext->FillRoundedRectangle(&artRect, m_darkGrayBrush.Get());
-
-
-
-
-
-
-
-					// 文件夹大图标 \uE8B7
-
-
-
-					m_d2dContext->DrawTextW(L"\uE8B7", 1, m_iconTextFormat.Get(),
-
-
-
-						D2D1::RectF(artLeft, artTop, artLeft + artSize, artTop + artSize), m_themeBrush.Get());
-
-
-
-
-
-
-
-					// 绘制文字
-
-
-
-					float textLeftFile = artLeft + artSize + 15.0f;
-
-
-
-					std::wstring textTop = L"文件暂存区";
-
-
-
-					std::wstring textBot = std::to_wstring(storedFileCount) + L" 个文件 (点击全部打开)";
-
-
-
-
-
-
-
-					auto topLayout = GetOrCreateTextLayout(textTop, m_textFormatSub.Get(), 200.0f, L"file_top");
-
-
-
-					auto botLayout = GetOrCreateTextLayout(textBot, m_textFormatTitle.Get(), 200.0f, L"file_bottom");
-
-
-
-
-
-
-
-					m_d2dContext->DrawTextLayout(D2D1::Point2F(textLeftFile, artTop + 5.0f), topLayout.Get(), m_grayBrush.Get());
-
-
-
-					m_d2dContext->DrawTextLayout(D2D1::Point2F(textLeftFile, artTop + 28.0f), botLayout.Get(), m_whiteBrush.Get());
-
-
-
-				}
-
-
-
+			else if (ctx.mode == IslandDisplayMode::FileDrop) {
+				m_filePanelComponent->Draw(m_d2dContext.Get(), left, top, islandWidth, islandHeight, ctx, m_dpi);
 			}
-
-
-
-
-
-
-
 			else if (compactMode) {
 
 

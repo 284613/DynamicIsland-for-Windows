@@ -111,6 +111,7 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>C:\Users\28443\.openclaw\workspace\temp\zlib-install;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>zlib.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalOptions>/NODEFAULTLIB:MSVCRT %(AdditionalOptions)</AdditionalOptions>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -136,6 +137,7 @@
     <ClInclude Include="Components\AlertComponent.h" />
     <ClInclude Include="Components\MusicPlayerComponent.h" />
     <ClInclude Include="Components\VolumeComponent.h" />
+    <ClInclude Include="Components\FilePanelComponent.h" />
     <ClInclude Include="ConnectionMonitor.h" />
     <ClInclude Include="IslandState.h" />
     <ClInclude Include="Constants.h" />
@@ -168,6 +170,7 @@
     <ClCompile Include="Components\AlertComponent.cpp" />
     <ClCompile Include="Components\MusicPlayerComponent.cpp" />
     <ClCompile Include="Components\VolumeComponent.cpp" />
+    <ClCompile Include="Components\FilePanelComponent.cpp" />
     <ClCompile Include="ConnectionMonitor.cpp" />
     <ClCompile Include="DynamicIsland.cpp" />
     <ClCompile Include="FilePanelWindow.cpp" />

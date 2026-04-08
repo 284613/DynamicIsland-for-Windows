@@ -7,6 +7,7 @@
 #include <atomic>
 #include <cstdio>
 #include <cctype>
+#include <sstream>
 #include <zlib.h>
 
 // ==================== QWeather API Key（免费key，每天1000次）====================
@@ -431,11 +432,9 @@ void WeatherPlugin::FetchWeather() {
         }
 
         // 调试输出
-        wchar_t dbg[512];
-        swprintf_s(dbg, L"[Weather] %ls | %sC | humidity: %s%% | wind: %s %s\n",
-            m_description.c_str(), temp.c_str(), humidity.c_str(),
-            windDir.c_str(), windScale.c_str());
-        OutputDebugStringW(dbg);
+        std::wostringstream oss;
+        oss << L"[Weather] " << m_description.c_str() << L" | " << temp.c_str() << L"C | humidity: " << humidity.c_str() << L"%% | wind: " << windDir.c_str() << L" " << windScale.c_str() << L"\n";
+        OutputDebugStringW(oss.str().c_str());
 
         isFetching = false;
     }).detach();

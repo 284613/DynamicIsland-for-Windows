@@ -128,8 +128,8 @@ void MediaMonitor::BackgroundMediaWorker() {
 											m_albumArtData = newData;
 
 											// 发送内存数据给主线程（通过EventBus）
-											ImageData* imageData = new ImageData{ *newData };
-											Event e(EventType::MediaMetadataChanged, 0, 0, imageData);
+											Event e(EventType::MediaMetadataChanged);
+											e.userData = ImageData{ *newData };
 											EventBus::GetInstance().Publish(e);
 										}
 										else {

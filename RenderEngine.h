@@ -22,6 +22,7 @@
 class MusicPlayerComponent;
 class AlertComponent;
 class VolumeComponent;
+class FilePanelComponent;
 
 using namespace Microsoft::WRL;
 
@@ -70,6 +71,7 @@ private:
     std::unique_ptr<MusicPlayerComponent> m_musicComponent;
     std::unique_ptr<AlertComponent> m_alertComponent;
     std::unique_ptr<VolumeComponent> m_volumeComponent;
+    std::unique_ptr<FilePanelComponent> m_filePanelComponent;
 
 private:
     ComPtr<ID3D11Device> m_d3dDevice;

@@ -11,7 +11,6 @@
 #include "NotificationMonitor.h"
 #include "LyricsMonitor.h"
 #include "SystemMonitor.h"
-#include "FilePanelWindow.h"
 #include "LayoutController.h"
 #include "Spring.h"
 #include "Constants.h"
@@ -58,7 +57,6 @@ private:
 
 private:
     WindowManager m_window;
-    FilePanelWindow m_filePanel;
     RenderEngine m_renderer;
     MediaMonitor m_mediaMonitor;
 
@@ -120,6 +118,10 @@ private:
     float m_tempProgress = 0.0f; // 拖动时的临时进度
     int m_hoveredProgress = -1;
     int m_pressedProgress = -1;
+
+    // 文件面板交互
+    int m_hoveredFileIndex = -1;
+    bool m_isFileDeleteHovered = false;
 
 
     UINT m_currentDpi = 96;       // 当前屏幕的 DPI
