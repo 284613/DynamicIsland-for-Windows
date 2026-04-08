@@ -1322,7 +1322,7 @@ void DynamicIsland::UpdatePhysics() {
 		auto srcForecasts = m_systemMonitor.GetWeatherPlugin()->GetHourlyForecast();
 		ctx.hourlyForecasts.clear();
 		for (const auto& hf : srcForecasts) {
-			ctx.hourlyForecasts.push_back({hf.time, hf.icon, hf.temp});
+			ctx.hourlyForecasts.push_back({hf.time, hf.icon, hf.text, hf.temp});
 		}
 	} else {
 		ctx.weatherIconId = L"100";

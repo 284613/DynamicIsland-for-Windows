@@ -5170,17 +5170,25 @@ void RenderEngine::DrawWeatherExpanded(const RenderContext& ctx, float left, flo
             // 时间
             std::wstring timeText = ctx.hourlyForecasts[i].time;
             m_grayBrush->SetOpacity(ctx.contentAlpha);
-            
+
             auto timeLayout = GetOrCreateTextLayout(timeText, m_textFormatSub.Get(), cellWidth, L"hf_time_" + timeText);
             timeLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-            m_d2dContext->DrawTextLayout(D2D1::Point2F(cellX, cellY + 10.0f), timeLayout.Get(), m_grayBrush.Get());
+            m_d2dContext->DrawTextLayout(D2D1::Point2F(cellX, cellY + 8.0f), timeLayout.Get(), m_grayBrush.Get());
 
             // 温度
             std::wstring hTempText = std::to_wstring((int)ctx.hourlyForecasts[i].temp) + L"\u00B0";
             m_whiteBrush->SetOpacity(ctx.contentAlpha);
             auto tempLayout = GetOrCreateTextLayout(hTempText, m_textFormatTitle.Get(), cellWidth, L"hf_temp_" + hTempText);
             tempLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-            m_d2dContext->DrawTextLayout(D2D1::Point2F(cellX, cellY + 35.0f), tempLayout.Get(), m_whiteBrush.Get());
+            m_d2dContext->DrawTextLayout(D2D1::Point2F(cellX, cellY + 26.0f), tempLayout.Get(), m_whiteBrush.Get());
+
+            // 天气描述（如 "晴"）
+            if (!ctx.hourlyForecasts[i].text.empty()) {
+                m_grayBrush->SetOpacity(ctx.contentAlpha * 0.8f);
+                auto descLayout = GetOrCreateTextLayout(ctx.hourlyForecasts[i].text, m_textFormatSub.Get(), cellWidth, L"hf_desc_" + ctx.hourlyForecasts[i].text + std::to_wstring(i));
+                descLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+                m_d2dContext->DrawTextLayout(D2D1::Point2F(cellX, cellY + 48.0f), descLayout.Get(), m_grayBrush.Get());
+            }
         }
     } else {
         std::wstring emptyText = L"暂无预报数据";

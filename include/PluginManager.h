@@ -94,8 +94,9 @@ public:
 // 示例插件接口 - 天气插件
 // ============================================
 struct HourlyForecast {
-    std::wstring time;
-    std::wstring icon;
+    std::wstring time;   // HH:MM
+    std::wstring icon;   // 图标 ID，如 "100"
+    std::wstring text;   // 天气描述，如 "晴"
     float temp;
 };
 
