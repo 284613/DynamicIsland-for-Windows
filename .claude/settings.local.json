@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s -k https://127.0.0.1:27124/vault/wiki-/projects/DynamicIsland.md -H 'Authorization: Bearer 792376cd5bd2b2d64c7b24b3df9bc01758169aa9ce86b613722e595500814a57')",
+      "Bash(python -c ':*)",
+      "Bash(curl -s -k https://127.0.0.1:27124/vault/wiki-/projects/DynamicIsland.md -H 'Authorization: Bearer 792376cd5bd2b2d64c7b24b3df9bc01758169aa9ce86b613722e595500814a57' -o C:/Users/28443/di_check.md)",
+      "Bash(gh repo:*)",
+      "WebFetch(domain:github.com)",
+      "Bash(gh release:*)",
+      "Bash(mkdir -p C:/Users/28443/.obsidian/plugins/obsidian-terminal)",
+      "Bash(curl -sL https://github.com/miaomiaomiao1113/Obsidian-Terminal/releases/download/1.0.0/main.js -o C:/Users/28443/.obsidian/plugins/obsidian-terminal/main.js)",
+      "Bash(curl -sL https://github.com/miaomiaomiao1113/Obsidian-Terminal/releases/download/1.0.0/manifest.json -o C:/Users/28443/.obsidian/plugins/obsidian-terminal/manifest.json)",
+      "Bash(curl -sL https://github.com/miaomiaomiao1113/Obsidian-Terminal/releases/download/1.0.0/styles.css -o C:/Users/28443/.obsidian/plugins/obsidian-terminal/styles.css)",
+      "Read(//c/Users/28443/.obsidian/plugins/**)",
+      "Bash(powershell -Command \"Invoke-WebRequest -Uri 'https://github.com/miaomiaomiao1113/Obsidian-Terminal/releases/download/1.0.0/main.js' -OutFile 'C:/Users/28443/.obsidian/plugins/obsidian-terminal/main.js'\")",
+      "Bash(powershell -Command \"Invoke-WebRequest -Uri 'https://github.com/miaomiaomiao1113/Obsidian-Terminal/releases/download/1.0.0/manifest.json' -OutFile 'C:/Users/28443/.obsidian/plugins/obsidian-terminal/manifest.json'\")",
+      "Bash(powershell -Command \"Invoke-WebRequest -Uri 'https://github.com/miaomiaomiao1113/Obsidian-Terminal/releases/download/1.0.0/styles.css' -OutFile 'C:/Users/28443/.obsidian/plugins/obsidian-terminal/styles.css'\")",
+      "Bash(mkdir -p \"C:/Users/28443/Documents/Obsidian Vault/.obsidian/plugins/obsidian-terminal\")",
+      "Bash(cp \"C:/Users/28443/.obsidian/plugins/obsidian-terminal/\"* \"C:/Users/28443/Documents/Obsidian Vault/.obsidian/plugins/obsidian-terminal/\")",
+      "Read(//c/Users/28443/obsidian-terminal-src/**)",
+      "Bash(npm install:*)",
+      "Bash(npm run:*)",
+      "Bash(rm -rf \"C:/Users/28443/Documents/Obsidian Vault/.obsidian/plugins/obsidian-terminal\")",
+      "Bash(cp -r /c/Users/28443/obsidian-terminal-src/main.js \"C:/Users/28443/Documents/Obsidian Vault/.obsidian/plugins/obsidian-terminal/\")",
+      "Bash(cp -r /c/Users/28443/obsidian-terminal-src/manifest.json \"C:/Users/28443/Documents/Obsidian Vault/.obsidian/plugins/obsidian-terminal/\")",
+      "Bash(cp -r /c/Users/28443/obsidian-terminal-src/styles.css \"C:/Users/28443/Documents/Obsidian Vault/.obsidian/plugins/obsidian-terminal/\")",
+      "Bash(cp -r /c/Users/28443/obsidian-terminal-src/ptyHost.js \"C:/Users/28443/Documents/Obsidian Vault/.obsidian/plugins/obsidian-terminal/\")",
+      "Bash(ls /c/Users/28443/obsidian-terminal-src/*.css)"
+    ]
+  }
+}

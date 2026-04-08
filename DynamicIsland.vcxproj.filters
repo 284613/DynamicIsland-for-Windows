@@ -1,159 +1,191 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
-    <Filter Include="源文件">
+    <Filter Include="Source Files">
       <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
       <Extensions>cpp;c;cc;cxx;c++;cppm;ixx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
     </Filter>
-    <Filter Include="头文件">
+    <Filter Include="Header Files">
       <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
       <Extensions>h;hh;hpp;hxx;h++;hm;inl;inc;ipp;xsd</Extensions>
     </Filter>
-    <Filter Include="资源文件">
+    <Filter Include="Resource Files">
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
+    <Filter Include="Source Files\components">
+      <UniqueIdentifier>{5463765e-3891-4934-8b65-667784321001}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\components">
+      <UniqueIdentifier>{a1234567-b89c-4d01-e234-f567890abcde}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="NetworkDiscovery.h">
-      <Filter>头文件</Filter>
+    <ClInclude Include="include\components\AlertComponent.h">
+      <Filter>Header Files\components</Filter>
     </ClInclude>
-    <ClInclude Include="IslandManager_temp.h">
-      <Filter>头文件</Filter>
+    <ClInclude Include="include\components\MusicPlayerComponent.h">
+      <Filter>Header Files\components</Filter>
     </ClInclude>
-    <ClInclude Include="SpotifyClient.h">
-      <Filter>头文件</Filter>
+    <ClInclude Include="include\components\VolumeComponent.h">
+      <Filter>Header Files\components</Filter>
     </ClInclude>
-    <ClInclude Include="PluginManager.h">
-      <Filter>头文件</Filter>
+    <ClInclude Include="include\components\FilePanelComponent.h">
+      <Filter>Header Files\components</Filter>
     </ClInclude>
-    <ClInclude Include="LanTransferManager.h">
-      <Filter>头文件</Filter>
+    <ClInclude Include="include\ConnectionMonitor.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="VolumeOSDController.h">
-      <Filter>头文件</Filter>
+    <ClInclude Include="include\IslandState.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="PomodoroTimer.h">
-      <Filter>头文件</Filter>
+    <ClInclude Include="include\Constants.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="RenderEngine.h">
-      <Filter>头文件</Filter>
+    <ClInclude Include="include\DropManager.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="Spring.h">
-      <Filter>头文件</Filter>
+    <ClInclude Include="include\DynamicIsland.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="Constants.h">
-      <Filter>头文件</Filter>
+    <ClInclude Include="include\EventBus.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="EventBus.h">
-      <Filter>头文件</Filter>
+    <ClInclude Include="include\FilePanelWindow.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="SystemMonitor.h">
-      <Filter>头文件</Filter>
+    <ClInclude Include="include\IMessageHandler.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="ThreadSafeQueue.h">
-      <Filter>头文件</Filter>
+    <ClInclude Include="include\IslandManager.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="SettingsWindow.h">
-      <Filter>头文件</Filter>
+    <ClInclude Include="include\LanTransferManager.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="DynamicIsland.h">
-      <Filter>头文件</Filter>
+    <ClInclude Include="include\LyricsMonitor.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="FilePanelWindow.h">
-      <Filter>头文件</Filter>
+    <ClInclude Include="include\MediaMonitor.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="Messages.h">
-      <Filter>头文件</Filter>
+    <ClInclude Include="include\Messages.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="LyricsMonitor.h">
-      <Filter>头文件</Filter>
+    <ClInclude Include="include\NetworkDiscovery.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="ConnectionMonitor.h">
-      <Filter>头文件</Filter>
+    <ClInclude Include="include\NotificationMonitor.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="DropManager.h">
-      <Filter>头文件</Filter>
+    <ClInclude Include="include\PluginManager.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="MediaMonitor.h">
-      <Filter>头文件</Filter>
+    <ClInclude Include="include\PomodoroTimer.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="WindowManager.h">
-      <Filter>头文件</Filter>
+    <ClInclude Include="include\RenderEngine.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="Resource.h">
-      <Filter>头文件</Filter>
+    <ClInclude Include="include\Resource.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="NotificationMonitor.h">
-      <Filter>头文件</Filter>
+    <ClInclude Include="include\SettingsWindow.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="IMessageHandler.h">
-      <Filter>头文件</Filter>
+    <ClInclude Include="include\SpotifyClient.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="Components\AlertComponent.h">
-      <Filter>头文件</Filter>
+    <ClInclude Include="include\Spring.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="Components\MusicPlayerComponent.h">
-      <Filter>头文件</Filter>
+    <ClInclude Include="include\SystemMonitor.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="Components\VolumeComponent.h">
-      <Filter>头文件</Filter>
+    <ClInclude Include="include\ThreadSafeQueue.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="IslandState.h">
-      <Filter>头文件</Filter>
+    <ClInclude Include="include\VolumeOSDController.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="WeatherPlugin.h">
-      <Filter>头文件</Filter>
+    <ClInclude Include="include\WeatherPlugin.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="include\WindowManager.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="include\LayoutController.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="include\framework.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="include\targetver.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="include\Logger.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="RenderEngine.cpp">
-      <Filter>源文件</Filter>
+    <ClCompile Include="src\components\AlertComponent.cpp">
+      <Filter>Source Files\components</Filter>
     </ClCompile>
-    <ClCompile Include="MediaMonitor.cpp">
-      <Filter>源文件</Filter>
+    <ClCompile Include="src\components\MusicPlayerComponent.cpp">
+      <Filter>Source Files\components</Filter>
     </ClCompile>
-    <ClCompile Include="SystemMonitor.cpp">
-      <Filter>源文件</Filter>
+    <ClCompile Include="src\components\VolumeComponent.cpp">
+      <Filter>Source Files\components</Filter>
     </ClCompile>
-    <ClCompile Include="DynamicIsland.cpp">
-      <Filter>源文件</Filter>
+    <ClCompile Include="src\components\FilePanelComponent.cpp">
+      <Filter>Source Files\components</Filter>
     </ClCompile>
-    <ClCompile Include="FilePanelWindow.cpp">
-      <Filter>源文件</Filter>
+    <ClCompile Include="src\ConnectionMonitor.cpp">
+      <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="LyricsMonitor.cpp">
-      <Filter>源文件</Filter>
+    <ClCompile Include="src\DynamicIsland.cpp">
+      <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="NotificationMonitor.cpp">
-      <Filter>源文件</Filter>
+    <ClCompile Include="src\FilePanelWindow.cpp">
+      <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="main.cpp">
-      <Filter>源文件</Filter>
+    <ClCompile Include="src\LyricsMonitor.cpp">
+      <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="WindowManager.cpp">
-      <Filter>源文件</Filter>
+    <ClCompile Include="src\main.cpp">
+      <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="ConnectionMonitor.cpp">
-      <Filter>源文件</Filter>
+    <ClCompile Include="src\MediaMonitor.cpp">
+      <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="TaskDetector.cpp">
-      <Filter>源文件</Filter>
+    <ClCompile Include="src\NotificationMonitor.cpp">
+      <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="Components\AlertComponent.cpp">
-      <Filter>源文件</Filter>
+    <ClCompile Include="src\RenderEngine.cpp">
+      <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="Components\MusicPlayerComponent.cpp">
-      <Filter>源文件</Filter>
+    <ClCompile Include="src\SystemMonitor.cpp">
+      <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="Components\VolumeComponent.cpp">
-      <Filter>源文件</Filter>
+    <ClCompile Include="src\TaskDetector.cpp">
+      <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="WeatherPlugin.cpp">
-      <Filter>源文件</Filter>
+    <ClCompile Include="src\WeatherPlugin.cpp">
+      <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="LayoutController.cpp">
-      <Filter>源文件</Filter>
+    <ClCompile Include="src\WindowManager.cpp">
+      <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\LayoutController.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\SettingsWindow.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="resources\Dynamic Island.rc">
+      <Filter>Resource Files</Filter>
+    </ResourceCompile>
   </ItemGroup>
 </Project>

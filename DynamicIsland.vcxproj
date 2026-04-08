@@ -103,7 +103,7 @@
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <AdditionalIncludeDirectories>C:\Users\28443\.openclaw\workspace\temp\zlib-install;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>include;C:\Users\28443\.openclaw\workspace\temp\zlib-install;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
@@ -124,7 +124,7 @@
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <AdditionalOptions>/utf-8 /FS</AdditionalOptions>
-      <AdditionalIncludeDirectories>C:\Users\28443\.openclaw\workspace\temp\zlib-install;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>include;C:\Users\28443\.openclaw\workspace\temp\zlib-install;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -134,56 +134,64 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="Components\AlertComponent.h" />
-    <ClInclude Include="Components\MusicPlayerComponent.h" />
-    <ClInclude Include="Components\VolumeComponent.h" />
-    <ClInclude Include="Components\FilePanelComponent.h" />
-    <ClInclude Include="ConnectionMonitor.h" />
-    <ClInclude Include="IslandState.h" />
-    <ClInclude Include="Constants.h" />
-    <ClInclude Include="DropManager.h" />
-    <ClInclude Include="DynamicIsland.h" />
-    <ClInclude Include="EventBus.h" />
-    <ClInclude Include="FilePanelWindow.h" />
-    <ClInclude Include="IMessageHandler.h" />
-    <ClInclude Include="IslandManager_temp.h" />
-    <ClInclude Include="LanTransferManager.h" />
-    <ClInclude Include="LyricsMonitor.h" />
-    <ClInclude Include="MediaMonitor.h" />
-    <ClInclude Include="Messages.h" />
-    <ClInclude Include="NetworkDiscovery.h" />
-    <ClInclude Include="NotificationMonitor.h" />
-    <ClInclude Include="PluginManager.h" />
-    <ClInclude Include="PomodoroTimer.h" />
-    <ClInclude Include="RenderEngine.h" />
-    <ClInclude Include="Resource.h" />
-    <ClInclude Include="SettingsWindow.h" />
-    <ClInclude Include="SpotifyClient.h" />
-    <ClInclude Include="Spring.h" />
-    <ClInclude Include="SystemMonitor.h" />
-    <ClInclude Include="ThreadSafeQueue.h" />
-    <ClInclude Include="VolumeOSDController.h" />
-    <ClInclude Include="WeatherPlugin.h" />
-    <ClInclude Include="WindowManager.h" />
+    <ClInclude Include="include\components\AlertComponent.h" />
+    <ClInclude Include="include\components\MusicPlayerComponent.h" />
+    <ClInclude Include="include\components\VolumeComponent.h" />
+    <ClInclude Include="include\components\FilePanelComponent.h" />
+    <ClInclude Include="include\ConnectionMonitor.h" />
+    <ClInclude Include="include\IslandState.h" />
+    <ClInclude Include="include\Constants.h" />
+    <ClInclude Include="include\DropManager.h" />
+    <ClInclude Include="include\DynamicIsland.h" />
+    <ClInclude Include="include\EventBus.h" />
+    <ClInclude Include="include\FilePanelWindow.h" />
+    <ClInclude Include="include\IMessageHandler.h" />
+    <ClInclude Include="include\IslandManager.h" />
+    <ClInclude Include="include\LanTransferManager.h" />
+    <ClInclude Include="include\LyricsMonitor.h" />
+    <ClInclude Include="include\MediaMonitor.h" />
+    <ClInclude Include="include\Messages.h" />
+    <ClInclude Include="include\NetworkDiscovery.h" />
+    <ClInclude Include="include\NotificationMonitor.h" />
+    <ClInclude Include="include\PluginManager.h" />
+    <ClInclude Include="include\PomodoroTimer.h" />
+    <ClInclude Include="include\RenderEngine.h" />
+    <ClInclude Include="include\Resource.h" />
+    <ClInclude Include="include\SettingsWindow.h" />
+    <ClInclude Include="include\SpotifyClient.h" />
+    <ClInclude Include="include\Spring.h" />
+    <ClInclude Include="include\SystemMonitor.h" />
+    <ClInclude Include="include\ThreadSafeQueue.h" />
+    <ClInclude Include="include\VolumeOSDController.h" />
+    <ClInclude Include="include\WeatherPlugin.h" />
+    <ClInclude Include="include\WindowManager.h" />
+    <ClInclude Include="include\LayoutController.h" />
+    <ClInclude Include="include\framework.h" />
+    <ClInclude Include="include\targetver.h" />
+    <ClInclude Include="include\Logger.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="Components\AlertComponent.cpp" />
-    <ClCompile Include="Components\MusicPlayerComponent.cpp" />
-    <ClCompile Include="Components\VolumeComponent.cpp" />
-    <ClCompile Include="Components\FilePanelComponent.cpp" />
-    <ClCompile Include="ConnectionMonitor.cpp" />
-    <ClCompile Include="DynamicIsland.cpp" />
-    <ClCompile Include="FilePanelWindow.cpp" />
-    <ClCompile Include="LyricsMonitor.cpp" />
-    <ClCompile Include="main.cpp" />
-    <ClCompile Include="MediaMonitor.cpp" />
-    <ClCompile Include="NotificationMonitor.cpp" />
-    <ClCompile Include="RenderEngine.cpp" />
-    <ClCompile Include="SystemMonitor.cpp" />
-    <ClCompile Include="TaskDetector.cpp" />
-    <ClCompile Include="WeatherPlugin.cpp" />
-    <ClCompile Include="WindowManager.cpp" />
-    <ClCompile Include="LayoutController.cpp" />
+    <ClCompile Include="src\components\AlertComponent.cpp" />
+    <ClCompile Include="src\components\MusicPlayerComponent.cpp" />
+    <ClCompile Include="src\components\VolumeComponent.cpp" />
+    <ClCompile Include="src\components\FilePanelComponent.cpp" />
+    <ClCompile Include="src\ConnectionMonitor.cpp" />
+    <ClCompile Include="src\DynamicIsland.cpp" />
+    <ClCompile Include="src\FilePanelWindow.cpp" />
+    <ClCompile Include="src\LyricsMonitor.cpp" />
+    <ClCompile Include="src\main.cpp" />
+    <ClCompile Include="src\MediaMonitor.cpp" />
+    <ClCompile Include="src\NotificationMonitor.cpp" />
+    <ClCompile Include="src\RenderEngine.cpp" />
+    <ClCompile Include="src\SystemMonitor.cpp" />
+    <ClCompile Include="src\TaskDetector.cpp" />
+    <ClCompile Include="src\WeatherPlugin.cpp" />
+    <ClCompile Include="src\WindowManager.cpp" />
+    <ClCompile Include="src\LayoutController.cpp" />
+    <ClCompile Include="src\SettingsWindow.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="resources\Dynamic Island.rc" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
