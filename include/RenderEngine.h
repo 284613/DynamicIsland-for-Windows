@@ -69,6 +69,7 @@ public:
 private:
     void DrawWeatherExpanded(const RenderContext& ctx, float left, float top, float right, float bottom, float islandWidth, float islandHeight);
     void DrawWeatherDaily(const RenderContext& ctx, float left, float top, float right, float bottom, float islandWidth, float islandHeight);
+    void DrawWeatherAmbientBg(float L, float T, float R, float B, float alpha, ULONGLONG currentTime);
     // 新增：绘制播放控制按钮（仅在展开模式且有媒体会话时显示）
     void DrawPlaybackButtons(float left, float top, float buttonSize, float contentAlpha, bool isPlaying);
 
