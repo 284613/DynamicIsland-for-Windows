@@ -15,6 +15,8 @@
 #include "IslandState.h"
 #include "components/IIslandComponent.h"
 #include "components/WeatherComponent.h"
+#include "components/WaveformComponent.h"
+#include "components/LyricsComponent.h"
 #include <vector>
 #include <utility>
 #pragma comment(lib, "dcomp.lib")
@@ -84,6 +86,9 @@ private:
 
     // PR2: 天气组件（已组件化）
     std::unique_ptr<WeatherComponent> m_weatherComponent;
+    // PR3: 歌词和波形组件（已组件化）
+    std::unique_ptr<LyricsComponent>  m_lyricsComponent;
+    std::unique_ptr<WaveformComponent> m_waveformComponent;
 
     // 组件注册表（PR1 骨架，后续各 PR 逐步填充）
     void RegisterComponents();

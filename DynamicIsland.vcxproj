@@ -140,6 +140,8 @@
     <ClInclude Include="include\components\FilePanelComponent.h" />
     <ClInclude Include="include\components\IIslandComponent.h" />
     <ClInclude Include="include\components\WeatherComponent.h" />
+    <ClInclude Include="include\components\WaveformComponent.h" />
+    <ClInclude Include="include\components\LyricsComponent.h" />
     <ClInclude Include="include\ConnectionMonitor.h" />
     <ClInclude Include="include\IslandState.h" />
     <ClInclude Include="include\Constants.h" />
@@ -178,6 +180,8 @@
     <ClCompile Include="src\components\VolumeComponent.cpp" />
     <ClCompile Include="src\components\FilePanelComponent.cpp" />
     <ClCompile Include="src\components\WeatherComponent.cpp" />
+    <ClCompile Include="src\components\WaveformComponent.cpp" />
+    <ClCompile Include="src\components\LyricsComponent.cpp" />
     <ClCompile Include="src\ConnectionMonitor.cpp" />
     <ClCompile Include="src\DynamicIsland.cpp" />
     <ClCompile Include="src\FilePanelWindow.cpp" />

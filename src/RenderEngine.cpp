@@ -641,6 +641,12 @@ void RenderEngine::RegisterComponents() {
 	// PR2: 初始化天气组件
 	m_weatherComponent = std::make_unique<WeatherComponent>();
 	m_weatherComponent->OnAttach(&m_sharedRes);
+
+	// PR3: 初始化歌词和波形组件
+	m_lyricsComponent = std::make_unique<LyricsComponent>();
+	m_lyricsComponent->OnAttach(&m_sharedRes);
+	m_waveformComponent = std::make_unique<WaveformComponent>();
+	m_waveformComponent->OnAttach(&m_sharedRes);
 }
 
 void RenderEngine::SetDpi(float dpi) {
@@ -3768,7 +3774,16 @@ void RenderEngine::UpdateScroll(float deltaTime, float audioLevel, float islandH
 
 	}
 
-
+	// PR3: 同步驱动新组件（过渡期并行运行）
+	if (m_lyricsComponent) {
+		m_lyricsComponent->SetLyric(lyric);
+		m_lyricsComponent->Update(deltaTime);
+	}
+	if (m_waveformComponent) {
+		m_waveformComponent->SetAudioLevel(audioLevel);
+		m_waveformComponent->SetIslandHeight(islandHeight);
+		m_waveformComponent->Update(deltaTime);
+	}
 
 }
 
