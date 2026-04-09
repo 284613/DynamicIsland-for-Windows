@@ -1064,7 +1064,10 @@ void RenderEngine::DrawCapsule(const RenderContext& ctx)
 		bool compactMode = (islandHeight >= 35.0f && islandHeight < COMPACT_THRESHOLD);
 
 		if (ctx.mode == IslandDisplayMode::WeatherExpanded) {
-			DrawWeatherExpanded(ctx, left, top, right, bottom, islandWidth, islandHeight);
+			if (ctx.weatherViewMode == WeatherViewMode::Daily)
+				DrawWeatherDaily(ctx, left, top, right, bottom, islandWidth, islandHeight);
+			else
+				DrawWeatherExpanded(ctx, left, top, right, bottom, islandWidth, islandHeight);
 		}
 		else if (m_isAlertActive)
 
@@ -5105,6 +5108,87 @@ case WeatherType::PartlyCloudy: {
 
 }
 
+void RenderEngine::DrawWeatherDaily(const RenderContext& ctx, float left, float top, float right, float bottom, float islandWidth, float islandHeight) {
+    float padding = 15.0f;
+    float cardTop = top + padding;
+    float cardBottom = bottom - padding;
+
+    // 半透明底板（整行）
+    ComPtr<ID2D1SolidColorBrush> glassBrush;
+    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.15f, 0.15f, 0.15f, 0.4f * ctx.contentAlpha), &glassBrush);
+    D2D1_ROUNDED_RECT bgCard = D2D1::RoundedRect(D2D1::RectF(left + padding, cardTop, right - padding, cardBottom), 16.0f, 16.0f);
+    m_d2dContext->FillRoundedRectangle(&bgCard, glassBrush.Get());
+
+    // "逐日预报" 标题
+    std::wstring titleText = L"未来天气";
+    ComPtr<IDWriteTextFormat> titleFmt;
+    m_dwriteFactory->CreateTextFormat(L"Microsoft YaHei", nullptr, DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 11.0f, L"zh-cn", &titleFmt);
+    m_grayBrush->SetOpacity(ctx.contentAlpha * 0.7f);
+    m_d2dContext->DrawTextW(titleText.c_str(), (UINT32)titleText.size(), titleFmt.Get(),
+        D2D1::RectF(left + padding + 10.0f, cardTop + 4.0f, right - padding, cardTop + 20.0f), m_grayBrush.Get());
+
+    if (ctx.dailyForecasts.empty()) {
+        std::wstring emptyText = L"暂无预报数据";
+        m_grayBrush->SetOpacity(ctx.contentAlpha);
+        auto emptyLayout = GetOrCreateTextLayout(emptyText, m_textFormatSub.Get(), islandWidth, L"df_empty");
+        emptyLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        m_d2dContext->DrawTextLayout(D2D1::Point2F(left + padding, cardTop + (cardBottom - cardTop) / 2.0f - 8.0f), emptyLayout.Get(), m_grayBrush.Get());
+        return;
+    }
+
+    // 每列宽度（最多显示7天）
+    size_t count = min(ctx.dailyForecasts.size(), (size_t)7);
+    float totalW = (right - padding) - (left + padding) - 20.0f;
+    float cellW = totalW / (float)count;
+    float dataTop = cardTop + 22.0f;
+    float dataBottom = cardBottom - 6.0f;
+    float cellH = dataBottom - dataTop;
+
+    ULONGLONG currentTime = GetTickCount64();
+
+    for (size_t i = 0; i < count; ++i) {
+        const auto& df = ctx.dailyForecasts[i];
+        float cellX = left + padding + 10.0f + i * cellW;
+
+        // 日期
+        m_grayBrush->SetOpacity(ctx.contentAlpha * 0.8f);
+        auto dateLayout = GetOrCreateTextLayout(df.date, m_textFormatSub.Get(), cellW, L"df_date_" + df.date + std::to_wstring(i));
+        dateLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        m_d2dContext->DrawTextLayout(D2D1::Point2F(cellX, dataTop), dateLayout.Get(), m_grayBrush.Get());
+
+        // 天气图标（小尺寸）
+        float iconSize = 22.0f;
+        float iconX = cellX + (cellW - iconSize) / 2.0f;
+        float iconY = dataTop + 16.0f;
+        WeatherType savedType = m_weatherType;
+        m_weatherType = MapWeatherDescToType(df.textDay);
+        DrawWeatherIcon(iconX, iconY, iconSize, ctx.contentAlpha, currentTime);
+        m_weatherType = savedType;
+
+        // 最高温
+        std::wstring maxText = std::to_wstring((int)df.tempMax) + L"\u00B0";
+        m_whiteBrush->SetOpacity(ctx.contentAlpha);
+        auto maxLayout = GetOrCreateTextLayout(maxText, m_textFormatTitle.Get(), cellW, L"df_max_" + maxText + std::to_wstring(i));
+        maxLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        m_d2dContext->DrawTextLayout(D2D1::Point2F(cellX, dataTop + 42.0f), maxLayout.Get(), m_whiteBrush.Get());
+
+        // 最低温
+        std::wstring minText = std::to_wstring((int)df.tempMin) + L"\u00B0";
+        m_grayBrush->SetOpacity(ctx.contentAlpha * 0.7f);
+        auto minLayout = GetOrCreateTextLayout(minText, m_textFormatSub.Get(), cellW, L"df_min_" + minText + std::to_wstring(i));
+        minLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        m_d2dContext->DrawTextLayout(D2D1::Point2F(cellX, dataTop + 60.0f), minLayout.Get(), m_grayBrush.Get());
+    }
+
+    // 底部提示：滚轮切换
+    std::wstring hint = L"↑ 逐小时";
+    m_grayBrush->SetOpacity(ctx.contentAlpha * 0.45f);
+    ComPtr<IDWriteTextFormat> hintFmt;
+    m_dwriteFactory->CreateTextFormat(L"Microsoft YaHei", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 9.0f, L"zh-cn", &hintFmt);
+    m_d2dContext->DrawTextW(hint.c_str(), (UINT32)hint.size(), hintFmt.Get(),
+        D2D1::RectF(right - padding - 60.0f, cardBottom - 14.0f, right - padding, cardBottom), m_grayBrush.Get());
+}
+
 void RenderEngine::DrawWeatherExpanded(const RenderContext& ctx, float left, float top, float right, float bottom, float islandWidth, float islandHeight) {
     float padding = 15.0f;
     float cardTop = top + padding;
@@ -5197,6 +5281,14 @@ void RenderEngine::DrawWeatherExpanded(const RenderContext& ctx, float left, flo
         emptyLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
         m_d2dContext->DrawTextLayout(D2D1::Point2F(rightCardLeft, cardTop + (cardBottom - cardTop) / 2.0f - 10.0f), emptyLayout.Get(), m_grayBrush.Get());
     }
+
+    // 底部提示：向下滚动切换到逐日
+    std::wstring hint = L"↓ 逐日预报";
+    m_grayBrush->SetOpacity(ctx.contentAlpha * 0.45f);
+    ComPtr<IDWriteTextFormat> hintFmt;
+    m_dwriteFactory->CreateTextFormat(L"Microsoft YaHei", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 9.0f, L"zh-cn", &hintFmt);
+    m_d2dContext->DrawTextW(hint.c_str(), (UINT32)hint.size(), hintFmt.Get(),
+        D2D1::RectF(right - padding - 70.0f, bottom - padding - 14.0f, right - padding, bottom - padding), m_grayBrush.Get());
 }
 
 

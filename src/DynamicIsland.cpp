@@ -1324,6 +1324,12 @@ void DynamicIsland::UpdatePhysics() {
 		for (const auto& hf : srcForecasts) {
 			ctx.hourlyForecasts.push_back({hf.time, hf.icon, hf.text, hf.temp});
 		}
+
+		auto srcDaily = m_systemMonitor.GetWeatherPlugin()->GetDailyForecast();
+		ctx.dailyForecasts.clear();
+		for (const auto& df : srcDaily) {
+			ctx.dailyForecasts.push_back({df.date, df.iconDay, df.textDay, df.tempMax, df.tempMin});
+		}
 	} else {
 		ctx.weatherIconId = L"100";
 		ctx.weatherSuggestion = L"无数据";
@@ -1371,6 +1377,8 @@ void DynamicIsland::UpdatePhysics() {
 	ctx.weatherDesc = m_weatherDesc;
 
 	ctx.weatherTemp = m_weatherTemp;
+
+	ctx.weatherViewMode = m_weatherViewMode;
 
 	ctx.mode = mode;
 
@@ -3476,11 +3484,20 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 	case WM_MOUSEWHEEL: {
-		// 【修改】仅在音乐模式（展开/紧凑）且确实有音乐会话时允许调整音量
 		IslandDisplayMode currentMode = DetermineDisplayMode();
-		bool hasMusic = (currentMode == IslandDisplayMode::MusicCompact || 
+
+		// 天气展开模式：滚轮切换 逐小时 ↔ 逐日
+		if (currentMode == IslandDisplayMode::WeatherExpanded) {
+			int delta = GET_WHEEL_DELTA_WPARAM(wParam);
+			m_weatherViewMode = (delta > 0) ? WeatherViewMode::Hourly : WeatherViewMode::Daily;
+			EnsureRenderLoopRunning();
+			return 0;
+		}
+
+		// 【修改】仅在音乐模式（展开/紧凑）且确实有音乐会话时允许调整音量
+		bool hasMusic = (currentMode == IslandDisplayMode::MusicCompact ||
 		                 (currentMode == IslandDisplayMode::MusicExpanded && m_mediaMonitor.HasSession()));
-		
+
 		if (!hasMusic && !m_isVolumeControlActive) {
 			return 0;
 		}

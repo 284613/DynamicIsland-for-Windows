@@ -20,6 +20,7 @@ public:
     float GetTemperature() const override { return m_temperature; }
     std::wstring GetIconId() const override { return m_iconId; }
     std::vector<HourlyForecast> GetHourlyForecast() const override { return m_hourlyForecasts; }
+    std::vector<DailyForecast> GetDailyForecast() const override { return m_dailyForecasts; }
     std::wstring GetLifeSuggestion() const override { return m_lifeSuggestion; }
     bool HasSevereWarning() const override { return m_hasSevereWarning; }
 
@@ -34,6 +35,7 @@ private:
     float m_temperature = 0.0f;
     std::wstring m_iconId = L"100";
     std::vector<HourlyForecast> m_hourlyForecasts;
+    std::vector<DailyForecast> m_dailyForecasts;
     std::wstring m_lifeSuggestion;
     bool m_hasSevereWarning = false;
 

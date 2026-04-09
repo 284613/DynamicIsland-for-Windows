@@ -524,10 +524,52 @@ void WeatherPlugin::FetchWeather() {
             }
         }
 
+        // ------------------ 获取逐日预报 (7天) ------------------
+        snprintf(path, sizeof(path),
+            "/v7/weather/7d?location=%s&key=%s",
+            g_locationId, g_apiKey.c_str());
+        std::string respDaily = HttpGetGzip(QWEATHER_HOST, path, true);
+        if (!respDaily.empty() && ExtractJsonField(respDaily, "code") == "200") {
+            std::vector<DailyForecast> dailyForecasts;
+            for (int i = 0; i < 7; ++i) {
+                std::string dateStr    = ExtractJsonArrayField(respDaily, "daily", i, "fxDate");
+                std::string tmaxStr    = ExtractJsonArrayField(respDaily, "daily", i, "tempMax");
+                std::string tminStr    = ExtractJsonArrayField(respDaily, "daily", i, "tempMin");
+                std::string iconStr    = ExtractJsonArrayField(respDaily, "daily", i, "iconDay");
+                std::string textStr    = ExtractJsonArrayField(respDaily, "daily", i, "textDay");
+                if (dateStr.empty() || tmaxStr.empty()) break;
+
+                DailyForecast df;
+                df.tempMax = (float)std::atof(tmaxStr.c_str());
+                df.tempMin = (float)std::atof(tminStr.c_str());
+
+                // fxDate 格式 "2021-02-16"，提取 "02-16"
+                if (dateStr.size() >= 7) {
+                    std::string mmdd = dateStr.substr(5);
+                    int wlen = MultiByteToWideChar(CP_UTF8, 0, mmdd.c_str(), -1, NULL, 0);
+                    if (wlen > 0) { df.date.resize(wlen - 1); MultiByteToWideChar(CP_UTF8, 0, mmdd.c_str(), -1, &df.date[0], wlen); }
+                }
+
+                auto toWide = [](const std::string& s, std::wstring& out) {
+                    if (s.empty()) return;
+                    int wlen = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, NULL, 0);
+                    if (wlen > 0) { out.resize(wlen - 1); MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, &out[0], wlen); }
+                };
+                toWide(iconStr, df.iconDay);
+                toWide(textStr, df.textDay);
+
+                dailyForecasts.push_back(df);
+            }
+            m_dailyForecasts = dailyForecasts;
+            OutputDebugStringA(("[Weather] Daily parsed count: " + std::to_string(dailyForecasts.size()) + "\n").c_str());
+        } else {
+            OutputDebugStringA("[Weather] Daily API failed or empty\n");
+        }
+
         // 调试输出
         wchar_t dbg[512];
-        swprintf_s(dbg, L"[Weather] %ls | %hsC | hourly count: %zu\n",
-            m_description.c_str(), temp.c_str(), m_hourlyForecasts.size());
+        swprintf_s(dbg, L"[Weather] %ls | %hsC | hourly count: %zu | daily count: %zu\n",
+            m_description.c_str(), temp.c_str(), m_hourlyForecasts.size(), m_dailyForecasts.size());
         OutputDebugStringW(dbg);
 
         isFetching = false;
