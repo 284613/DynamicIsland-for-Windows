@@ -5192,7 +5192,13 @@ void RenderEngine::DrawWeatherDaily(const RenderContext& ctx, float left, float 
 // =====================================================================
 // DrawWeatherAmbientBg — 意境动态背景（替代天气图标，填充整张左卡）
 // =====================================================================
-void RenderEngine::DrawWeatherAmbientBg(float L, float T, float R, float B, float alpha, ULONGLONG /*currentTime*/) {
+void RenderEngine::DrawWeatherAmbientBg(float L, float T, float R, float B, float alpha, ULONGLONG currentTime) {
+    // 在展开面板中主动推进动画 phase（紧凑模式的 phase 更新路径不会执行到这里）
+    if (m_lastWeatherAnimTime == 0) m_lastWeatherAnimTime = currentTime;
+    float dt = (float)(currentTime - m_lastWeatherAnimTime) / 1000.0f;
+    if (dt > 0.0f && dt < 0.5f) m_weatherAnimPhase += dt * 2.0f;
+    m_lastWeatherAnimTime = currentTime;
+
     float W = R - L;
     float H = B - T;
     float cx = L + W * 0.5f;
@@ -5587,7 +5593,7 @@ void RenderEngine::DrawWeatherExpanded(const RenderContext& ctx, float left, flo
     }
 
     // ======= 左侧文字覆盖层 =======
-    // 温度（大字，底部居中）
+    // 温度（大字，底部偏上居中）
     std::wstring tempText = std::to_wstring((int)ctx.weatherTemp) + L"\u00B0";
     ComPtr<IDWriteTextFormat> hugeTempFormat;
     m_dwriteFactory->CreateTextFormat(L"Microsoft YaHei", nullptr, DWRITE_FONT_WEIGHT_BOLD,
@@ -5595,18 +5601,18 @@ void RenderEngine::DrawWeatherExpanded(const RenderContext& ctx, float left, flo
     hugeTempFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
     m_whiteBrush->SetOpacity(ctx.contentAlpha);
     m_d2dContext->DrawTextW(tempText.c_str(), (UINT32)tempText.length(), hugeTempFormat.Get(),
-        D2D1::RectF(leftCardLeft, cardBottom-52.0f, leftCardLeft+cardWidth, cardBottom-10.0f),
+        D2D1::RectF(leftCardLeft, cardBottom-62.0f, leftCardLeft+cardWidth, cardBottom-22.0f),
         m_whiteBrush.Get());
 
-    // 天气描述（温度正上方，暗色居中）
+    // 天气描述（温度正下方，暗色居中）
     ComPtr<IDWriteTextFormat> descFmt;
     m_dwriteFactory->CreateTextFormat(L"Microsoft YaHei", nullptr, DWRITE_FONT_WEIGHT_NORMAL,
         DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 10.0f, L"zh-cn", &descFmt);
     descFmt->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-    m_grayBrush->SetOpacity(ctx.contentAlpha * 0.55f);
+    m_grayBrush->SetOpacity(ctx.contentAlpha * 0.60f);
     m_d2dContext->DrawTextW(ctx.weatherDesc.c_str(), (UINT32)ctx.weatherDesc.length(),
         descFmt.Get(),
-        D2D1::RectF(leftCardLeft, cardBottom-66.0f, leftCardLeft+cardWidth, cardBottom-52.0f),
+        D2D1::RectF(leftCardLeft, cardBottom-20.0f, leftCardLeft+cardWidth, cardBottom-4.0f),
         m_grayBrush.Get());
 
     // ======= 右侧：逐小时预报 2x3 网格 =======
