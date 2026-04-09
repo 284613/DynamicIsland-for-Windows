@@ -1092,6 +1092,9 @@ void RenderEngine::DrawCapsule(const RenderContext& ctx)
 				m_weatherComponent->Draw(weatherRect, contentAlpha, GetTickCount64());
 			}
 		}
+		// 面板关闭时重置展开状态，下次打开时触发动画重置
+		if (ctx.mode != IslandDisplayMode::WeatherExpanded && m_weatherComponent)
+			m_weatherComponent->SetExpanded(false);
 		else if (m_isAlertActive)
 
 		{
