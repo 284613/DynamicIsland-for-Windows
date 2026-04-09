@@ -5196,7 +5196,7 @@ void RenderEngine::DrawWeatherAmbientBg(float L, float T, float R, float B, floa
     // 在展开面板中主动推进动画 phase（紧凑模式的 phase 更新路径不会执行到这里）
     if (m_lastWeatherAnimTime == 0) m_lastWeatherAnimTime = currentTime;
     float dt = (float)(currentTime - m_lastWeatherAnimTime) / 1000.0f;
-    if (dt > 0.0f && dt < 0.5f) m_weatherAnimPhase += dt * 2.0f;
+    if (dt > 0.0f && dt < 0.5f) m_weatherAnimPhase += dt * 3.0f;
     m_lastWeatherAnimTime = currentTime;
 
     float W = R - L;
@@ -5430,7 +5430,7 @@ void RenderEngine::DrawWeatherAmbientBg(float L, float T, float R, float B, floa
     }
 
     // ================================================================
-    // 多云 / 阴天 — 晴空飘来云朵逐渐遮盖，之后持续流动
+    // 多云 / 阴天 — 云朵一次性飘入遮天，之后只做风吹漂移
     // ================================================================
     case WeatherType::PartlyCloudy:
     case WeatherType::Cloudy:
@@ -5439,12 +5439,16 @@ void RenderEngine::DrawWeatherAmbientBg(float L, float T, float R, float B, floa
         SYSTEMTIME st; GetLocalTime(&st);
         bool isNight = (st.wHour < 6 || st.wHour >= 18);
 
-        // ---- 遮蔽度：0=晴朗 → maxCov=遮盖峰值，以慢速正弦振荡 ----
-        float maxCov   = partlyCloudy ? 0.52f : 0.88f;
-        float cycleSec = partlyCloudy ? 22.0f : 18.0f;   // phase 单位周期
-        float cover    = maxCov * 0.5f * (1.0f - cosf(fmodf(t, cycleSec) / cycleSec * 6.28318f));
+        // ---- cover：单次缓入到最终值后保持不变 ----
+        // t 在 DrawWeatherAmbientBg 里以 2单位/秒 累积
+        // entryDur=3.0 → 约1.5秒完成入场
+        float maxCov  = partlyCloudy ? 0.55f : 0.90f;
+        float entryDur = 3.0f;   // phase 单位，1.5秒
+        float rawT = fminf(t / entryDur, 1.0f);
+        // 三次缓出：smoothstep
+        float cover = maxCov * rawT * rawT * (3.0f - 2.0f * rawT);
 
-        // ---- 背景：晴蓝天 ↔ 阴灰天 按 cover 插值 ----
+        // ---- 背景：晴蓝天 ↔ 阴灰天，按 cover 插值后固定 ----
         auto Lerp = [](float a, float b, float f) { return a + (b-a)*f; };
         float skyR, skyG, skyB, ovR, ovG, ovB;
         if (isNight) {
@@ -5461,9 +5465,9 @@ void RenderEngine::DrawWeatherAmbientBg(float L, float T, float R, float B, floa
         auto bg = MakeLinGrad(bgTop, bgBot);
         if (bg) m_d2dContext->FillRectangle(D2D1::RectF(L,T,R,B), bg.Get());
 
-        // ---- 太阳（仅白天，cover 较低时可见）----
+        // ---- 太阳（白天，随 cover 淡出，cover>=0.5 后消失）----
         if (!isNight) {
-            float sunVis = fmaxf(0.0f, 1.0f - cover / 0.5f); // cover>0.5 完全消失
+            float sunVis = fmaxf(0.0f, 1.0f - cover / 0.5f);
             if (sunVis > 0.01f) {
                 float sunX = R-W*0.22f, sunY = T+H*0.23f, sunR = W*0.12f;
                 auto glow = MakeRadGrad(sunX, sunY, sunR*2.3f, sunR*2.3f,
@@ -5476,15 +5480,15 @@ void RenderEngine::DrawWeatherAmbientBg(float L, float T, float R, float B, floa
             }
         }
 
-        // ---- 云朵：从右侧飘入，cover 控制入场进度，入场后持续漂移 ----
-        // 每朵云：目标 relX/relY、尺寸、入场延迟、漂移速度
-        struct CloudDef { float relX, relY, scale, delay, driftSpd, driftAmp; };
+        // ---- 云朵定义：目标位置 / 尺寸 / 入场错时 / 风吹参数 ----
+        // driftSpd: 漂移正弦频率（慢）  driftAmp: 振幅（小）
+        struct CloudDef { float relX, relY, scale, entryDelay, driftSpd, driftAmp; };
         CloudDef clouds[] = {
-            { 0.50f, 0.22f, 0.36f, 0.00f, 0.18f, 0.038f }, // 主云，最先到
-            { 0.18f, 0.28f, 0.28f, 0.15f, 0.14f, 0.030f }, // 左侧云
-            { 0.82f, 0.18f, 0.26f, 0.25f, 0.20f, 0.032f }, // 右上云
-            { 0.38f, 0.48f, 0.30f, 0.38f, 0.12f, 0.025f }, // 中下层云
-            { 0.68f, 0.42f, 0.24f, 0.50f, 0.16f, 0.028f }, // 右下云
+            { 0.50f, 0.20f, 0.36f, 0.00f, 0.22f, 0.030f },  // 主云
+            { 0.18f, 0.26f, 0.28f, 0.20f, 0.17f, 0.024f },  // 左云
+            { 0.82f, 0.17f, 0.26f, 0.35f, 0.25f, 0.026f },  // 右上云
+            { 0.40f, 0.44f, 0.30f, 0.50f, 0.14f, 0.020f },  // 中下云
+            { 0.70f, 0.40f, 0.24f, 0.65f, 0.19f, 0.022f },  // 右下云
         };
         int numClouds = partlyCloudy ? 3 : 5;
 
@@ -5496,21 +5500,24 @@ void RenderEngine::DrawWeatherAmbientBg(float L, float T, float R, float B, floa
 
         for (int i = 0; i < numClouds; i++) {
             auto& c = clouds[i];
-            // 将全局 cover 映射到每朵云的局部进度（有延迟）
-            float localT = fmaxf(0.0f, (cover - c.delay) / (1.0f - c.delay));
-            localT = fminf(localT, 1.0f);
-            // 入场：从右侧外（x = R + scale*W）平滑移入目标位置
-            float targetX = L + c.relX * W;
-            float startX  = R + c.scale * W * 0.8f;
-            // 缓出：使用 1-(1-t)^2
-            float easedT = 1.0f - (1.0f-localT)*(1.0f-localT);
-            float cloudX = startX + (targetX - startX) * easedT;
-            // 入场后叠加持续漂移（sinf）
-            cloudX += sinf(t * c.driftSpd + i * 2.09f) * W * c.driftAmp;
 
-            float cloudY = T + c.relY * H;
-            float cloudOp = c.scale > 0.30f ? 0.92f : 0.78f; // 大云更实
-            cloudOp *= localT; // 淡入
+            // 每朵云自身的入场进度（带各自 delay，smoothstep）
+            float cloudRaw = fminf(fmaxf(t / entryDur - c.entryDelay, 0.0f) / (1.0f - c.entryDelay), 1.0f);
+            float arriveT  = cloudRaw * cloudRaw * (3.0f - 2.0f * cloudRaw);
+
+            // 入场：从卡片右侧外飘入目标位置
+            float targetX = L + c.relX * W;
+            float startX  = R + c.scale * W;
+            float baseX   = startX + (targetX - startX) * arriveT;
+
+            // 入场完成后叠加风吹漂移（小幅正弦，各云频率/相位不同）
+            float windDrift = sinf(t * c.driftSpd + i * 2.094f) * W * c.driftAmp;
+            float cloudX    = baseX + windDrift;
+
+            // 轻微垂直起伏（风感）
+            float cloudY = T + c.relY * H + sinf(t * c.driftSpd * 0.7f + i * 1.3f) * H * 0.012f;
+
+            float cloudOp = (c.scale > 0.30f ? 0.92f : 0.80f) * arriveT; // 随入场淡入
             DrawCloud(cloudX, cloudY, c.scale * W, cloudOp, cloudBrush.Get());
         }
         break;
