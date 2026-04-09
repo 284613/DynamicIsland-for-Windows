@@ -814,6 +814,7 @@ bool DynamicIsland::ShouldKeepRendering() const {
     if (m_isAlertActive) return true;                       // 通知显示中
     if (m_isDraggingProgress) return true;                  // 拖动进度条
     if (m_isDragHovering) return true;                      // 文件拖拽悬停
+    if (m_isWeatherExpanded) return true;                   // 天气展开面板动画持续运行
     return false;
 }
 
