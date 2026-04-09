@@ -100,11 +100,19 @@ struct HourlyForecast {
     float temp;
 };
 
+struct DailyForecast {
+    std::wstring date;     // "MM-DD"
+    std::wstring iconDay;  // 图标 ID
+    std::wstring textDay;  // 如 "晴"
+    float tempMax;
+    float tempMin;
+};
+
 class IWeatherPlugin : public IPlugin {
 public:
     // 获取天气描述
     virtual std::wstring GetWeatherDescription() const = 0;
-    
+
     // 获取温度
     virtual float GetTemperature() const = 0;
 
@@ -113,6 +121,9 @@ public:
 
     // 获取逐小时预报 (返回未来6小时)
     virtual std::vector<HourlyForecast> GetHourlyForecast() const = 0;
+
+    // 获取逐日预报 (返回未来7天)
+    virtual std::vector<DailyForecast> GetDailyForecast() const = 0;
 
     // 获取生活指数建议
     virtual std::wstring GetLifeSuggestion() const = 0;

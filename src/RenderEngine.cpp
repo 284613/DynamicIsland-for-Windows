@@ -1064,7 +1064,10 @@ void RenderEngine::DrawCapsule(const RenderContext& ctx)
 		bool compactMode = (islandHeight >= 35.0f && islandHeight < COMPACT_THRESHOLD);
 
 		if (ctx.mode == IslandDisplayMode::WeatherExpanded) {
-			DrawWeatherExpanded(ctx, left, top, right, bottom, islandWidth, islandHeight);
+			if (ctx.weatherViewMode == WeatherViewMode::Daily)
+				DrawWeatherDaily(ctx, left, top, right, bottom, islandWidth, islandHeight);
+			else
+				DrawWeatherExpanded(ctx, left, top, right, bottom, islandWidth, islandHeight);
 		}
 		else if (m_isAlertActive)
 
@@ -5105,6 +5108,457 @@ case WeatherType::PartlyCloudy: {
 
 }
 
+void RenderEngine::DrawWeatherDaily(const RenderContext& ctx, float left, float top, float right, float bottom, float islandWidth, float islandHeight) {
+    float padding = 15.0f;
+    float cardTop = top + padding;
+    float cardBottom = bottom - padding;
+
+    // 半透明底板（整行）
+    ComPtr<ID2D1SolidColorBrush> glassBrush;
+    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.15f, 0.15f, 0.15f, 0.4f * ctx.contentAlpha), &glassBrush);
+    D2D1_ROUNDED_RECT bgCard = D2D1::RoundedRect(D2D1::RectF(left + padding, cardTop, right - padding, cardBottom), 16.0f, 16.0f);
+    m_d2dContext->FillRoundedRectangle(&bgCard, glassBrush.Get());
+
+    // "逐日预报" 标题
+    std::wstring titleText = L"未来天气";
+    ComPtr<IDWriteTextFormat> titleFmt;
+    m_dwriteFactory->CreateTextFormat(L"Microsoft YaHei", nullptr, DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 11.0f, L"zh-cn", &titleFmt);
+    m_grayBrush->SetOpacity(ctx.contentAlpha * 0.7f);
+    m_d2dContext->DrawTextW(titleText.c_str(), (UINT32)titleText.size(), titleFmt.Get(),
+        D2D1::RectF(left + padding + 10.0f, cardTop + 4.0f, right - padding, cardTop + 20.0f), m_grayBrush.Get());
+
+    if (ctx.dailyForecasts.empty()) {
+        std::wstring emptyText = L"暂无预报数据";
+        m_grayBrush->SetOpacity(ctx.contentAlpha);
+        auto emptyLayout = GetOrCreateTextLayout(emptyText, m_textFormatSub.Get(), islandWidth, L"df_empty");
+        emptyLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        m_d2dContext->DrawTextLayout(D2D1::Point2F(left + padding, cardTop + (cardBottom - cardTop) / 2.0f - 8.0f), emptyLayout.Get(), m_grayBrush.Get());
+        return;
+    }
+
+    // 每列宽度（最多显示7天）
+    size_t count = min(ctx.dailyForecasts.size(), (size_t)7);
+    float totalW = (right - padding) - (left + padding) - 20.0f;
+    float cellW = totalW / (float)count;
+    float dataTop = cardTop + 22.0f;
+    float dataBottom = cardBottom - 6.0f;
+    float cellH = dataBottom - dataTop;
+
+    ULONGLONG currentTime = GetTickCount64();
+    // 逐日视图不经过 DrawWeatherAmbientBg，在此推进动画 phase
+    if (m_lastWeatherAnimTime == 0) m_lastWeatherAnimTime = currentTime;
+    float dtDaily = (float)(currentTime - m_lastWeatherAnimTime) / 1000.0f;
+    if (dtDaily > 0.0f && dtDaily < 0.5f) m_weatherAnimPhase += dtDaily * 1.5f;
+    m_lastWeatherAnimTime = currentTime;
+
+    for (size_t i = 0; i < count; ++i) {
+        const auto& df = ctx.dailyForecasts[i];
+        float cellX = left + padding + 10.0f + i * cellW;
+
+        // 日期
+        m_grayBrush->SetOpacity(ctx.contentAlpha * 0.8f);
+        auto dateLayout = GetOrCreateTextLayout(df.date, m_textFormatSub.Get(), cellW, L"df_date_" + df.date + std::to_wstring(i));
+        dateLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        m_d2dContext->DrawTextLayout(D2D1::Point2F(cellX, dataTop), dateLayout.Get(), m_grayBrush.Get());
+
+        // 天气图标（小尺寸）
+        float iconSize = 22.0f;
+        float iconX = cellX + (cellW - iconSize) / 2.0f;
+        float iconY = dataTop + 16.0f;
+        WeatherType savedType = m_weatherType;
+        m_weatherType = MapWeatherDescToType(df.textDay);
+        DrawWeatherIcon(iconX, iconY, iconSize, ctx.contentAlpha, currentTime);
+        m_weatherType = savedType;
+
+        // 最高温
+        std::wstring maxText = std::to_wstring((int)df.tempMax) + L"\u00B0";
+        m_whiteBrush->SetOpacity(ctx.contentAlpha);
+        auto maxLayout = GetOrCreateTextLayout(maxText, m_textFormatTitle.Get(), cellW, L"df_max_" + maxText + std::to_wstring(i));
+        maxLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        m_d2dContext->DrawTextLayout(D2D1::Point2F(cellX, dataTop + 42.0f), maxLayout.Get(), m_whiteBrush.Get());
+
+        // 最低温
+        std::wstring minText = std::to_wstring((int)df.tempMin) + L"\u00B0";
+        m_grayBrush->SetOpacity(ctx.contentAlpha * 0.7f);
+        auto minLayout = GetOrCreateTextLayout(minText, m_textFormatSub.Get(), cellW, L"df_min_" + minText + std::to_wstring(i));
+        minLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        m_d2dContext->DrawTextLayout(D2D1::Point2F(cellX, dataTop + 60.0f), minLayout.Get(), m_grayBrush.Get());
+    }
+
+    // 底部提示：滚轮切换
+    std::wstring hint = L"↑ 逐小时";
+    m_grayBrush->SetOpacity(ctx.contentAlpha * 0.45f);
+    ComPtr<IDWriteTextFormat> hintFmt;
+    m_dwriteFactory->CreateTextFormat(L"Microsoft YaHei", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 9.0f, L"zh-cn", &hintFmt);
+    m_d2dContext->DrawTextW(hint.c_str(), (UINT32)hint.size(), hintFmt.Get(),
+        D2D1::RectF(right - padding - 60.0f, cardBottom - 14.0f, right - padding, cardBottom), m_grayBrush.Get());
+}
+
+// =====================================================================
+// DrawWeatherAmbientBg — 意境动态背景（替代天气图标，填充整张左卡）
+// =====================================================================
+void RenderEngine::DrawWeatherAmbientBg(float L, float T, float R, float B, float alpha, ULONGLONG currentTime) {
+    // 在展开面板中主动推进动画 phase（紧凑模式的 phase 更新路径不会执行到这里）
+    if (m_lastWeatherAnimTime == 0) m_lastWeatherAnimTime = currentTime;
+    float dt = (float)(currentTime - m_lastWeatherAnimTime) / 1000.0f;
+    if (dt > 0.0f && dt < 0.5f) m_weatherAnimPhase += dt * 1.5f;
+    m_lastWeatherAnimTime = currentTime;
+
+    float W = R - L;
+    float H = B - T;
+    float cx = L + W * 0.5f;
+    float t = m_weatherAnimPhase;
+
+    // ---- 辅助：创建纵向线性渐变画刷 ----
+    auto MakeLinGrad = [&](D2D1_COLOR_F topC, D2D1_COLOR_F botC) -> ComPtr<ID2D1LinearGradientBrush> {
+        D2D1_GRADIENT_STOP stops[2] = { {0.0f, topC}, {1.0f, botC} };
+        ComPtr<ID2D1GradientStopCollection> coll;
+        if (FAILED(m_d2dContext->CreateGradientStopCollection(stops, 2, &coll))) return nullptr;
+        ComPtr<ID2D1LinearGradientBrush> b;
+        m_d2dContext->CreateLinearGradientBrush(
+            D2D1::LinearGradientBrushProperties(D2D1::Point2F(cx, T), D2D1::Point2F(cx, B)),
+            coll.Get(), &b);
+        if (b) b->SetOpacity(alpha);
+        return b;
+    };
+
+    // ---- 辅助：创建径向渐变画刷 ----
+    auto MakeRadGrad = [&](float ox, float oy, float rx, float ry,
+                           D2D1_COLOR_F inner, D2D1_COLOR_F outer) -> ComPtr<ID2D1RadialGradientBrush> {
+        D2D1_GRADIENT_STOP stops[2] = { {0.0f, inner}, {1.0f, outer} };
+        ComPtr<ID2D1GradientStopCollection> coll;
+        if (FAILED(m_d2dContext->CreateGradientStopCollection(stops, 2, &coll))) return nullptr;
+        ComPtr<ID2D1RadialGradientBrush> b;
+        m_d2dContext->CreateRadialGradientBrush(
+            D2D1::RadialGradientBrushProperties(D2D1::Point2F(ox, oy), D2D1::Point2F(0,0), rx, ry),
+            coll.Get(), &b);
+        if (b) b->SetOpacity(alpha);
+        return b;
+    };
+
+    // ---- 辅助：画一朵云（多椭圆叠加）----
+    auto DrawCloud = [&](float ccx, float ccy, float s, float op, ID2D1Brush* brush) {
+        brush->SetOpacity(op * alpha);
+        m_d2dContext->FillEllipse(D2D1::Ellipse(D2D1::Point2F(ccx,           ccy),          s*1.00f, s*0.44f), brush);
+        m_d2dContext->FillEllipse(D2D1::Ellipse(D2D1::Point2F(ccx-s*0.52f,   ccy-s*0.22f),  s*0.42f, s*0.38f), brush);
+        m_d2dContext->FillEllipse(D2D1::Ellipse(D2D1::Point2F(ccx+s*0.42f,   ccy-s*0.17f),  s*0.38f, s*0.33f), brush);
+        m_d2dContext->FillEllipse(D2D1::Ellipse(D2D1::Point2F(ccx-s*0.15f,   ccy-s*0.42f),  s*0.40f, s*0.36f), brush);
+        brush->SetOpacity(alpha);
+    };
+
+    // ---- 辅助：画线段（带圆头）----
+    auto DrawLine = [&](float x1, float y1, float x2, float y2, ID2D1Brush* brush, float w) {
+        ComPtr<ID2D1PathGeometry> pg; m_d2dFactory->CreatePathGeometry(&pg);
+        ComPtr<ID2D1GeometrySink> sk; pg->Open(&sk);
+        sk->BeginFigure(D2D1::Point2F(x1,y1), D2D1_FIGURE_BEGIN_HOLLOW);
+        sk->AddLine(D2D1::Point2F(x2,y2));
+        sk->EndFigure(D2D1_FIGURE_END_OPEN); sk->Close();
+        ComPtr<ID2D1StrokeStyle> ss;
+        m_d2dFactory->CreateStrokeStyle(D2D1::StrokeStyleProperties(D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND), nullptr, 0, &ss);
+        m_d2dContext->DrawGeometry(pg.Get(), brush, w, ss.Get());
+    };
+
+    // ---- 用圆角矩形几何裁剪 ----
+    ComPtr<ID2D1RoundedRectangleGeometry> clipGeo;
+    m_d2dFactory->CreateRoundedRectangleGeometry(
+        D2D1::RoundedRect(D2D1::RectF(L, T, R, B), 16.0f, 16.0f), &clipGeo);
+    m_d2dContext->PushLayer(
+        D2D1::LayerParameters(D2D1::InfiniteRect(), clipGeo.Get()), nullptr);
+
+    switch (m_weatherType) {
+
+    // ================================================================
+    // 雨天 / 暴雨
+    // ================================================================
+    case WeatherType::Rainy:
+    case WeatherType::Thunder: {
+        bool isThunder = (m_weatherType == WeatherType::Thunder);
+
+        auto bg = isThunder
+            ? MakeLinGrad(D2D1::ColorF(0.07f,0.08f,0.14f), D2D1::ColorF(0.11f,0.13f,0.21f))
+            : MakeLinGrad(D2D1::ColorF(0.13f,0.17f,0.27f), D2D1::ColorF(0.18f,0.23f,0.36f));
+        if (bg) m_d2dContext->FillRectangle(D2D1::RectF(L,T,R,B), bg.Get());
+
+        // 三朵云，缓慢漂移聚拢在顶部
+        ComPtr<ID2D1SolidColorBrush> cloudBrush;
+        m_d2dContext->CreateSolidColorBrush(isThunder ? D2D1::ColorF(0.30f,0.31f,0.38f) : D2D1::ColorF(0.42f,0.45f,0.52f), &cloudBrush);
+        float d1 = sinf(t*0.28f)*W*0.04f, d2 = sinf(t*0.19f+1.0f)*W*0.03f, d3 = sinf(t*0.23f+2.1f)*W*0.035f;
+        DrawCloud(cx+d1,              T+H*0.24f,          W*0.34f, 0.90f, cloudBrush.Get());
+        DrawCloud(L+W*0.22f+d2,       T+H*0.19f,          W*0.24f, 0.72f, cloudBrush.Get());
+        DrawCloud(R-W*0.18f+d3,       T+H*0.26f,          W*0.22f, 0.66f, cloudBrush.Get());
+
+        // 雨滴（斜线，循环下落）
+        ComPtr<ID2D1SolidColorBrush> rainBrush;
+        m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.62f,0.74f,0.92f,0.75f), &rainBrush);
+        rainBrush->SetOpacity(0.75f * alpha);
+        int dropN = isThunder ? 22 : 15;
+        float speed = isThunder ? 3.8f : 2.4f;
+        float dropH = H * 0.13f;
+        float angleSlant = 0.14f; // 斜度
+        for (int i = 0; i < dropN; i++) {
+            float xBase = L + fmodf(i * W * 0.618f, W);
+            float phase = fmodf(t * speed + i * 0.41f, 1.0f);
+            float dy = T + H * 0.42f + phase * H * 0.62f;
+            float dx = xBase + phase * dropH * angleSlant;
+            dx = L + fmodf(dx - L, W);
+            DrawLine(dx, dy, dx + dropH*angleSlant, dy + dropH, rainBrush.Get(), isThunder ? 1.1f : 0.85f);
+        }
+
+        // 闪电
+        if (isThunder) {
+            float fp = fmodf(t / 2.8f, 1.0f);
+            if (fp < 0.10f) {
+                float fa = (1.0f - fp/0.10f) * 0.55f * alpha;
+                ComPtr<ID2D1SolidColorBrush> flashBg;
+                m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(1.0f,1.0f,0.88f,fa), &flashBg);
+                m_d2dContext->FillRectangle(D2D1::RectF(L,T,R,B), flashBg.Get());
+
+                float bx = cx + W*0.05f, by = T + H*0.34f;
+                ComPtr<ID2D1SolidColorBrush> boltBrush;
+                m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(1.0f,0.95f,0.45f, alpha), &boltBrush);
+                ComPtr<ID2D1PathGeometry> bolt; m_d2dFactory->CreatePathGeometry(&bolt);
+                ComPtr<ID2D1GeometrySink> bsk; bolt->Open(&bsk);
+                bsk->BeginFigure(D2D1::Point2F(bx,         by),          D2D1_FIGURE_BEGIN_HOLLOW);
+                bsk->AddLine(D2D1::Point2F(bx+W*0.07f,  by+H*0.20f));
+                bsk->AddLine(D2D1::Point2F(bx-W*0.03f,  by+H*0.20f));
+                bsk->AddLine(D2D1::Point2F(bx+W*0.11f,  by+H*0.48f));
+                bsk->EndFigure(D2D1_FIGURE_END_OPEN); bsk->Close();
+                ComPtr<ID2D1StrokeStyle> bss;
+                m_d2dFactory->CreateStrokeStyle(D2D1::StrokeStyleProperties(D2D1_CAP_STYLE_ROUND,D2D1_CAP_STYLE_ROUND), nullptr, 0, &bss);
+                m_d2dContext->DrawGeometry(bolt.Get(), boltBrush.Get(), 2.8f, bss.Get());
+            }
+        }
+        break;
+    }
+
+    // ================================================================
+    // 雪天
+    // ================================================================
+    case WeatherType::Snow: {
+        auto bg = MakeLinGrad(D2D1::ColorF(0.11f,0.15f,0.25f), D2D1::ColorF(0.19f,0.24f,0.38f));
+        if (bg) m_d2dContext->FillRectangle(D2D1::RectF(L,T,R,B), bg.Get());
+
+        ComPtr<ID2D1SolidColorBrush> cloudBrush;
+        m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.60f,0.64f,0.72f), &cloudBrush);
+        DrawCloud(cx+sinf(t*0.18f)*W*0.03f,      T+H*0.21f, W*0.30f, 0.72f, cloudBrush.Get());
+        DrawCloud(L+W*0.20f+sinf(t*0.14f)*W*0.02f, T+H*0.17f, W*0.20f, 0.52f, cloudBrush.Get());
+        DrawCloud(R-W*0.15f+sinf(t*0.21f)*W*0.02f, T+H*0.23f, W*0.18f, 0.50f, cloudBrush.Get());
+
+        ComPtr<ID2D1SolidColorBrush> snowBrush;
+        m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(1.0f,1.0f,1.0f), &snowBrush);
+        for (int i = 0; i < 14; i++) {
+            float phase = fmodf(t*0.55f + i*0.21f, 1.0f);
+            float fx = L + fmodf(i*W*0.13f + sinf(t*0.35f+i)*W*0.06f, W);
+            float fy = T + H*0.35f + phase*H*0.68f;
+            float fs = W*0.022f + (i%3)*W*0.007f;
+            float fa = 0.45f + 0.50f*sinf(phase*3.14159f);
+            snowBrush->SetOpacity(fa * alpha);
+            float fAngle = t*1.1f + i*2.094f;
+            for (int j = 0; j < 6; j++) {
+                float a = fAngle + j*3.14159f/3.0f;
+                DrawLine(fx, fy, fx+cosf(a)*fs, fy+sinf(a)*fs, snowBrush.Get(), 0.9f);
+                // 小横杈
+                float mx = fx+cosf(a)*fs*0.55f, my = fy+sinf(a)*fs*0.55f;
+                float ba = a + 3.14159f*0.5f;
+                DrawLine(mx-cosf(ba)*fs*0.22f, my-sinf(ba)*fs*0.22f,
+                         mx+cosf(ba)*fs*0.22f, my+sinf(ba)*fs*0.22f, snowBrush.Get(), 0.7f);
+            }
+        }
+        snowBrush->SetOpacity(alpha);
+        break;
+    }
+
+    // ================================================================
+    // 晴天
+    // ================================================================
+    case WeatherType::Clear: {
+        SYSTEMTIME st; GetLocalTime(&st);
+        bool isNight = (st.wHour < 6 || st.wHour >= 18);
+
+        if (isNight) {
+            auto bg = MakeLinGrad(D2D1::ColorF(0.03f,0.03f,0.12f), D2D1::ColorF(0.06f,0.08f,0.20f));
+            if (bg) m_d2dContext->FillRectangle(D2D1::RectF(L,T,R,B), bg.Get());
+
+            // 星星（抖动闪烁）
+            ComPtr<ID2D1SolidColorBrush> starBrush;
+            m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(1.0f,1.0f,1.0f), &starBrush);
+            struct SP { float rx,ry,sz; } stars[] = {
+                {0.10f,0.14f,1.3f},{0.24f,0.07f,1.0f},{0.44f,0.20f,1.5f},{0.63f,0.09f,1.1f},
+                {0.78f,0.24f,1.4f},{0.34f,0.32f,0.9f},{0.70f,0.38f,1.1f},{0.14f,0.42f,1.2f},
+                {0.54f,0.48f,0.8f},{0.88f,0.14f,1.2f},{0.50f,0.14f,1.0f},{0.82f,0.42f,0.9f}
+            };
+            for (auto& s : stars) {
+                float tw = 0.35f + 0.65f*fabsf(sinf(t*(0.7f + s.sz*0.2f) + s.rx*7.0f));
+                starBrush->SetOpacity(tw * alpha);
+                m_d2dContext->FillEllipse(D2D1::Ellipse(D2D1::Point2F(L+s.rx*W, T+s.ry*H), s.sz, s.sz), starBrush.Get());
+            }
+            // 月亮（新月）
+            float moonX = R - W*0.24f, moonY = T + H*0.24f, moonR = W*0.13f;
+            ComPtr<ID2D1SolidColorBrush> moonBrush;
+            m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(1.0f,0.95f,0.82f,alpha), &moonBrush);
+            m_d2dContext->FillEllipse(D2D1::Ellipse(D2D1::Point2F(moonX,moonY), moonR, moonR), moonBrush.Get());
+            // 用接近背景色的圆遮住一部分形成新月
+            ComPtr<ID2D1SolidColorBrush> holeBrush;
+            m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.04f,0.05f,0.16f,alpha), &holeBrush);
+            m_d2dContext->FillEllipse(D2D1::Ellipse(D2D1::Point2F(moonX+moonR*0.48f, moonY-moonR*0.08f), moonR*0.84f, moonR*0.84f), holeBrush.Get());
+        } else {
+            // 晴天蓝天
+            auto bg = MakeLinGrad(D2D1::ColorF(0.22f,0.52f,0.90f), D2D1::ColorF(0.52f,0.80f,1.0f));
+            if (bg) m_d2dContext->FillRectangle(D2D1::RectF(L,T,R,B), bg.Get());
+
+            // 太阳（右上角，慢速旋转光芒）
+            float sunX = R - W*0.22f, sunY = T + H*0.24f, sunR = W*0.14f;
+            // 光晕
+            auto glow = MakeRadGrad(sunX, sunY, sunR*2.4f, sunR*2.4f,
+                D2D1::ColorF(1.0f,0.92f,0.40f,0.30f*alpha),
+                D2D1::ColorF(1.0f,0.92f,0.40f,0.0f));
+            if (glow) m_d2dContext->FillEllipse(D2D1::Ellipse(D2D1::Point2F(sunX,sunY), sunR*2.4f, sunR*2.4f), glow.Get());
+            // 太阳本体
+            ComPtr<ID2D1SolidColorBrush> sunBrush;
+            m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(1.0f,0.93f,0.44f,alpha), &sunBrush);
+            m_d2dContext->FillEllipse(D2D1::Ellipse(D2D1::Point2F(sunX,sunY), sunR, sunR), sunBrush.Get());
+            // 旋转光芒
+            sunBrush->SetOpacity(0.70f * alpha);
+            float rayOff = sunR*1.28f, rayLen = sunR*0.46f;
+            for (int i = 0; i < 8; i++) {
+                float a = t*0.38f + i*3.14159f*0.25f;
+                DrawLine(sunX+cosf(a)*rayOff, sunY+sinf(a)*rayOff,
+                         sunX+cosf(a)*(rayOff+rayLen), sunY+sinf(a)*(rayOff+rayLen),
+                         sunBrush.Get(), 2.0f);
+            }
+            // 一朵悠闲的白云
+            ComPtr<ID2D1SolidColorBrush> cloudBrush;
+            m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(1.0f,1.0f,1.0f), &cloudBrush);
+            DrawCloud(L+W*0.38f + sinf(t*0.22f)*W*0.03f, T+H*0.60f, W*0.22f, 0.60f, cloudBrush.Get());
+        }
+        break;
+    }
+
+    // ================================================================
+    // 多云 / 阴天 — 云朵一次性飘入遮天，之后只做风吹漂移
+    // ================================================================
+    case WeatherType::PartlyCloudy:
+    case WeatherType::Cloudy:
+    case WeatherType::Default: {
+        bool partlyCloudy = (m_weatherType == WeatherType::PartlyCloudy);
+        SYSTEMTIME st; GetLocalTime(&st);
+        bool isNight = (st.wHour < 6 || st.wHour >= 18);
+
+        // ---- cover：单次缓入到最终值后保持不变 ----
+        // t 在 DrawWeatherAmbientBg 里以 2单位/秒 累积
+        // entryDur=3.0 → 约1.5秒完成入场
+        float maxCov  = partlyCloudy ? 0.55f : 0.90f;
+        float entryDur = 3.0f;   // phase 单位，1.5秒
+        float rawT = fminf(t / entryDur, 1.0f);
+        // 三次缓出：smoothstep
+        float cover = maxCov * rawT * rawT * (3.0f - 2.0f * rawT);
+
+        // ---- 背景：晴蓝天 ↔ 阴灰天，按 cover 插值后固定 ----
+        auto Lerp = [](float a, float b, float f) { return a + (b-a)*f; };
+        float skyR, skyG, skyB, ovR, ovG, ovB;
+        if (isNight) {
+            skyR=0.04f; skyG=0.05f; skyB=0.16f;
+            ovR=0.10f;  ovG=0.11f;  ovB=0.20f;
+        } else {
+            skyR=0.24f; skyG=0.54f; skyB=0.92f;
+            ovR=0.36f;  ovG=0.38f;  ovB=0.44f;
+        }
+        D2D1_COLOR_F bgTop = D2D1::ColorF(Lerp(skyR,ovR,cover), Lerp(skyG,ovG,cover), Lerp(skyB,ovB,cover));
+        D2D1_COLOR_F bgBot = isNight
+            ? D2D1::ColorF(Lerp(skyR+0.02f,ovR+0.03f,cover), Lerp(skyG+0.03f,ovG+0.03f,cover), Lerp(skyB+0.08f,ovB+0.05f,cover))
+            : D2D1::ColorF(Lerp(skyR+0.12f,ovR+0.08f,cover), Lerp(skyG+0.16f,ovG+0.06f,cover), Lerp(skyB+0.06f,ovB+0.02f,cover));
+        auto bg = MakeLinGrad(bgTop, bgBot);
+        if (bg) m_d2dContext->FillRectangle(D2D1::RectF(L,T,R,B), bg.Get());
+
+        // ---- 太阳（白天，随 cover 淡出，cover>=0.5 后消失）----
+        if (!isNight) {
+            float sunVis = fmaxf(0.0f, 1.0f - cover / 0.5f);
+            if (sunVis > 0.01f) {
+                float sunX = R-W*0.22f, sunY = T+H*0.23f, sunR = W*0.12f;
+                auto glow = MakeRadGrad(sunX, sunY, sunR*2.3f, sunR*2.3f,
+                    D2D1::ColorF(1.0f,0.92f,0.38f, 0.28f*alpha*sunVis),
+                    D2D1::ColorF(1.0f,0.92f,0.38f, 0.0f));
+                if (glow) m_d2dContext->FillEllipse(D2D1::Ellipse(D2D1::Point2F(sunX,sunY), sunR*2.3f, sunR*2.3f), glow.Get());
+                ComPtr<ID2D1SolidColorBrush> sunBrush;
+                m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(1.0f,0.93f,0.44f, alpha*sunVis), &sunBrush);
+                m_d2dContext->FillEllipse(D2D1::Ellipse(D2D1::Point2F(sunX,sunY), sunR, sunR), sunBrush.Get());
+            }
+        }
+
+        // ---- 云朵定义：目标位置 / 尺寸 / 入场错时 / 风吹参数 ----
+        // driftSpd: 漂移正弦频率（慢）  driftAmp: 振幅（小）
+        struct CloudDef { float relX, relY, scale, entryDelay, driftSpd, driftAmp; };
+        CloudDef clouds[] = {
+            { 0.50f, 0.20f, 0.36f, 0.00f, 0.22f, 0.030f },  // 主云
+            { 0.18f, 0.26f, 0.28f, 0.20f, 0.17f, 0.024f },  // 左云
+            { 0.82f, 0.17f, 0.26f, 0.35f, 0.25f, 0.026f },  // 右上云
+            { 0.40f, 0.44f, 0.30f, 0.50f, 0.14f, 0.020f },  // 中下云
+            { 0.70f, 0.40f, 0.24f, 0.65f, 0.19f, 0.022f },  // 右下云
+        };
+        int numClouds = partlyCloudy ? 3 : 5;
+
+        D2D1_COLOR_F cloudCol = isNight
+            ? D2D1::ColorF(0.32f, 0.34f, 0.44f)
+            : D2D1::ColorF(0.88f, 0.90f, 0.95f);
+        ComPtr<ID2D1SolidColorBrush> cloudBrush;
+        m_d2dContext->CreateSolidColorBrush(cloudCol, &cloudBrush);
+
+        for (int i = 0; i < numClouds; i++) {
+            auto& c = clouds[i];
+
+            // 每朵云自身的入场进度（带各自 delay，smoothstep）
+            float cloudRaw = fminf(fmaxf(t / entryDur - c.entryDelay, 0.0f) / (1.0f - c.entryDelay), 1.0f);
+            float arriveT  = cloudRaw * cloudRaw * (3.0f - 2.0f * cloudRaw);
+
+            // 入场：从卡片右侧外飘入目标位置
+            float targetX = L + c.relX * W;
+            float startX  = R + c.scale * W;
+            float baseX   = startX + (targetX - startX) * arriveT;
+
+            // 入场完成后叠加风吹漂移（小幅正弦，各云频率/相位不同）
+            float windDrift = sinf(t * c.driftSpd + i * 2.094f) * W * c.driftAmp;
+            float cloudX    = baseX + windDrift;
+
+            // 轻微垂直起伏（风感）
+            float cloudY = T + c.relY * H + sinf(t * c.driftSpd * 0.7f + i * 1.3f) * H * 0.012f;
+
+            float cloudOp = (c.scale > 0.30f ? 0.92f : 0.80f) * arriveT; // 随入场淡入
+            DrawCloud(cloudX, cloudY, c.scale * W, cloudOp, cloudBrush.Get());
+        }
+        break;
+    }
+
+    // ================================================================
+    // 雾/霾
+    // ================================================================
+    case WeatherType::Fog: {
+        auto bg = MakeLinGrad(D2D1::ColorF(0.58f,0.59f,0.61f), D2D1::ColorF(0.70f,0.71f,0.73f));
+        if (bg) m_d2dContext->FillRectangle(D2D1::RectF(L,T,R,B), bg.Get());
+
+        // 横向雾气带（正弦漂移，多层透明度）
+        ComPtr<ID2D1SolidColorBrush> fogBrush;
+        m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(1.0f,1.0f,1.0f), &fogBrush);
+        for (int i = 0; i < 5; i++) {
+            float fy = T + H*(0.18f + i*0.16f);
+            float drift = sinf(t*0.20f + i*1.2f)*W*0.06f;
+            float fw = W*(0.88f - i*0.06f);
+            float fo = (0.30f - i*0.04f) * alpha;
+            fogBrush->SetOpacity(fo);
+            m_d2dContext->FillEllipse(
+                D2D1::Ellipse(D2D1::Point2F(cx+drift, fy), fw*0.5f, H*0.055f), fogBrush.Get());
+        }
+        fogBrush->SetOpacity(alpha);
+        break;
+    }
+
+    } // end switch
+
+    m_d2dContext->PopLayer();
+}
+
+// =====================================================================
+// DrawWeatherExpanded
+// =====================================================================
 void RenderEngine::DrawWeatherExpanded(const RenderContext& ctx, float left, float top, float right, float bottom, float islandWidth, float islandHeight) {
     float padding = 15.0f;
     float cardTop = top + padding;
@@ -5113,46 +5567,65 @@ void RenderEngine::DrawWeatherExpanded(const RenderContext& ctx, float left, flo
     float leftCardLeft = left + padding;
     float rightCardLeft = leftCardLeft + cardWidth + padding;
 
-    // 半透明深色玻璃拟态底板
+    ULONGLONG currentTime = GetTickCount64();
+
+    // ======= 右侧：玻璃拟态底板 =======
     ComPtr<ID2D1SolidColorBrush> glassBrush;
     m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.15f, 0.15f, 0.15f, 0.4f * ctx.contentAlpha), &glassBrush);
-
-    D2D1_ROUNDED_RECT leftCard = D2D1::RoundedRect(D2D1::RectF(leftCardLeft, cardTop, leftCardLeft + cardWidth, cardBottom), 16.0f, 16.0f);
     D2D1_ROUNDED_RECT rightCard = D2D1::RoundedRect(D2D1::RectF(rightCardLeft, cardTop, rightCardLeft + cardWidth, cardBottom), 16.0f, 16.0f);
-
-    m_d2dContext->FillRoundedRectangle(&leftCard, glassBrush.Get());
     m_d2dContext->FillRoundedRectangle(&rightCard, glassBrush.Get());
 
-    // ======= 左侧：Hero Section =======
-    ULONGLONG currentTime = GetTickCount64();
-    float iconSize = 60.0f;
-    float iconX = leftCardLeft + 15.0f;
-    float iconY = cardTop + 15.0f;
-    
-    // 复用天气动画机制
+    // ======= 左侧：意境动态背景 =======
     WeatherType oldType = m_weatherType;
     m_weatherType = MapWeatherDescToType(ctx.weatherDesc);
-    DrawWeatherIcon(iconX, iconY, iconSize, ctx.contentAlpha, currentTime);
-    m_weatherType = oldType; // 恢复原来的Type避免影响小图标状态
+    DrawWeatherAmbientBg(leftCardLeft, cardTop, leftCardLeft + cardWidth, cardBottom, ctx.contentAlpha, currentTime);
+    m_weatherType = oldType;
 
-    // 当前温度 (超大字号)
+    // 底部暗色渐变遮罩 —— 让底部温度文字易读
+    {
+        float overlayTop = cardTop + (cardBottom - cardTop) * 0.45f;
+        D2D1_GRADIENT_STOP ovStops[2] = {
+            {0.0f, D2D1::ColorF(0.0f,0.0f,0.0f, 0.0f)},
+            {1.0f, D2D1::ColorF(0.0f,0.0f,0.0f, 0.58f * ctx.contentAlpha)}
+        };
+        ComPtr<ID2D1GradientStopCollection> ovColl;
+        m_d2dContext->CreateGradientStopCollection(ovStops, 2, &ovColl);
+        ComPtr<ID2D1LinearGradientBrush> ovBrush;
+        m_d2dContext->CreateLinearGradientBrush(
+            D2D1::LinearGradientBrushProperties(D2D1::Point2F(leftCardLeft, overlayTop), D2D1::Point2F(leftCardLeft, cardBottom)),
+            ovColl.Get(), &ovBrush);
+        if (ovBrush) {
+            ComPtr<ID2D1RoundedRectangleGeometry> ovClip;
+            m_d2dFactory->CreateRoundedRectangleGeometry(
+                D2D1::RoundedRect(D2D1::RectF(leftCardLeft, cardTop, leftCardLeft+cardWidth, cardBottom), 16.0f, 16.0f), &ovClip);
+            m_d2dContext->PushLayer(D2D1::LayerParameters(D2D1::InfiniteRect(), ovClip.Get()), nullptr);
+            m_d2dContext->FillRectangle(D2D1::RectF(leftCardLeft, overlayTop, leftCardLeft+cardWidth, cardBottom), ovBrush.Get());
+            m_d2dContext->PopLayer();
+        }
+    }
+
+    // ======= 左侧文字覆盖层 =======
+    // 温度（大字，底部偏上居中）
     std::wstring tempText = std::to_wstring((int)ctx.weatherTemp) + L"\u00B0";
     ComPtr<IDWriteTextFormat> hugeTempFormat;
-    m_dwriteFactory->CreateTextFormat(L"Microsoft YaHei", nullptr, DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 36.0f, L"zh-cn", &hugeTempFormat);
+    m_dwriteFactory->CreateTextFormat(L"Microsoft YaHei", nullptr, DWRITE_FONT_WEIGHT_BOLD,
+        DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 34.0f, L"zh-cn", &hugeTempFormat);
+    hugeTempFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
     m_whiteBrush->SetOpacity(ctx.contentAlpha);
-    m_d2dContext->DrawTextW(tempText.c_str(), tempText.length(), hugeTempFormat.Get(), D2D1::RectF(iconX + iconSize + 15.0f, iconY - 5.0f, leftCardLeft + cardWidth, cardBottom), m_whiteBrush.Get());
+    m_d2dContext->DrawTextW(tempText.c_str(), (UINT32)tempText.length(), hugeTempFormat.Get(),
+        D2D1::RectF(leftCardLeft, cardBottom-62.0f, leftCardLeft+cardWidth, cardBottom-22.0f),
+        m_whiteBrush.Get());
 
-    // 描述 (例如 晴天)
-    m_d2dContext->DrawTextW(ctx.weatherDesc.c_str(), ctx.weatherDesc.length(), m_textFormatTitle.Get(), D2D1::RectF(iconX + iconSize + 15.0f, iconY + 35.0f, leftCardLeft + cardWidth, cardBottom), m_whiteBrush.Get());
-
-    // 生活建议 (底部)
-    std::wstring suggestion = ctx.weatherSuggestion.empty() ? L"适宜出行" : ctx.weatherSuggestion;
-    ComPtr<ID2D1SolidColorBrush> suggestionBrush = ctx.weatherHasWarning ? m_notificationBrush : m_whiteBrush;
-    suggestionBrush->SetOpacity(ctx.contentAlpha);
-    
-    auto suggLayout = GetOrCreateTextLayout(suggestion, m_textFormatSub.Get(), cardWidth - 30.0f, L"sugg_" + suggestion);
-    suggLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-    m_d2dContext->DrawTextLayout(D2D1::Point2F(leftCardLeft + 15.0f, cardBottom - 25.0f), suggLayout.Get(), suggestionBrush.Get());
+    // 天气描述（温度正下方，暗色居中）
+    ComPtr<IDWriteTextFormat> descFmt;
+    m_dwriteFactory->CreateTextFormat(L"Microsoft YaHei", nullptr, DWRITE_FONT_WEIGHT_NORMAL,
+        DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 10.0f, L"zh-cn", &descFmt);
+    descFmt->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+    m_grayBrush->SetOpacity(ctx.contentAlpha * 0.60f);
+    m_d2dContext->DrawTextW(ctx.weatherDesc.c_str(), (UINT32)ctx.weatherDesc.length(),
+        descFmt.Get(),
+        D2D1::RectF(leftCardLeft, cardBottom-20.0f, leftCardLeft+cardWidth, cardBottom-4.0f),
+        m_grayBrush.Get());
 
     // ======= 右侧：逐小时预报 2x3 网格 =======
     if (!ctx.hourlyForecasts.empty()) {
@@ -5169,26 +5642,26 @@ void RenderEngine::DrawWeatherExpanded(const RenderContext& ctx, float left, flo
 
             // 时间
             std::wstring timeText = ctx.hourlyForecasts[i].time;
-            m_grayBrush->SetOpacity(ctx.contentAlpha);
-
+            m_grayBrush->SetOpacity(ctx.contentAlpha * 0.75f);
             auto timeLayout = GetOrCreateTextLayout(timeText, m_textFormatSub.Get(), cellWidth, L"hf_time_" + timeText);
             timeLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-            m_d2dContext->DrawTextLayout(D2D1::Point2F(cellX, cellY + 8.0f), timeLayout.Get(), m_grayBrush.Get());
+            m_d2dContext->DrawTextLayout(D2D1::Point2F(cellX, cellY + 6.0f), timeLayout.Get(), m_grayBrush.Get());
+
+            // 小天气图标（居中）
+            float iconSize = 18.0f;
+            float iconX = cellX + (cellWidth - iconSize) * 0.5f;
+            float iconY = cellY + 22.0f;
+            WeatherType savedType = m_weatherType;
+            m_weatherType = MapWeatherDescToType(ctx.hourlyForecasts[i].text);
+            DrawWeatherIcon(iconX, iconY, iconSize, ctx.contentAlpha * 0.90f, currentTime);
+            m_weatherType = savedType;
 
             // 温度
             std::wstring hTempText = std::to_wstring((int)ctx.hourlyForecasts[i].temp) + L"\u00B0";
             m_whiteBrush->SetOpacity(ctx.contentAlpha);
             auto tempLayout = GetOrCreateTextLayout(hTempText, m_textFormatTitle.Get(), cellWidth, L"hf_temp_" + hTempText);
             tempLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-            m_d2dContext->DrawTextLayout(D2D1::Point2F(cellX, cellY + 26.0f), tempLayout.Get(), m_whiteBrush.Get());
-
-            // 天气描述（如 "晴"）
-            if (!ctx.hourlyForecasts[i].text.empty()) {
-                m_grayBrush->SetOpacity(ctx.contentAlpha * 0.8f);
-                auto descLayout = GetOrCreateTextLayout(ctx.hourlyForecasts[i].text, m_textFormatSub.Get(), cellWidth, L"hf_desc_" + ctx.hourlyForecasts[i].text + std::to_wstring(i));
-                descLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-                m_d2dContext->DrawTextLayout(D2D1::Point2F(cellX, cellY + 48.0f), descLayout.Get(), m_grayBrush.Get());
-            }
+            m_d2dContext->DrawTextLayout(D2D1::Point2F(cellX, cellY + 44.0f), tempLayout.Get(), m_whiteBrush.Get());
         }
     } else {
         std::wstring emptyText = L"暂无预报数据";
@@ -5197,6 +5670,14 @@ void RenderEngine::DrawWeatherExpanded(const RenderContext& ctx, float left, flo
         emptyLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
         m_d2dContext->DrawTextLayout(D2D1::Point2F(rightCardLeft, cardTop + (cardBottom - cardTop) / 2.0f - 10.0f), emptyLayout.Get(), m_grayBrush.Get());
     }
+
+    // 底部提示：向下滚动切换到逐日
+    std::wstring hint = L"↓ 逐日预报";
+    m_grayBrush->SetOpacity(ctx.contentAlpha * 0.45f);
+    ComPtr<IDWriteTextFormat> hintFmt;
+    m_dwriteFactory->CreateTextFormat(L"Microsoft YaHei", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 9.0f, L"zh-cn", &hintFmt);
+    m_d2dContext->DrawTextW(hint.c_str(), (UINT32)hint.size(), hintFmt.Get(),
+        D2D1::RectF(right - padding - 70.0f, bottom - padding - 14.0f, right - padding, bottom - padding), m_grayBrush.Get());
 }
 
 

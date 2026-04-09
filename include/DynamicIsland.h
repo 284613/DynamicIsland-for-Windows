@@ -174,8 +174,9 @@ private:
 
     // 天气信息
     std::wstring m_weatherDesc = L"Sunny";
-    bool IsFullscreen(); // 全屏检测
     float m_weatherTemp = 25.0f;
+    WeatherViewMode m_weatherViewMode = WeatherViewMode::Hourly;
+    bool IsFullscreen(); // 全屏检测
 };
 
 

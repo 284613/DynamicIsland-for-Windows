@@ -4,6 +4,8 @@
 #include <string>
 #include <vector>
 
+enum class WeatherViewMode { Hourly, Daily };
+
 enum class IslandDisplayMode
 {
     Idle,
@@ -77,6 +79,15 @@ struct RenderContext
         float temp;
     };
     std::vector<HourlyForecast> hourlyForecasts;
+    struct DailyForecast {
+        std::wstring date;
+        std::wstring iconDay;
+        std::wstring textDay;
+        float tempMax;
+        float tempMin;
+    };
+    std::vector<DailyForecast> dailyForecasts;
+    WeatherViewMode weatherViewMode = WeatherViewMode::Hourly;
 
     // 警报数据
     bool isAlertActive;
