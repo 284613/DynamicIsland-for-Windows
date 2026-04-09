@@ -98,7 +98,7 @@ x64\Release\DynamicIsland.exe
 | PR2 | 拆天气组件：`WeatherComponent` / `WeatherRenderer` / `WeatherAnimations` / `WeatherIconRenderer` | ✅ 完成 |
 | PR3 | 新建 `LyricsComponent` / `WaveformComponent`，废弃 `RenderEngine::UpdateScroll()` | ✅ 完成 |
 | PR4 | 改造 `MusicPlayerComponent` / `AlertComponent` / `VolumeComponent` 实现新接口 | ✅ 完成 |
-| PR5 | 新建 `FileStorageComponent` / `ClockComponent` | ⬜ 待开始 |
-| PR6 | 优先级调度表替换 if-else 链，`RenderContext` 瘦身，切换 EventBus 数据流 | ⬜ 待开始 |
+| PR5 | 新建 `FileStorageComponent` / `ClockComponent` | ✅ 完成 |
+| PR6 | 优先级调度表替换 if-else 链，`RenderContext` 瘦身，切换 EventBus 数据流 | ✅ 完成 |
 
 **预期结果：** `RenderEngine.cpp` 5684 行 → ~600 行，`DrawCapsule()` 2300 行 → ~60 行

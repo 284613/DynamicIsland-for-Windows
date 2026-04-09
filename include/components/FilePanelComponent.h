@@ -1,74 +1,53 @@
 // FilePanelComponent.h
 #pragma once
+#include "IIslandComponent.h"
 #include <d2d1_1.h>
 #include <dwrite.h>
-#include <wrl/client.h>
 #include <wincodec.h>
 #include <string>
 #include <vector>
 #include <map>
 #include <memory>
-#include "IslandState.h"
 
-using namespace Microsoft::WRL;
-
-class FilePanelComponent {
+class FilePanelComponent : public IIslandComponent {
 public:
     FilePanelComponent();
     ~FilePanelComponent();
 
     bool Initialize();
 
-    void SetD2DResources(
-        ComPtr<ID2D1DeviceContext> d2dContext,
-        ComPtr<IDWriteFactory> dwriteFactory,
-        ComPtr<ID2D1Factory1> d2dFactory);
+    // IIslandComponent implementation
+    void OnAttach(SharedResources* res) override;
+    void OnResize(float dpi, int width, int height) override {}
+    void Update(float deltaTime) override {}
+    void Draw(const D2D1_RECT_F& rect, float contentAlpha, ULONGLONG currentTimeMs) override;
+    bool IsActive() const override { return m_isDragHovering || m_storedFileCount > 0; }
+    bool NeedsRender() const override { return false; }
 
-    void SetTextFormats(
-        ComPtr<IDWriteTextFormat> titleFormat,
-        ComPtr<IDWriteTextFormat> subFormat,
-        ComPtr<IDWriteTextFormat> iconFormat,
-        ComPtr<IDWriteTextFormat> iconTextFormat);
-
-    void SetBrushes(
-        ComPtr<ID2D1SolidColorBrush> whiteBrush,
-        ComPtr<ID2D1SolidColorBrush> grayBrush,
-        ComPtr<ID2D1SolidColorBrush> themeBrush,
-        ComPtr<ID2D1SolidColorBrush> buttonHoverBrush,
-        ComPtr<ID2D1SolidColorBrush> fileBrush);
-
-    void SetWicFactory(ComPtr<IWICImagingFactory> wicFactory);
-
-    void Draw(ID2D1DeviceContext* ctx, float left, float top, float width, float height,
-              const RenderContext& ctx_data, float dpi);
+    // State setters (called by RenderEngine before Draw)
+    void SetDragHovering(bool hovering);
+    void SetStoredFiles(size_t count, const std::vector<std::wstring>& files);
+    void SetHoverState(int hoveredIndex, bool isDeleteHovered);
+    void SetDpi(float dpi) { m_dpi = dpi; }
 
 private:
-    void RenderCompactView(float left, float top, float width, float height, const RenderContext& ctx_data);
-    void RenderFileList(float left, float top, float width, float height, const RenderContext& ctx_data);
-    void DrawFileItem(float x, float y, float width, const std::wstring& path, 
-                     bool hovered, bool deleteHovered, float alpha);
-    
-    ComPtr<ID2D1Bitmap> GetFileIcon(const std::wstring& path);
+    void RenderDragHint(const D2D1_RECT_F& rect, float contentAlpha);
+    void RenderCompactView(const D2D1_RECT_F& rect, float contentAlpha);
+    void RenderExpandedView(const D2D1_RECT_F& rect, float contentAlpha);
+
     ComPtr<IDWriteTextLayout> CreateTextLayout(const std::wstring& text, IDWriteTextFormat* format, float maxWidth);
+    ComPtr<ID2D1Bitmap> GetFileIcon(const std::wstring& path);
 
-    // D2D resources
-    ComPtr<ID2D1DeviceContext> m_d2dContext;
-    ComPtr<IDWriteFactory> m_dwriteFactory;
-    ComPtr<ID2D1Factory1> m_d2dFactory;
-    ComPtr<IWICImagingFactory> m_wicFactory;
+    // Shared resources
+    SharedResources* m_res = nullptr;
 
-    // Brushes
-    ComPtr<ID2D1SolidColorBrush> m_whiteBrush;
-    ComPtr<ID2D1SolidColorBrush> m_grayBrush;
-    ComPtr<ID2D1SolidColorBrush> m_themeBrush;
-    ComPtr<ID2D1SolidColorBrush> m_buttonHoverBrush;
-    ComPtr<ID2D1SolidColorBrush> m_fileBrush;
-
-    // Text formats
-    ComPtr<IDWriteTextFormat> m_titleFormat;
-    ComPtr<IDWriteTextFormat> m_subFormat;
-    ComPtr<IDWriteTextFormat> m_iconFormat;
-    ComPtr<IDWriteTextFormat> m_iconTextFormat;
+    // State
+    bool m_isDragHovering = false;
+    size_t m_storedFileCount = 0;
+    std::vector<std::wstring> m_storedFiles;
+    int m_hoveredFileIndex = -1;
+    bool m_isFileDeleteHovered = false;
+    float m_dpi = 96.0f;
 
     // Icon cache
     std::map<std::wstring, ComPtr<ID2D1Bitmap>> m_iconCache;

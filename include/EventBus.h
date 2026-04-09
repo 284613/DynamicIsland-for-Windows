@@ -13,32 +13,14 @@
 
 // 事件类型枚举
 enum class EventType {
-    // 电源事件
-    PowerChange,
-    
     // 媒体事件
     MediaSessionChanged,
     MediaPlaybackStateChanged,
     MediaMetadataChanged,
-    MediaProgressChanged,
-    
-    // 系统事件
-    SystemTimeChanged,
-    VolumeChanged,
-    
-    // UI事件
-    WindowStateChanged,
-    HoverStateChanged,
-    DragStateChanged,
-    
+
     // 通知事件
     NotificationArrived,
-    NotificationRemoved,
-    
-    // 连接事件
-    NetworkStatusChanged,
-    BluetoothStatusChanged,
-    
+
     // 自定义事件
     Custom
 };
@@ -131,46 +113,23 @@ public:
     }
     
     // 便捷方法：发布特定类型事件
-    void PublishPowerChange(BYTE acStatus, BYTE batteryPct) {
-        Event e(EventType::PowerChange);
-        e.wParam = acStatus;
-        e.lParam = batteryPct;
-        Publish(e);
-    }
-    
     void PublishMediaSessionChanged(bool hasSession) {
         Event e(EventType::MediaSessionChanged);
         e.wParam = hasSession ? 1 : 0;
         Publish(e);
     }
-    
+
     void PublishMediaPlaybackStateChanged(bool isPlaying) {
         Event e(EventType::MediaPlaybackStateChanged);
         e.wParam = isPlaying ? 1 : 0;
         Publish(e);
     }
-    
-    void PublishVolumeChanged(float volume) {
-        Event e(EventType::VolumeChanged);
-        // 将float volume打包到wParam
-        e.wParam = (WPARAM)(volume * 100);  // 使用0-100表示
-        Publish(e);
-    }
-    
+
     void PublishNotificationArrived(const AlertInfo& info) {
         Event e(EventType::NotificationArrived);
         e.userData = info;  // 直接值拷贝，无需 raw new，无泄漏风险
         Publish(e);
         // 订阅者通过 std::any_cast<AlertInfo>(event.userData) 读取
-    }
-
-    void PublishNetworkStatusChanged(bool connected, const std::wstring& ssid = L"") {
-        Event e(EventType::NetworkStatusChanged);
-        e.wParam = connected ? 1 : 0;
-        if (!ssid.empty()) {
-            e.userData = ssid;  // ssid 直接存入 userData
-        }
-        Publish(e);
     }
     
     // 清空所有订阅

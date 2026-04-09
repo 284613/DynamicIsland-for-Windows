@@ -3,6 +3,7 @@
 #include <windows.h>
 #include <string>
 #include <vector>
+#include <functional>
 
 enum class WeatherViewMode { Hourly, Daily };
 
@@ -16,6 +17,15 @@ enum class IslandDisplayMode
     Volume,
     FileDrop
 };
+
+// Display mode priority entry for configurable scheduling
+struct DisplayModeEntry {
+    IslandDisplayMode mode;
+    int priority;                           // Higher number = higher priority
+    std::function<bool()> condition;       // Runtime condition check
+};
+
+using DisplayModePriorityTable = std::vector<DisplayModeEntry>;
 
 struct LyricData {
     std::wstring text;        // 当前歌词
@@ -62,16 +72,11 @@ struct RenderContext
     // 文件拖拽
     bool isDragHovering;
     size_t storedFileCount;
-    std::vector<std::wstring> storedFiles;    // [新增] 存储的文件列表
-    int hoveredFileIndex;                      // [新增] 悬停的文件索引
-    bool isFileDeleteHovered;                  // [新增] 是否悬停在删除按钮上
 
     // 天气
     std::wstring weatherDesc;
     float weatherTemp;
     std::wstring weatherIconId;
-    std::wstring weatherSuggestion;
-    bool weatherHasWarning;
     struct HourlyForecast {
         std::wstring time;
         std::wstring icon;
@@ -88,12 +93,6 @@ struct RenderContext
     };
     std::vector<DailyForecast> dailyForecasts;
     WeatherViewMode weatherViewMode = WeatherViewMode::Hourly;
-
-    // 警报数据
-    bool isAlertActive;
-    int alertType;              // 1=WiFi, 2=Bluetooth, 3=App, 4=Charging, 5=LowBattery, 6=File
-    std::wstring alertName;
-    std::wstring alertDeviceType;
 
     // 当前显示模式
     IslandDisplayMode mode;

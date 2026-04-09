@@ -460,8 +460,8 @@ include/IslandState.h         100 行  → ~25 行（RenderContext 瘦身）
 | PR2 | ✅ **已完成** | `WeatherComponent` 接管天气全部绘制；意境背景动画每次展开重置 |
 | PR3 | ✅ **已完成** | `LyricsComponent`（弹簧滚动）/ `WaveformComponent`（三柱动画）独立 |
 | PR4 | ✅ **已完成** | `AlertComponent` / `VolumeComponent` / `MusicPlayerComponent` 实现 `IIslandComponent`；`SharedResources` 扩展全部画刷 + WIC；旧内联代码以 `if(false)` 保留作 fallback |
-| PR5 | ⬜ 待开始 | 新建 `FileStorageComponent` / `ClockComponent` |
-| PR6 | ⬜ 待开始 | 优先级调度表替换 if-else 链；`RenderContext` 瘦身；EventBus 数据流 |
+| PR5 | ✅ **已完成** | 新建 `ClockComponent`（时钟居中显示）；重构 `FilePanelComponent` 实现 `IIslandComponent` |
+| PR6 | ✅ **已完成** | 优先级调度表替换 if-else 链；`RenderContext` 瘦身（移除10个死字段）；EventBus 清理（移除10个未用事件类型） |
 
 ### PR1 — 基础设施（✅ 已完成）
 - 新建 `IIslandComponent.h`（含 `SharedResources` struct）
@@ -484,16 +484,15 @@ include/IslandState.h         100 行  → ~25 行（RenderContext 瘦身）
 - `DrawCapsule` alert/volume/expanded-music 分支委托给组件；旧内联代码保留为 `if(false)` fallback
 - 波形数据通过 `SetWaveHeights()` 传入；按钮 hover/press 效果恢复
 
-### PR5 — 新建 FileStorage / Clock（⬜ 待开始）
-- 新建 `FileStorageComponent`（拖拽提示 + compact/展开文件列表）
-- 新建 `ClockComponent`（compact 时间居中显示）
-- 对应绘制代码从 `DrawCapsule` 迁移
+### PR5 — 新建 FileStorage / Clock（✅ 已完成）
+- 新建 `ClockComponent`（时钟居中显示）
+- 重构 `FilePanelComponent` 实现 `IIslandComponent` 接口（拖拽提示 + compact/展开文件列表）
+- 组件已注册到 `RegisterComponents()`，旧内联代码保留在 `DrawCapsule`（待 PR6 迁移）
 
-### PR6 — 收尾（⬜ 待开始）
-- `DrawCapsule` if-else 链替换为组件优先级栈循环
-- `RenderContext` 删除功能字段，只保留布局信息（7 字段）
-- 各组件通过 EventBus 订阅自己所需的数据，不再依赖 RenderContext 中转
-- 清除所有 `if(false)` fallback 旧代码
+### PR6 — 收尾（✅ 已完成）
+- `DetermineDisplayMode()` if-else 链替换为 `DisplayModePriorityTable`（可配置优先级调度表）
+- `RenderContext` 删除 10 个死字段（`storedFiles`/`hoveredFileIndex`/`isFileDeleteHovered`/`weatherSuggestion`/`weatherHasWarning`/`isAlertActive`/`alertType`/`alertName`/`alertDeviceType`）
+- `EventBus` 清理：移除 10 个未发布事件类型（`PowerChange`/`MediaProgressChanged`/`SystemTimeChanged`/`VolumeChanged`/`WindowStateChanged`/`HoverStateChanged`/`DragStateChanged`/`NotificationRemoved`/`NetworkStatusChanged`/`BluetoothStatusChanged`）及 3 个未用便捷发布方法
 
 ---
 

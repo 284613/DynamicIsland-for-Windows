@@ -193,45 +193,13 @@ void DynamicIsland::SetTargetSize(float width, float height) {
 
 
 IslandDisplayMode DynamicIsland::DetermineDisplayMode() const {
-
-	// Priority: Alert > FileDrop > MusicExpanded > Volume > MusicCompact > Idle
-
-	if (m_isAlertActive) {
-
-		return IslandDisplayMode::Alert;
-
+	// PR6: Use priority table for configurable scheduling
+	for (const auto& entry : m_priorityTable) {
+		if (entry.condition()) {
+			return entry.mode;
+		}
 	}
-
-	if (m_isWeatherExpanded) {
-		return IslandDisplayMode::WeatherExpanded;
-	}
-
-	if (m_isDragHovering || !m_storedFiles.empty()) {
-
-		return IslandDisplayMode::FileDrop;
-
-	}
-
-	if (m_state == IslandState::Expanded && m_mediaMonitor.HasSession()) {
-
-		return IslandDisplayMode::MusicExpanded;
-
-	}
-
-	if (m_isVolumeControlActive) {
-
-		return IslandDisplayMode::Volume;
-
-	}
-
-	if (m_state == IslandState::Collapsed && m_mediaMonitor.IsPlaying()) {
-
-		return IslandDisplayMode::MusicCompact;
-
-	}
-
 	return IslandDisplayMode::Idle;
-
 }
 
 
@@ -419,6 +387,17 @@ bool DynamicIsland::Initialize(HINSTANCE hInstance) {
 
 
 	LoadConfig(); // 【新增】最优先加载配置文件
+
+	// PR6: 初始化显示模式优先级调度表
+	m_priorityTable = {
+		{ IslandDisplayMode::Alert,          100, [this]() { return m_isAlertActive; } },
+		{ IslandDisplayMode::WeatherExpanded,  90, [this]() { return m_isWeatherExpanded; } },
+		{ IslandDisplayMode::FileDrop,         80, [this]() { return m_isDragHovering || !m_storedFiles.empty(); } },
+		{ IslandDisplayMode::MusicExpanded,    70, [this]() { return m_state == IslandState::Expanded && m_mediaMonitor.HasSession(); } },
+		{ IslandDisplayMode::Volume,           60, [this]() { return m_isVolumeControlActive; } },
+		{ IslandDisplayMode::MusicCompact,     50, [this]() { return m_state == IslandState::Collapsed && m_mediaMonitor.IsPlaying(); } },
+		{ IslandDisplayMode::Idle,             10, [this]() { return true; } },
+	};
 
 
 
@@ -1317,9 +1296,7 @@ void DynamicIsland::UpdatePhysics() {
 		m_weatherDesc = m_systemMonitor.GetWeatherPlugin()->GetWeatherDescription();
 		m_weatherTemp = m_systemMonitor.GetWeatherPlugin()->GetTemperature();
 		ctx.weatherIconId = m_systemMonitor.GetWeatherPlugin()->GetIconId();
-		ctx.weatherSuggestion = m_systemMonitor.GetWeatherPlugin()->GetLifeSuggestion();
-		ctx.weatherHasWarning = m_systemMonitor.GetWeatherPlugin()->HasSevereWarning();
-		
+
 		auto srcForecasts = m_systemMonitor.GetWeatherPlugin()->GetHourlyForecast();
 		ctx.hourlyForecasts.clear();
 		for (const auto& hf : srcForecasts) {
@@ -1333,8 +1310,6 @@ void DynamicIsland::UpdatePhysics() {
 		}
 	} else {
 		ctx.weatherIconId = L"100";
-		ctx.weatherSuggestion = L"无数据";
-		ctx.weatherHasWarning = false;
 	}
 
 	ctx.islandWidth = GetCurrentWidth();

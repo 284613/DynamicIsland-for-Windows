@@ -670,6 +670,12 @@ void RenderEngine::RegisterComponents() {
 	m_volumeComponent->OnAttach(&m_sharedRes);
 	m_musicComponent = std::make_unique<MusicPlayerComponent>();
 	m_musicComponent->OnAttach(&m_sharedRes);
+
+	// PR5: 初始化文件暂存和时钟组件
+	m_fileStorageComponent = std::make_unique<FilePanelComponent>();
+	m_fileStorageComponent->OnAttach(&m_sharedRes);
+	m_clockComponent = std::make_unique<ClockComponent>();
+	m_clockComponent->OnAttach(&m_sharedRes);
 }
 
 void RenderEngine::SetDpi(float dpi) {

@@ -29,6 +29,10 @@
 #include "components/AlertComponent.h"
 #include "components/VolumeComponent.h"
 
+// PR5: 文件暂存和时钟组件
+#include "components/FilePanelComponent.h"
+#include "components/ClockComponent.h"
+
 using namespace Microsoft::WRL;
 
 class RenderEngine {
@@ -83,6 +87,10 @@ private:
     std::unique_ptr<MusicPlayerComponent> m_musicComponent;
     std::unique_ptr<AlertComponent>       m_alertComponent;
     std::unique_ptr<VolumeComponent>      m_volumeComponent;
+
+    // PR5: 文件暂存和时钟组件（已实现 IIslandComponent）
+    std::unique_ptr<FilePanelComponent>   m_fileStorageComponent;
+    std::unique_ptr<ClockComponent>      m_clockComponent;
 
     // PR2: 天气组件（已组件化）
     std::unique_ptr<WeatherComponent> m_weatherComponent;

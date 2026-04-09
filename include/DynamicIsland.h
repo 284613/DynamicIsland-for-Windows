@@ -132,6 +132,9 @@ private:
     // LayoutController handles size, alpha, springs, and hit testing
     LayoutController m_layoutController;
 
+    // PR6: Display mode priority table for configurable scheduling
+    DisplayModePriorityTable m_priorityTable;
+
     const int HOTKEY_ID = 1001;
     UINT_PTR m_timerId = 1;
 

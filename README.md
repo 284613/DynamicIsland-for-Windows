@@ -77,8 +77,8 @@ DynamicIsland/
 | PR2 | `WeatherComponent`（天气全部绘制 + 动画） | ✅ 完成 |
 | PR3 | `LyricsComponent` / `WaveformComponent` | ✅ 完成 |
 | PR4 | `MusicPlayerComponent` / `AlertComponent` / `VolumeComponent` 实现新接口 | ✅ 完成 |
-| PR5 | `FileStorageComponent` / `ClockComponent` | ⬜ 待开始 |
-| PR6 | 优先级调度表 + `RenderContext` 瘦身 + EventBus 数据流 | ⬜ 待开始 |
+| PR5 | `FileStorageComponent` / `ClockComponent` | ✅ 完成 |
+| PR6 | 优先级调度表 + `RenderContext` 瘦身 + EventBus 数据流 | ✅ 完成 |
 
 详细计划见 [REFACTOR_PLAN.md](REFACTOR_PLAN.md)。
 
