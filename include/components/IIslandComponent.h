@@ -3,6 +3,7 @@
 #include <dwrite.h>
 #include <windows.h>
 #include <wrl/client.h>
+#include <wincodec.h>
 
 using namespace Microsoft::WRL;
 
@@ -19,10 +20,27 @@ struct SharedResources {
     ID2D1SolidColorBrush* blackBrush  = nullptr;
     ID2D1SolidColorBrush* themeBrush  = nullptr;
 
+    // 通知/状态提示画刷（AlertComponent 使用）
+    ID2D1SolidColorBrush* wifiBrush         = nullptr;
+    ID2D1SolidColorBrush* bluetoothBrush    = nullptr;
+    ID2D1SolidColorBrush* chargingBrush     = nullptr;
+    ID2D1SolidColorBrush* lowBatteryBrush   = nullptr;
+    ID2D1SolidColorBrush* fileBrush         = nullptr;
+    ID2D1SolidColorBrush* notificationBrush = nullptr;
+    ID2D1SolidColorBrush* darkGrayBrush     = nullptr;
+
+    // 音乐播放器画刷（MusicPlayerComponent 使用）
+    ID2D1SolidColorBrush* progressBgBrush  = nullptr;
+    ID2D1SolidColorBrush* progressFgBrush  = nullptr;
+    ID2D1SolidColorBrush* buttonHoverBrush = nullptr;
+
     // 公共字体格式
     IDWriteTextFormat* titleFormat = nullptr;
     IDWriteTextFormat* subFormat   = nullptr;
     IDWriteTextFormat* iconFormat  = nullptr;
+
+    // WIC 工厂（MusicPlayerComponent 加载专辑封面用）
+    IWICImagingFactory* wicFactory = nullptr;
 };
 
 // 所有岛屿组件的统一接口

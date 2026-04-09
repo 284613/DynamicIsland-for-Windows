@@ -1,51 +1,24 @@
 // VolumeComponent.h
 #pragma once
-#include <d2d1_1.h>
-#include <dwrite.h>
-#include <wrl/client.h>
-#include <string>
-#include "IslandState.h"
+#include "IIslandComponent.h"
 
-using namespace Microsoft::WRL;
-
-class VolumeComponent {
+class VolumeComponent : public IIslandComponent {
 public:
-    VolumeComponent();
-    ~VolumeComponent();
+    void OnAttach(SharedResources* res) override;
+    void Draw(const D2D1_RECT_F& rect, float contentAlpha, ULONGLONG currentTimeMs) override;
+    bool IsActive() const override { return m_isActive; }
 
-    bool Initialize();
-
-    void SetD2DResources(
-        ComPtr<ID2D1DeviceContext> d2dContext,
-        ComPtr<IDWriteFactory> dwriteFactory);
-
-    void SetBrushes(
-        ComPtr<ID2D1SolidColorBrush> whiteBrush,
-        ComPtr<ID2D1SolidColorBrush> grayBrush);
-
-    void SetIconFormat(ComPtr<IDWriteTextFormat> iconFormat);
-
-    void Draw(ID2D1DeviceContext* ctx, float left, float top, float width, float height,
-              const RenderContext& ctx_data, float dpi);
-
-    void RenderOSD(float canvasWidth, float canvasHeight, float volumeLevel, float alpha);
+    void SetActive(bool active) { m_isActive = active; }
+    void SetVolumeLevel(float level) { m_volumeLevel = level; }
 
 private:
-    const wchar_t* GetVolumeIcon(float volumeLevel);
+    const wchar_t* GetVolumeIcon(float level);
 
-    // D2D resources
-    ComPtr<ID2D1DeviceContext> m_d2dContext;
-    ComPtr<IDWriteFactory> m_dwriteFactory;
+    SharedResources* m_res = nullptr;
+    bool  m_isActive     = false;
+    float m_volumeLevel  = 0.0f;
 
-    // Brushes
-    ComPtr<ID2D1SolidColorBrush> m_whiteBrush;
-    ComPtr<ID2D1SolidColorBrush> m_grayBrush;
-
-    // Icon format
-    ComPtr<IDWriteTextFormat> m_iconFormat;
-
-    // Constants
-    static constexpr float ICON_SIZE = 20.0f;
-    static constexpr float BAR_WIDTH = 120.0f;
+    static constexpr float ICON_SIZE  = 20.0f;
+    static constexpr float BAR_WIDTH  = 120.0f;
     static constexpr float BAR_HEIGHT = 6.0f;
 };

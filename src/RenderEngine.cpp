@@ -638,6 +638,21 @@ void RenderEngine::RegisterComponents() {
 	m_sharedRes.subFormat     = m_textFormatSub.Get();
 	m_sharedRes.iconFormat    = m_iconTextFormat.Get();
 
+	// PR4: 扩展 SharedResources — 提示组件画刷
+	m_sharedRes.wifiBrush         = m_wifiBrush.Get();
+	m_sharedRes.bluetoothBrush    = m_bluetoothBrush.Get();
+	m_sharedRes.chargingBrush     = m_chargingBrush.Get();
+	m_sharedRes.lowBatteryBrush   = m_lowBatteryBrush.Get();
+	m_sharedRes.fileBrush         = m_fileBrush.Get();
+	m_sharedRes.notificationBrush = m_notificationBrush.Get();
+	m_sharedRes.darkGrayBrush     = m_darkGrayBrush.Get();
+
+	// PR4: 扩展 SharedResources — 音乐组件画刷 + WIC
+	m_sharedRes.progressBgBrush  = m_progressBgBrush.Get();
+	m_sharedRes.progressFgBrush  = m_progressFgBrush.Get();
+	m_sharedRes.buttonHoverBrush = m_buttonHoverBrush.Get();
+	m_sharedRes.wicFactory       = m_wicFactory.Get();
+
 	// PR2: 初始化天气组件
 	m_weatherComponent = std::make_unique<WeatherComponent>();
 	m_weatherComponent->OnAttach(&m_sharedRes);
@@ -647,6 +662,14 @@ void RenderEngine::RegisterComponents() {
 	m_lyricsComponent->OnAttach(&m_sharedRes);
 	m_waveformComponent = std::make_unique<WaveformComponent>();
 	m_waveformComponent->OnAttach(&m_sharedRes);
+
+	// PR4: 初始化音乐/提示/音量组件
+	m_alertComponent = std::make_unique<AlertComponent>();
+	m_alertComponent->OnAttach(&m_sharedRes);
+	m_volumeComponent = std::make_unique<VolumeComponent>();
+	m_volumeComponent->OnAttach(&m_sharedRes);
+	m_musicComponent = std::make_unique<MusicPlayerComponent>();
+	m_musicComponent->OnAttach(&m_sharedRes);
 }
 
 void RenderEngine::SetDpi(float dpi) {
@@ -1098,17 +1121,17 @@ void RenderEngine::DrawCapsule(const RenderContext& ctx)
 				m_weatherComponent->Draw(weatherRect, contentAlpha, GetTickCount64());
 			}
 		}
-		// 面板关闭时重置展开状态，下次打开时触发动画重置
+		// PR4: Alert 组件
 		else if (m_isAlertActive)
-
 		{
-
-
-
-			// 判断是否是应用消息 (Type 3)
-
-
-
+			if (m_alertComponent) {
+				m_alertComponent->SetAlertState(true, m_currentAlert);
+				m_alertComponent->SetAlertBitmap(m_alertBitmap);
+				D2D1_RECT_F alertRect = D2D1::RectF(left, top, right, bottom);
+				m_alertComponent->Draw(alertRect, contentAlpha, GetTickCount64());
+			}
+			// 保留 isAppNotif 变量避免后续代码引用错误（已被组件接管，以下旧代码跳过）
+			if (false) {
 			bool isAppNotif = (m_currentAlert.type == 3);
 
 
@@ -1558,6 +1581,7 @@ void RenderEngine::DrawCapsule(const RenderContext& ctx)
 
 
 			}
+			} // end if(false) — old inline alert code disabled
 
 
 
@@ -1585,14 +1609,16 @@ void RenderEngine::DrawCapsule(const RenderContext& ctx)
 
 
 
+		// PR4: Volume 组件
 		else if (isVolumeActive && compactMode && !m_isAlertActive)
-
-
-
 		{
-
-
-
+			if (m_volumeComponent) {
+				m_volumeComponent->SetActive(true);
+				m_volumeComponent->SetVolumeLevel(volumeLevel);
+				D2D1_RECT_F volRect = D2D1::RectF(left, top, right, bottom);
+				m_volumeComponent->Draw(volRect, contentAlpha, GetTickCount64());
+			}
+			if (false) {
 			float iconSize = 20.0f;
 
 
@@ -1694,6 +1720,7 @@ void RenderEngine::DrawCapsule(const RenderContext& ctx)
 
 
 			}
+			} // end if(false) — old inline volume code disabled
 
 
 
@@ -2517,13 +2544,24 @@ void RenderEngine::DrawCapsule(const RenderContext& ctx)
 
 
 
-			else // 展开模式
+			else // 展开模式 (PR4: 委托给 MusicPlayerComponent)
 
 
 
 			{
-
-
+				// PR4: 委托给 MusicPlayerComponent
+				if (m_musicComponent) {
+					m_musicComponent->SetPlaybackState(hasSession, isPlaying, ctx.progress,
+						title, artist, ctx.lyric, showTime, timeText);
+					m_musicComponent->SetInteractionState(m_hoveredButtonIndex, m_pressedButtonIndex,
+						m_hoveredProgress, m_pressedProgress);
+					m_musicComponent->SetScrollState(m_titleScrollOffset, m_lyricScrollOffset,
+						m_titleScrolling, m_lyricScrolling);
+					D2D1_RECT_F musicRect = D2D1::RectF(left, top, right, bottom);
+					m_musicComponent->Draw(musicRect, contentAlpha, GetTickCount64());
+				}
+				if (!m_musicComponent) // 旧内联代码（fallback）
+				{
 
 				// 固定参数
 
@@ -3242,6 +3280,8 @@ void RenderEngine::DrawCapsule(const RenderContext& ctx)
 
 
 				}
+
+				} // end if(!m_musicComponent) — old inline music code (fallback)
 
 
 
@@ -4261,7 +4301,8 @@ bool RenderEngine::LoadAlbumArtFromMemory(const std::vector<uint8_t>& data) {
 
 	}
 
-
+	// PR4: 同步给 MusicPlayerComponent
+	if (m_musicComponent) m_musicComponent->SetAlbumBitmap(m_albumBitmap);
 
 	return true;
 

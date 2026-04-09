@@ -24,10 +24,10 @@
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dwrite.lib")
 
-// Forward declarations
-class MusicPlayerComponent;
-class AlertComponent;
-class VolumeComponent;
+// PR4: 音乐/提示/音量组件已实现 IIslandComponent，直接 include
+#include "components/MusicPlayerComponent.h"
+#include "components/AlertComponent.h"
+#include "components/VolumeComponent.h"
 
 using namespace Microsoft::WRL;
 
@@ -79,10 +79,10 @@ private:
     // 新增：绘制播放控制按钮（仅在展开模式且有媒体会话时显示）
     void DrawPlaybackButtons(float left, float top, float buttonSize, float contentAlpha, bool isPlaying);
 
-    // Component instances for decoupled rendering (legacy, will be migrated)
+    // PR4: 音乐/提示/音量组件（已实现 IIslandComponent）
     std::unique_ptr<MusicPlayerComponent> m_musicComponent;
-    std::unique_ptr<AlertComponent> m_alertComponent;
-    std::unique_ptr<VolumeComponent> m_volumeComponent;
+    std::unique_ptr<AlertComponent>       m_alertComponent;
+    std::unique_ptr<VolumeComponent>      m_volumeComponent;
 
     // PR2: 天气组件（已组件化）
     std::unique_ptr<WeatherComponent> m_weatherComponent;

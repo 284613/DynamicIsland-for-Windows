@@ -1,204 +1,150 @@
 #include "components/AlertComponent.h"
 
-AlertComponent::AlertComponent() {}
-AlertComponent::~AlertComponent() {}
-
-bool AlertComponent::Initialize() { return true; }
-
-void AlertComponent::SetD2DResources(ComPtr<ID2D1DeviceContext> d2dContext, ComPtr<IDWriteFactory> dwriteFactory) {
-    m_d2dContext = d2dContext;
-    m_dwriteFactory = dwriteFactory;
+void AlertComponent::OnAttach(SharedResources* res) {
+    m_res = res;
 }
 
-void AlertComponent::SetBrushes(
-    ComPtr<ID2D1SolidColorBrush> wifiBrush,
-    ComPtr<ID2D1SolidColorBrush> bluetoothBrush,
-    ComPtr<ID2D1SolidColorBrush> chargingBrush,
-    ComPtr<ID2D1SolidColorBrush> lowBatteryBrush,
-    ComPtr<ID2D1SolidColorBrush> fileBrush,
-    ComPtr<ID2D1SolidColorBrush> notificationBrush,
-    ComPtr<ID2D1SolidColorBrush> whiteBrush,
-    ComPtr<ID2D1SolidColorBrush> darkGrayBrush,
-    ComPtr<ID2D1SolidColorBrush> themeBrush,
-    ComPtr<ID2D1SolidColorBrush> grayBrush) {
-    m_wifiBrush = wifiBrush;
-    m_bluetoothBrush = bluetoothBrush;
-    m_chargingBrush = chargingBrush;
-    m_lowBatteryBrush = lowBatteryBrush;
-    m_fileBrush = fileBrush;
-    m_notificationBrush = notificationBrush;
-    m_whiteBrush = whiteBrush;
-    m_darkGrayBrush = darkGrayBrush;
-    m_themeBrush = themeBrush;
-    m_grayBrush = grayBrush;
-}
-
-void AlertComponent::SetTextFormat(ComPtr<IDWriteTextFormat> textFormat) { m_textFormat = textFormat; }
-void AlertComponent::SetTitleTextFormat(ComPtr<IDWriteTextFormat> titleFormat) { m_titleFormat = titleFormat; }
-void AlertComponent::SetIconFormat(ComPtr<IDWriteTextFormat> iconFormat) { m_iconFormat = iconFormat; }
-
-void AlertComponent::SetAlertState(bool active, int alertType, const std::wstring& alertName, const std::wstring& alertDeviceType) {
+void AlertComponent::SetAlertState(bool active, const AlertInfo& info) {
     m_isAlertActive = active;
-    m_alertType = alertType;
-    m_alertName = alertName;
-    m_alertDeviceType = alertDeviceType;
+    m_alert = info;
 }
 
-void AlertComponent::SetAlertBitmap(ComPtr<ID2D1Bitmap> bitmap) { m_alertBitmap = bitmap; }
+void AlertComponent::SetAlertBitmap(ComPtr<ID2D1Bitmap> bitmap) {
+    m_alertBitmap = bitmap;
+}
 
 const wchar_t* AlertComponent::GetIconText(int alertType) {
     switch (alertType) {
-        case 1: return L"\uE701";
-        case 2: return L"\uE702";
-        case 4: return L"\uEBB5";
-        case 5: return L"\uEBAE";
-        case 6: return L"\uE8A5";
-        default: return L"\uE7E7";
+        case 1: return L"\uE701";  // WiFi
+        case 2: return L"\uE702";  // Bluetooth
+        case 4: return L"\uEBB5";  // Charging
+        case 5: return L"\uEBAE";  // Low battery
+        case 6: return L"\uE8A5";  // File
+        default: return L"\uE7E7"; // Notification
     }
 }
 
-ComPtr<ID2D1SolidColorBrush> AlertComponent::GetBrush(int alertType) {
+ID2D1SolidColorBrush* AlertComponent::GetBrush(int alertType) {
+    if (!m_res) return nullptr;
     switch (alertType) {
-        case 1: return m_wifiBrush;
-        case 2: return m_bluetoothBrush;
-        case 4: return m_chargingBrush;
-        case 5: return m_lowBatteryBrush;
-        case 6: return m_fileBrush;
-        default: return m_notificationBrush;
+        case 1: return m_res->wifiBrush;
+        case 2: return m_res->bluetoothBrush;
+        case 4: return m_res->chargingBrush;
+        case 5: return m_res->lowBatteryBrush;
+        case 6: return m_res->fileBrush;
+        default: return m_res->notificationBrush;
     }
 }
 
 ComPtr<IDWriteTextLayout> AlertComponent::GetOrCreateTextLayout(
     const std::wstring& text, IDWriteTextFormat* format, float maxWidth, const std::wstring& cacheKey) {
     auto it = m_textLayoutCache.find(cacheKey);
-    if (it != m_textLayoutCache.end() && it->second.text == text) {
+    if (it != m_textLayoutCache.end() && it->second.text == text)
         return it->second.layout;
-    }
-    ComPtr<IDWriteTextLayout> textLayout;
-    m_dwriteFactory->CreateTextLayout(text.c_str(), (UINT32)text.length(), format, maxWidth, 100.0f, &textLayout);
-    if (textLayout) {
-        TextLayoutCacheEntry entry;
-        entry.layout = textLayout;
-        entry.text = text;
-        entry.maxWidth = maxWidth;
-        m_textLayoutCache[cacheKey] = entry;
-    }
-    return textLayout;
+    ComPtr<IDWriteTextLayout> layout;
+    m_res->dwriteFactory->CreateTextLayout(text.c_str(), (UINT32)text.length(), format, maxWidth, 100.0f, &layout);
+    if (layout) m_textLayoutCache[cacheKey] = { layout, text, maxWidth };
+    return layout;
 }
 
-void AlertComponent::Draw(ID2D1DeviceContext* ctx, float left, float top, float width, float height,
-    const RenderContext& ctx_data, float dpi) {
-    if (!ctx || !ctx_data.isAlertActive) return;
-    m_d2dContext = ctx;
-
-    bool isAppNotif = (ctx_data.alertType == 3);
-    const wchar_t* iconText = GetIconText(ctx_data.alertType);
-    ComPtr<ID2D1SolidColorBrush> iconBrush = GetBrush(ctx_data.alertType);
-
-    float compactThreshold = 60.0f;
-    if (height < compactThreshold) {
-        RenderCompact(left, top, width, height, ctx_data, ctx_data.alertType,
-            ctx_data.alertName, ctx_data.alertDeviceType, isAppNotif, iconText, iconBrush, ctx_data.contentAlpha);
-    } else {
-        RenderExpanded(left, top, width, height, ctx_data, ctx_data.alertType,
-            ctx_data.alertName, ctx_data.alertDeviceType, isAppNotif, iconText, iconBrush, ctx_data.contentAlpha);
-    }
+void AlertComponent::Draw(const D2D1_RECT_F& rect, float contentAlpha, ULONGLONG) {
+    if (!m_res || !m_isAlertActive) return;
+    float height = rect.bottom - rect.top;
+    if (height < COMPACT_THRESHOLD)
+        RenderCompact(rect, contentAlpha);
+    else
+        RenderExpanded(rect, contentAlpha);
 }
 
-void AlertComponent::RenderCompact(float left, float top, float width, float height, const RenderContext& ctx_data,
-    int alertType, const std::wstring& alertName, const std::wstring& alertDeviceType,
-    bool isAppNotif, const wchar_t* iconText, ComPtr<ID2D1SolidColorBrush> iconBrush, float contentAlpha) {
-    float iconSize = ICON_SIZE;
-    std::wstring text = L"";
+void AlertComponent::RenderCompact(const D2D1_RECT_F& rect, float contentAlpha) {
+    auto* ctx = m_res->d2dContext;
+    float left = rect.left, top = rect.top;
+    float width = rect.right - rect.left, height = rect.bottom - rect.top;
 
-    if (isAppNotif) {
-        text = alertName + L" \u6709\u65b0\u6d88\u606f";
-    } else if (alertType == 1) {
-        text = L"Wi-Fi \u5df2\u8fde\u63a5";
-    } else if (alertType == 2) {
-        text = alertDeviceType + L" \u5df2\u8fde\u63a5";
-    } else if (alertType == 4 || alertType == 5) {
-        text = alertName + L" (";
-        text += alertDeviceType;
-        text += L")";
-    }
+    bool isAppNotif = (m_alert.type == 3);
+    const wchar_t* iconText = GetIconText(m_alert.type);
+    auto* iconBrush = GetBrush(m_alert.type);
 
-    auto textLayout = GetOrCreateTextLayout(text, m_titleFormat.Get(), 10000.0f, L"alert_compact_text");
-    if (!textLayout) return;
-    
+    std::wstring text;
+    if (isAppNotif) text = m_alert.name + L" 有新消息";
+    else if (m_alert.type == 1) text = L"Wi-Fi 已连接";
+    else if (m_alert.type == 2) text = m_alert.deviceType + L" 已连接";
+    else if (m_alert.type == 4 || m_alert.type == 5)
+        text = m_alert.name + L" (" + m_alert.deviceType + L")";
+
+    auto layout = GetOrCreateTextLayout(text, m_res->titleFormat, 10000.0f, L"alert_compact_text");
+    if (!layout) return;
+
     DWRITE_TEXT_METRICS metrics;
-    textLayout->GetMetrics(&metrics);
+    layout->GetMetrics(&metrics);
 
-    float totalWidth = iconSize + 8.0f + metrics.width;
+    float totalWidth = ICON_SIZE + 8.0f + metrics.width;
     float startX = left + (width - totalWidth) / 2.0f;
     float textY = top + (height - metrics.height) / 2.0f;
 
-    D2D1_RECT_F iconRect = D2D1::RectF(startX, top + (height - iconSize) / 2.0f, startX + iconSize, top + (height - iconSize) / 2.0f + iconSize);
+    D2D1_RECT_F iconRect = D2D1::RectF(startX, top + (height - ICON_SIZE) / 2.0f,
+                                        startX + ICON_SIZE, top + (height - ICON_SIZE) / 2.0f + ICON_SIZE);
     if (isAppNotif && m_alertBitmap) {
-        m_d2dContext->DrawBitmap(m_alertBitmap.Get(), iconRect, contentAlpha, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
-    } else if (!isAppNotif) {
-        if (iconBrush) iconBrush->SetOpacity(contentAlpha);
-        m_d2dContext->DrawTextW(iconText, 1, m_iconFormat.Get(), iconRect, iconBrush.Get());
+        ctx->DrawBitmap(m_alertBitmap.Get(), iconRect, contentAlpha, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+    } else if (isAppNotif && m_res->themeBrush) {
+        m_res->themeBrush->SetOpacity(contentAlpha);
+        ctx->FillRoundedRectangle(D2D1::RoundedRect(iconRect, 4.0f, 4.0f), m_res->themeBrush);
+    } else if (!isAppNotif && iconBrush) {
+        iconBrush->SetOpacity(contentAlpha);
+        ctx->DrawTextW(iconText, 1, m_res->iconFormat, D2D1::RectF(startX, top, startX + ICON_SIZE, rect.bottom), iconBrush);
     }
 
-    if (m_whiteBrush) m_whiteBrush->SetOpacity(contentAlpha);
-    m_d2dContext->DrawTextLayout(D2D1::Point2F(startX + iconSize + 8.0f, textY), textLayout.Get(), m_whiteBrush.Get());
+    if (m_res->whiteBrush) m_res->whiteBrush->SetOpacity(contentAlpha);
+    ctx->DrawTextLayout(D2D1::Point2F(startX + ICON_SIZE + 8.0f, textY), layout.Get(), m_res->whiteBrush);
 }
 
-void AlertComponent::RenderExpanded(float left, float top, float width, float height, const RenderContext& ctx_data,
-    int alertType, const std::wstring& alertName, const std::wstring& alertDeviceType,
-    bool isAppNotif, const wchar_t* iconText, ComPtr<ID2D1SolidColorBrush> iconBrush, float contentAlpha) {
-    float artSize = ART_SIZE;
+void AlertComponent::RenderExpanded(const D2D1_RECT_F& rect, float contentAlpha) {
+    auto* ctx = m_res->d2dContext;
+    float left = rect.left, top = rect.top;
+    float right = rect.right, bottom = rect.bottom;
+
+    bool isAppNotif = (m_alert.type == 3);
+    const wchar_t* iconText = GetIconText(m_alert.type);
+    auto* iconBrush = GetBrush(m_alert.type);
+
     float artLeft = left + 20.0f;
     float artTop = top + 30.0f;
-    D2D1_ROUNDED_RECT artRect = D2D1::RoundedRect(D2D1::RectF(artLeft, artTop, artLeft + artSize, artTop + artSize), 12.0f, 12.0f);
+    D2D1_ROUNDED_RECT artRect = D2D1::RoundedRect(
+        D2D1::RectF(artLeft, artTop, artLeft + ART_SIZE, artTop + ART_SIZE), 12.0f, 12.0f);
 
     if (isAppNotif && m_alertBitmap) {
-        m_d2dContext->DrawBitmap(m_alertBitmap.Get(), artRect.rect, contentAlpha, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+        ctx->DrawBitmap(m_alertBitmap.Get(), artRect.rect, contentAlpha, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
     } else {
-        if (iconBrush) {
-            iconBrush->SetOpacity(contentAlpha);
-            m_d2dContext->FillRoundedRectangle(&artRect, iconBrush.Get());
-        }
-        if (!isAppNotif) {
-            if (m_whiteBrush) m_whiteBrush->SetOpacity(contentAlpha);
-            m_d2dContext->DrawTextW(iconText, 1, m_iconFormat.Get(), artRect.rect, m_whiteBrush.Get());
+        if (iconBrush) { iconBrush->SetOpacity(contentAlpha); ctx->FillRoundedRectangle(&artRect, iconBrush); }
+        if (!isAppNotif && m_res->whiteBrush) {
+            m_res->whiteBrush->SetOpacity(contentAlpha);
+            ctx->DrawTextW(iconText, 1, m_res->iconFormat, artRect.rect, m_res->whiteBrush);
         }
     }
 
-    float textLeft = artLeft + artSize + 15.0f;
-    float textRight = left + width - 20.0f;
-    std::wstring topText = L"";
-    std::wstring bottomText = L"";
+    float textLeft = artLeft + ART_SIZE + 15.0f;
+    float textRight = right - 20.0f;
+    std::wstring topText, bottomText;
 
-    if (isAppNotif) {
-        topText = alertName;
-        bottomText = alertDeviceType;
-    } else if (alertType == 1) {
-        topText = L"Wi-Fi";
-        bottomText = alertName;
-    } else if (alertType == 2) {
-        topText = alertDeviceType;
-        bottomText = alertName;
-    } else if (alertType == 4 || alertType == 5) {
-        topText = alertDeviceType;
-        bottomText = alertName;
-    }
+    if (isAppNotif) { topText = m_alert.name; bottomText = m_alert.deviceType; }
+    else if (m_alert.type == 1) { topText = L"Wi-Fi"; bottomText = m_alert.name; }
+    else if (m_alert.type == 2) { topText = m_alert.deviceType; bottomText = m_alert.name; }
+    else if (m_alert.type == 4 || m_alert.type == 5) { topText = m_alert.deviceType; bottomText = m_alert.name; }
 
-    auto topLayout = GetOrCreateTextLayout(topText, m_textFormat.Get(), 10000.0f, L"alert_top");
-    if (topLayout) {
-        if (m_grayBrush) m_grayBrush->SetOpacity(contentAlpha);
-        m_d2dContext->DrawTextLayout(D2D1::Point2F(textLeft, artTop + 5.0f), topLayout.Get(), m_grayBrush.Get());
+    auto topLayout = GetOrCreateTextLayout(topText, m_res->subFormat, 10000.0f, L"alert_top");
+    if (topLayout && m_res->grayBrush) {
+        m_res->grayBrush->SetOpacity(contentAlpha);
+        ctx->DrawTextLayout(D2D1::Point2F(textLeft, artTop + 5.0f), topLayout.Get(), m_res->grayBrush);
     }
 
     if (!bottomText.empty()) {
-        auto botLayout = GetOrCreateTextLayout(bottomText, m_titleFormat.Get(), 10000.0f, L"alert_bottom");
-        if (botLayout) {
+        auto botLayout = GetOrCreateTextLayout(bottomText, m_res->titleFormat, 10000.0f, L"alert_bottom");
+        if (botLayout && m_res->whiteBrush) {
             botLayout->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-            if (m_whiteBrush) m_whiteBrush->SetOpacity(contentAlpha);
-            m_d2dContext->PushAxisAlignedClip(D2D1::RectF(textLeft, artTop + 25.0f, textRight, top + height), D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-            m_d2dContext->DrawTextLayout(D2D1::Point2F(textLeft, artTop + 28.0f), botLayout.Get(), m_whiteBrush.Get());
-            m_d2dContext->PopAxisAlignedClip();
+            m_res->whiteBrush->SetOpacity(contentAlpha);
+            ctx->PushAxisAlignedClip(D2D1::RectF(textLeft, artTop + 25.0f, textRight, bottom), D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+            ctx->DrawTextLayout(D2D1::Point2F(textLeft, artTop + 28.0f), botLayout.Get(), m_res->whiteBrush);
+            ctx->PopAxisAlignedClip();
         }
     }
 }

@@ -1,473 +1,243 @@
-﻿// MusicPlayerComponent.cpp
 #include "components/MusicPlayerComponent.h"
-#include <dcomp.h>
 #include <wincodec.h>
-#include <algorithm>
 #include <cmath>
 
-MusicPlayerComponent::MusicPlayerComponent() {
+void MusicPlayerComponent::OnAttach(SharedResources* res) {
+    m_res = res;
 }
 
-MusicPlayerComponent::~MusicPlayerComponent() {
+void MusicPlayerComponent::SetPlaybackState(bool hasSession, bool isPlaying, float progress,
+    const std::wstring& title, const std::wstring& artist,
+    const LyricData& lyric, bool showTime, const std::wstring& timeText) {
+    m_hasSession = hasSession;
+    m_isPlaying  = isPlaying;
+    m_progress   = progress;
+    m_title      = title;
+    m_artist     = artist;
+    m_lyric      = lyric;
+    m_showTime   = showTime;
+    m_timeText   = timeText;
 }
 
-bool MusicPlayerComponent::Initialize() {
-    return true;
-}
-
-void MusicPlayerComponent::SetD2DResources(
-    ComPtr<ID2D1DeviceContext> d2dContext,
-    ComPtr<IDWriteFactory> dwriteFactory,
-    ComPtr<ID2D1Factory1> d2dFactory) {
-    m_d2dContext = d2dContext;
-    m_dwriteFactory = dwriteFactory;
-    m_d2dFactory = d2dFactory;
-}
-
-void MusicPlayerComponent::SetTextFormats(
-    ComPtr<IDWriteTextFormat> titleFormat,
-    ComPtr<IDWriteTextFormat> subFormat,
-    ComPtr<IDWriteTextFormat> iconFormat) {
-    m_titleFormat = titleFormat;
-    m_subFormat = subFormat;
-    m_iconFormat = iconFormat;
-}
-
-void MusicPlayerComponent::SetBrushes(
-    ComPtr<ID2D1SolidColorBrush> whiteBrush,
-    ComPtr<ID2D1SolidColorBrush> grayBrush,
-    ComPtr<ID2D1SolidColorBrush> themeBrush,
-    ComPtr<ID2D1SolidColorBrush> progressBgBrush,
-    ComPtr<ID2D1SolidColorBrush> progressFgBrush,
-    ComPtr<ID2D1SolidColorBrush> buttonHoverBrush) {
-    m_whiteBrush = whiteBrush;
-    m_grayBrush = grayBrush;
-    m_themeBrush = themeBrush;
-    m_progressBgBrush = progressBgBrush;
-    m_progressFgBrush = progressFgBrush;
-    m_buttonHoverBrush = buttonHoverBrush;
-}
-
-void MusicPlayerComponent::SetAlbumBitmap(ComPtr<ID2D1Bitmap> bitmap) {
-    m_albumBitmap = bitmap;
-}
-
-void MusicPlayerComponent::SetWicFactory(ComPtr<IWICImagingFactory> wicFactory) {
-    m_wicFactory = wicFactory;
+void MusicPlayerComponent::SetInteractionState(int hoveredButton, int pressedButton, int hoveredProgress, int pressedProgress) {
+    m_hoveredButton   = hoveredButton;
+    m_pressedButton   = pressedButton;
+    m_hoveredProgress = hoveredProgress;
+    m_pressedProgress = pressedProgress;
 }
 
 void MusicPlayerComponent::SetScrollState(float titleScrollOffset, float lyricScrollOffset,
     bool titleScrolling, bool lyricScrolling) {
     m_titleScrollOffset = titleScrollOffset;
     m_lyricScrollOffset = lyricScrollOffset;
-    m_titleScrolling = titleScrolling;
-    m_lyricScrolling = lyricScrolling;
+    m_titleScrolling    = titleScrolling;
+    m_lyricScrolling    = lyricScrolling;
 }
 
-bool MusicPlayerComponent::LoadAlbumArt(const std::wstring& file) {
-    if (!m_wicFactory || !m_d2dContext) return false;
+bool MusicPlayerComponent::LoadAlbumArtFromMemory(const std::vector<uint8_t>& data) {
+    if (!m_res || !m_res->wicFactory || !m_res->d2dContext || data.empty()) return false;
 
-    ComPtr<IWICBitmapDecoder> decoder;
-    HRESULT hr = m_wicFactory->CreateDecoderFromFilename(
-        file.c_str(),
-        nullptr,
-        GENERIC_READ,
-        WICDecodeMetadataCacheOnLoad,
-        &decoder
-    );
-
-    if (FAILED(hr)) return false;
-
-    ComPtr<IWICBitmapFrameDecode> frame;
-    decoder->GetFrame(0, &frame);
-
-    ComPtr<IWICFormatConverter> converter;
-    m_wicFactory->CreateFormatConverter(&converter);
-
-    converter->Initialize(
-        frame.Get(),
-        GUID_WICPixelFormat32bppPBGRA,
-        WICBitmapDitherTypeNone,
-        nullptr,
-        0,
-        WICBitmapPaletteTypeCustom
-    );
-
-    hr = m_d2dContext->CreateBitmapFromWicBitmap(
-        converter.Get(),
-        nullptr,
-        &m_albumBitmap
-    );
-
-    return SUCCEEDED(hr);
-}
-
-bool MusicPlayerComponent::LoadAlbumArtFromMemory(const std::vector<uint8_t>* data, size_t size) {
-    if (!m_wicFactory || !m_d2dContext || !data || size == 0) return false;
+    auto* wic = m_res->wicFactory;
+    auto* ctx = m_res->d2dContext;
 
     ComPtr<IWICStream> stream;
-    m_wicFactory->CreateStream(&stream);
-
-    stream->InitializeFromMemory(
-        const_cast<uint8_t*>(data->data()),
-        static_cast<DWORD>(size)
-    );
+    wic->CreateStream(&stream);
+    stream->InitializeFromMemory(const_cast<uint8_t*>(data.data()), (DWORD)data.size());
 
     ComPtr<IWICBitmapDecoder> decoder;
-    HRESULT hr = m_wicFactory->CreateDecoderFromStream(
-        stream.Get(),
-        nullptr,
-        WICDecodeMetadataCacheOnLoad,
-        &decoder
-    );
-
-    if (FAILED(hr)) return false;
+    if (FAILED(wic->CreateDecoderFromStream(stream.Get(), nullptr, WICDecodeMetadataCacheOnLoad, &decoder)))
+        return false;
 
     ComPtr<IWICBitmapFrameDecode> frame;
     decoder->GetFrame(0, &frame);
 
     ComPtr<IWICFormatConverter> converter;
-    m_wicFactory->CreateFormatConverter(&converter);
+    wic->CreateFormatConverter(&converter);
+    converter->Initialize(frame.Get(), GUID_WICPixelFormat32bppPBGRA,
+        WICBitmapDitherTypeNone, nullptr, 0, WICBitmapPaletteTypeCustom);
 
-    converter->Initialize(
-        frame.Get(),
-        GUID_WICPixelFormat32bppPBGRA,
-        WICBitmapDitherTypeNone,
-        nullptr,
-        0,
-        WICBitmapPaletteTypeCustom
-    );
-
-    hr = m_d2dContext->CreateBitmapFromWicBitmap(
-        converter.Get(),
-        nullptr,
-        &m_albumBitmap
-    );
-
-    return SUCCEEDED(hr);
+    m_albumBitmap.Reset();
+    return SUCCEEDED(ctx->CreateBitmapFromWicBitmap(converter.Get(), nullptr, &m_albumBitmap));
 }
 
-void MusicPlayerComponent::Draw(ID2D1DeviceContext* ctx, float left, float top, float width, float height,
-    const RenderContext& ctx_data, float dpi) {
-    if (!ctx) return;
-    m_d2dContext = ctx;
+void MusicPlayerComponent::Draw(const D2D1_RECT_F& rect, float contentAlpha, ULONGLONG) {
+    if (!m_res) return;
+    float left = rect.left, top = rect.top;
+    float width = rect.right - rect.left, height = rect.bottom - rect.top;
+    bool compactMode = (height >= 35.0f && height < COMPACT_THRESHOLD);
 
-    float right = left + width;
-    bool compactMode = (ctx_data.islandHeight >= 35.0f && ctx_data.islandHeight < COMPACT_THRESHOLD);
-
-    if (compactMode) {
-        RenderCompact(left, top, width, height, ctx_data);
-    }
-    else {
-        RenderExpanded(left, top, width, height, ctx_data);
-    }
+    if (compactMode)
+        RenderCompact(left, top, width, height, contentAlpha);
+    else
+        RenderExpanded(left, top, width, height, contentAlpha);
 }
 
-void MusicPlayerComponent::RenderExpanded(float left, float top, float width, float height, const RenderContext& ctx_data) {
-    if (!m_d2dContext) return;
-
+void MusicPlayerComponent::RenderExpanded(float left, float top, float width, float height, float contentAlpha) {
+    auto* ctx = m_res->d2dContext;
     float right = left + width;
-    float artSize = ALBUM_ART_SIZE;
     float artLeft = left + ALBUM_ART_MARGIN;
-    float artTop = top + 30.0f;
-
-    float textLeft = artLeft + artSize + 15.0f;
+    float artTop  = top + 30.0f;
+    float textLeft = artLeft + ALBUM_ART_SIZE + 15.0f;
     float textRight = right - 20.0f;
     float titleMaxWidth = textRight - textLeft;
 
-    // ---------- 有媒体会话：显示音乐播放界面 ----------
-    if (ctx_data.hasSession) {
-        // 绘制专辑封面
-        RenderAlbumArt(artLeft, artTop, artSize, ctx_data.contentAlpha);
+    if (!m_hasSession) return;
 
-        // 显示歌词（在歌名和歌手上面，左对齐）
-        if (!ctx_data.lyric.text.empty()) {
-            float lyricLeft = artLeft + artSize + 15.0f;
-            float lyricWidth = textRight - lyricLeft;
-            RenderLyrics(lyricLeft, artTop, lyricWidth, ctx_data.lyric.text, ctx_data.contentAlpha);
+    RenderAlbumArt(artLeft, artTop, ALBUM_ART_SIZE, contentAlpha);
+
+    // Lyrics
+    if (!m_lyric.text.empty())
+        RenderLyrics(textLeft, artTop, textRight - textLeft, contentAlpha);
+
+    // "Title - Artist" subtitle
+    std::wstring combined = m_title;
+    if (!m_artist.empty()) combined += L" - " + m_artist;
+    if (!combined.empty() && m_res->subFormat) {
+        ComPtr<IDWriteTextLayout> layout;
+        m_res->dwriteFactory->CreateTextLayout(combined.c_str(), (UINT32)combined.size(),
+            m_res->subFormat, titleMaxWidth - 60.0f, 100.0f, &layout);
+        if (layout) {
+            layout->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+            DWRITE_TRIMMING trim{}; trim.granularity = DWRITE_TRIMMING_GRANULARITY_CHARACTER;
+            ComPtr<IDWriteInlineObject> ellipsis;
+            m_res->dwriteFactory->CreateEllipsisTrimmingSign(layout.Get(), &ellipsis);
+            layout->SetTrimming(&trim, ellipsis.Get());
+            m_res->grayBrush->SetOpacity(contentAlpha);
+            ctx->DrawTextLayout(D2D1::Point2F(textLeft, artTop + 25.0f), layout.Get(), m_res->grayBrush);
         }
-
-        // 绘制"歌名 - 歌手"（在歌词下方，左对齐）
-        std::wstring combinedText = ctx_data.title;
-        if (!ctx_data.artist.empty()) {
-            combinedText += L" - ";
-            combinedText += ctx_data.artist;
-        }
-
-        float combinedWidth = titleMaxWidth - 60.0f;
-        if (combinedWidth > 0 && m_subFormat) {
-            // Create text layout directly
-            ComPtr<IDWriteTextLayout> combinedLayout;
-            HRESULT hr = m_dwriteFactory->CreateTextLayout(
-                combinedText.c_str(),
-                (UINT32)combinedText.length(),
-                m_subFormat.Get(),
-                combinedWidth,
-                100.0f,
-                &combinedLayout
-            );
-
-            if (SUCCEEDED(hr) && combinedLayout) {
-                combinedLayout->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-
-                // Set ellipsis trimming
-                DWRITE_TRIMMING trimming{};
-                trimming.granularity = DWRITE_TRIMMING_GRANULARITY_CHARACTER;
-                ComPtr<IDWriteInlineObject> ellipsis;
-                m_dwriteFactory->CreateEllipsisTrimmingSign(combinedLayout.Get(), &ellipsis);
-                combinedLayout->SetTrimming(&trimming, ellipsis.Get());
-
-                m_grayBrush->SetOpacity(ctx_data.contentAlpha);
-                m_d2dContext->DrawTextLayout(D2D1::Point2F(textLeft, artTop + 25.0f), combinedLayout.Get(), m_grayBrush.Get());
-            }
-        }
-
-        // 绘制播放波形（仅在播放时）
-        if (ctx_data.isPlaying) {
-            // Placeholder - would need wave height data passed in
-        }
-
-        // 绘制进度条
-        float artistBottom = artTop + 60.0f;
-        float progressBarY = artistBottom + 20.0f;
-        float progressBarHeight = 6.0f;
-        float progressBarLeft = textLeft - 80.0f;
-        float progressBarRight = textLeft + titleMaxWidth;
-
-        RenderProgressBar(progressBarLeft, progressBarY, progressBarRight - progressBarLeft, progressBarHeight,
-            ctx_data.progress, ctx_data.contentAlpha, ctx_data.hoveredProgress, ctx_data.pressedProgress);
-
-        // 绘制播放控制按钮
-        float buttonY = progressBarY + progressBarHeight + 10.0f;
-        float buttonGroupWidth = BUTTON_SIZE * 3 + BUTTON_SPACING * 2;
-        float buttonX = textLeft + (titleMaxWidth - buttonGroupWidth) / 2.0f - 45.0f;
-        if (buttonX < textLeft) buttonX = textLeft;
-        RenderPlaybackButtons(buttonX, buttonY, BUTTON_SIZE, ctx_data.contentAlpha, ctx_data.isPlaying, -1, -1);
     }
+
+    // Progress bar
+    float artistBottom = artTop + 60.0f;
+    float progressY = artistBottom + 20.0f;
+    RenderProgressBar(textLeft - 80.0f, progressY, textLeft + titleMaxWidth - (textLeft - 80.0f), 6.0f, contentAlpha);
+
+    // Playback buttons
+    float buttonGroupWidth = BUTTON_SIZE * 3 + BUTTON_SPACING * 2;
+    float buttonX = textLeft + (titleMaxWidth - buttonGroupWidth) / 2.0f - 45.0f;
+    if (buttonX < textLeft) buttonX = textLeft;
+    RenderPlaybackButtons(buttonX, progressY + 6.0f + 10.0f, BUTTON_SIZE, contentAlpha);
 }
 
-void MusicPlayerComponent::RenderCompact(float left, float top, float width, float height, const RenderContext& ctx_data) {
-    if (!m_d2dContext) return;
-
-    float right = left + width;
-
-    // 显示时间（暂停也显示时间）
-    if (ctx_data.showTime && !ctx_data.timeText.empty() && !ctx_data.isPlaying && ctx_data.islandHeight >= 35.0f) {
-        RenderCompactTime(ctx_data.timeText, left, top, width, height, ctx_data.contentAlpha);
+void MusicPlayerComponent::RenderCompact(float left, float top, float width, float height, float contentAlpha) {
+    // Time display (paused)
+    if (m_showTime && !m_timeText.empty() && !m_isPlaying && height >= 35.0f) {
+        RenderCompactTime(m_timeText, left, top, width, height, contentAlpha);
+        return;
     }
-    // 显示音频可视化 + 滚动文本（播放时）
-    else if (ctx_data.isPlaying) {
-        float waveRight = right - 20.0f;
+    // Scrolling title (playing)
+    if (m_isPlaying) {
+        float waveRight = left + width - 20.0f;
         float textLeft = left + 15.0f;
         float textRight = waveRight - 30.0f;
-
-        std::wstring fullText = ctx_data.title;
-        RenderCompactText(fullText, textLeft, top, textRight, height, ctx_data.contentAlpha);
+        RenderCompactText(m_title, textLeft, top, textRight, height, contentAlpha);
     }
 }
 
 void MusicPlayerComponent::RenderAlbumArt(float left, float top, float size, float alpha) {
-    if (!m_d2dContext) return;
-
-    D2D1_ROUNDED_RECT artRect = D2D1::RoundedRect(
-        D2D1::RectF(left, top, left + size, top + size),
-        12.0f, 12.0f);
-
+    auto* ctx = m_res->d2dContext;
+    D2D1_ROUNDED_RECT artRect = D2D1::RoundedRect(D2D1::RectF(left, top, left + size, top + size), 12.0f, 12.0f);
     if (m_albumBitmap) {
-        m_d2dContext->DrawBitmap(m_albumBitmap.Get(), artRect.rect, alpha, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
-    }
-    else {
-        m_themeBrush->SetOpacity(alpha);
-        m_d2dContext->FillRoundedRectangle(&artRect, m_themeBrush.Get());
+        ctx->DrawBitmap(m_albumBitmap.Get(), artRect.rect, alpha, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+    } else {
+        m_res->themeBrush->SetOpacity(alpha);
+        ctx->FillRoundedRectangle(&artRect, m_res->themeBrush);
     }
 }
 
-void MusicPlayerComponent::RenderProgressBar(float left, float top, float width, float height,
-    float progress, float alpha, int hoveredProgress, int pressedProgress) {
-    if (!m_d2dContext || width <= 0 || height <= 0) return;
-
+void MusicPlayerComponent::RenderProgressBar(float left, float top, float width, float height, float alpha) {
+    if (width <= 0) return;
+    auto* ctx = m_res->d2dContext;
     float radius = height / 2.0f;
+    float actualHeight = height, actualTop = top;
+    if (m_hoveredProgress != -1 || m_pressedProgress != -1) { actualHeight = 10.0f; actualTop = top - 2.0f; }
 
-    // Hover effect
-    float actualHeight = height;
-    float actualTop = top;
-    if (hoveredProgress != -1 || pressedProgress != -1) {
-        actualHeight = 10.0f;
-        actualTop = top - 2.0f;
+    if (m_res->progressBgBrush) {
+        m_res->progressBgBrush->SetOpacity(0.5f * alpha);
+        ctx->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(left, actualTop, left + width, actualTop + actualHeight), radius, radius), m_res->progressBgBrush);
     }
-
-    // Background
-    if (m_progressBgBrush) {
-        m_progressBgBrush->SetOpacity(0.5f * alpha);
-        D2D1_ROUNDED_RECT bgRect = D2D1::RoundedRect(
-            D2D1::RectF(left, actualTop, left + width, actualTop + actualHeight),
-            radius, radius
-        );
-        m_d2dContext->FillRoundedRectangle(&bgRect, m_progressBgBrush.Get());
-    }
-
-    // Progress foreground
-    if (m_progressFgBrush && progress > 0) {
-        m_progressFgBrush->SetOpacity(alpha);
-        float progressWidth = width * progress;
-        D2D1_ROUNDED_RECT fgRect = D2D1::RoundedRect(
-            D2D1::RectF(left, actualTop, left + progressWidth, actualTop + actualHeight),
-            radius, radius
-        );
-        m_d2dContext->FillRoundedRectangle(&fgRect, m_progressFgBrush.Get());
+    if (m_res->progressFgBrush && m_progress > 0.0f) {
+        m_res->progressFgBrush->SetOpacity(alpha);
+        ctx->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(left, actualTop, left + width * m_progress, actualTop + actualHeight), radius, radius), m_res->progressFgBrush);
     }
 }
 
-void MusicPlayerComponent::RenderPlaybackButtons(float left, float top, float buttonSize, float alpha, bool isPlaying,
-    int hoveredButton, int pressedButton) {
-    if (!m_d2dContext) return;
-
-    const wchar_t prevIcon = L'\uE892';
-    const wchar_t playIcon = L'\uE768';
-    const wchar_t pauseIcon = L'\uE769';
-    const wchar_t nextIcon = L'\uE893';
-
-    m_whiteBrush->SetOpacity(alpha);
-
-    // Previous button
-    D2D1_RECT_F prevRect = D2D1::RectF(left, top, left + buttonSize, top + buttonSize);
-    m_d2dContext->DrawTextW(&prevIcon, 1, m_iconFormat.Get(), prevRect, m_whiteBrush.Get());
-
-    // Play/Pause button
+void MusicPlayerComponent::RenderPlaybackButtons(float left, float top, float buttonSize, float alpha) {
+    auto* ctx = m_res->d2dContext;
+    m_res->whiteBrush->SetOpacity(alpha);
+    const wchar_t prevIcon = L'\uE892', playIcon = L'\uE768', pauseIcon = L'\uE769', nextIcon = L'\uE893';
+    ctx->DrawTextW(&prevIcon, 1, m_res->iconFormat, D2D1::RectF(left, top, left + buttonSize, top + buttonSize), m_res->whiteBrush);
     float playX = left + buttonSize + BUTTON_SPACING;
-    D2D1_RECT_F playRect = D2D1::RectF(playX, top, playX + buttonSize, top + buttonSize);
-    const wchar_t* playIconPtr = isPlaying ? &pauseIcon : &playIcon;
-    m_d2dContext->DrawTextW(playIconPtr, 1, m_iconFormat.Get(), playRect, m_whiteBrush.Get());
-
-    // Next button
+    const wchar_t* pi = m_isPlaying ? &pauseIcon : &playIcon;
+    ctx->DrawTextW(pi, 1, m_res->iconFormat, D2D1::RectF(playX, top, playX + buttonSize, top + buttonSize), m_res->whiteBrush);
     float nextX = left + (buttonSize + BUTTON_SPACING) * 2;
-    D2D1_RECT_F nextRect = D2D1::RectF(nextX, top, nextX + buttonSize, top + buttonSize);
-    m_d2dContext->DrawTextW(&nextIcon, 1, m_iconFormat.Get(), nextRect, m_whiteBrush.Get());
+    ctx->DrawTextW(&nextIcon, 1, m_res->iconFormat, D2D1::RectF(nextX, top, nextX + buttonSize, top + buttonSize), m_res->whiteBrush);
 }
 
-void MusicPlayerComponent::RenderLyrics(float left, float top, float width, const std::wstring& lyric, float alpha) {
-    if (!m_d2dContext || lyric.empty() || !m_titleFormat) return;
-
-    // Create text layout directly
-    ComPtr<IDWriteTextLayout> lyricLayout;
-    HRESULT hr = m_dwriteFactory->CreateTextLayout(
-        lyric.c_str(),
-        (UINT32)lyric.length(),
-        m_titleFormat.Get(),
-        width,
-        100.0f,
-        &lyricLayout
-    );
-
-    if (!lyricLayout) return;
-
-    lyricLayout->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-    lyricLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
-
+void MusicPlayerComponent::RenderLyrics(float left, float top, float width, float alpha) {
+    if (m_lyric.text.empty()) return;
+    auto* ctx = m_res->d2dContext;
+    ComPtr<IDWriteTextLayout> layout;
+    m_res->dwriteFactory->CreateTextLayout(m_lyric.text.c_str(), (UINT32)m_lyric.text.size(),
+        m_res->titleFormat, width, 100.0f, &layout);
+    if (!layout) return;
+    layout->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
     DWRITE_TEXT_METRICS metrics;
-    lyricLayout->GetMetrics(&metrics);
-
+    layout->GetMetrics(&metrics);
     bool needScroll = (metrics.width > width);
-    if (needScroll != m_lyricScrolling || lyric != m_lastDrawnLyric) {
-        m_lyricScrolling = needScroll;
-        if (lyric != m_lastDrawnLyric) {
-            m_lyricScrollOffset = 0.0f;
-            m_lastDrawnLyric = lyric;
-        }
-    }
 
-    D2D1_RECT_F clipRect = D2D1::RectF(left, top, left + width, top + 25.0f);
-    m_d2dContext->PushAxisAlignedClip(clipRect, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-
-    m_whiteBrush->SetOpacity(alpha);
-
+    D2D1_RECT_F clip = D2D1::RectF(left, top, left + width, top + 25.0f);
+    ctx->PushAxisAlignedClip(clip, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+    m_res->whiteBrush->SetOpacity(alpha);
     if (needScroll) {
-        float offset = fmod(m_lyricScrollOffset, metrics.width);
-        m_d2dContext->DrawTextLayout(D2D1::Point2F(left - offset, top), lyricLayout.Get(), m_whiteBrush.Get());
-        m_d2dContext->DrawTextLayout(D2D1::Point2F(left - offset + metrics.width, top), lyricLayout.Get(), m_whiteBrush.Get());
+        float offset = fmodf(m_lyricScrollOffset, metrics.width);
+        ctx->DrawTextLayout(D2D1::Point2F(left - offset, top), layout.Get(), m_res->whiteBrush);
+        ctx->DrawTextLayout(D2D1::Point2F(left - offset + metrics.width, top), layout.Get(), m_res->whiteBrush);
+    } else {
+        ctx->DrawTextLayout(D2D1::Point2F(left, top), layout.Get(), m_res->whiteBrush);
     }
-    else {
-        m_d2dContext->DrawTextLayout(D2D1::Point2F(left, top), lyricLayout.Get(), m_whiteBrush.Get());
-    }
-
-    m_d2dContext->PopAxisAlignedClip();
+    ctx->PopAxisAlignedClip();
 }
 
-void MusicPlayerComponent::RenderCompactText(const std::wstring& fullText, float left, float top,
-    float textRight, float islandHeight, float alpha) {
-    if (!m_d2dContext || fullText.empty() || !m_titleFormat) return;
-
+void MusicPlayerComponent::RenderCompactText(const std::wstring& text, float left, float top,
+    float textRight, float height, float alpha) {
+    if (text.empty()) return;
+    auto* ctx = m_res->d2dContext;
     float maxWidth = textRight - left;
     if (maxWidth <= 0) return;
-
-    // Create text layout directly
-    ComPtr<IDWriteTextLayout> textLayout;
-    HRESULT hr = m_dwriteFactory->CreateTextLayout(
-        fullText.c_str(),
-        (UINT32)fullText.length(),
-        m_titleFormat.Get(),
-        maxWidth,
-        100.0f,
-        &textLayout
-    );
-
-    if (!textLayout) return;
-
-    textLayout->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+    ComPtr<IDWriteTextLayout> layout;
+    m_res->dwriteFactory->CreateTextLayout(text.c_str(), (UINT32)text.size(),
+        m_res->titleFormat, maxWidth, 100.0f, &layout);
+    if (!layout) return;
+    layout->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
     DWRITE_TEXT_METRICS metrics;
-    textLayout->GetMetrics(&metrics);
-
+    layout->GetMetrics(&metrics);
     bool needScroll = (metrics.width > maxWidth);
-    if (needScroll != m_titleScrolling || fullText != m_lastDrawnFullText) {
-        m_titleScrolling = needScroll;
-        if (fullText != m_lastDrawnFullText) {
-            m_titleScrollOffset = 0.0f;
-            m_lastDrawnFullText = fullText;
-        }
-    }
-
-    float textHeight = metrics.height;
-    float yPos = top + (islandHeight - textHeight) / 2.0f;
-
-    m_whiteBrush->SetOpacity(alpha);
-    m_d2dContext->PushAxisAlignedClip(D2D1::RectF(left, top, textRight, top + islandHeight), D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-
+    float yPos = top + (height - metrics.height) / 2.0f;
+    m_res->whiteBrush->SetOpacity(alpha);
+    ctx->PushAxisAlignedClip(D2D1::RectF(left, top, textRight, top + height), D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
     if (needScroll) {
-        float offset = fmod(m_titleScrollOffset, metrics.width);
-        m_d2dContext->DrawTextLayout(D2D1::Point2F(left - offset, yPos), textLayout.Get(), m_whiteBrush.Get());
-        m_d2dContext->DrawTextLayout(D2D1::Point2F(left - offset + metrics.width, yPos), textLayout.Get(), m_whiteBrush.Get());
-    }
-    else {
+        float offset = fmodf(m_titleScrollOffset, metrics.width);
+        ctx->DrawTextLayout(D2D1::Point2F(left - offset, yPos), layout.Get(), m_res->whiteBrush);
+        ctx->DrawTextLayout(D2D1::Point2F(left - offset + metrics.width, yPos), layout.Get(), m_res->whiteBrush);
+    } else {
         float textOffset = (maxWidth - metrics.width) / 2.0f;
-        m_d2dContext->DrawTextLayout(D2D1::Point2F(left + textOffset, yPos), textLayout.Get(), m_whiteBrush.Get());
+        ctx->DrawTextLayout(D2D1::Point2F(left + textOffset, yPos), layout.Get(), m_res->whiteBrush);
     }
-
-    m_d2dContext->PopAxisAlignedClip();
+    ctx->PopAxisAlignedClip();
 }
 
 void MusicPlayerComponent::RenderCompactTime(const std::wstring& timeText, float left, float top,
-    float islandWidth, float islandHeight, float alpha) {
-    if (!m_d2dContext || timeText.empty() || !m_titleFormat) return;
-
-    // Create text layout directly
-    ComPtr<IDWriteTextLayout> timeLayout;
-    HRESULT hr = m_dwriteFactory->CreateTextLayout(
-        timeText.c_str(),
-        (UINT32)timeText.length(),
-        m_titleFormat.Get(),
-        200.0f,
-        100.0f,
-        &timeLayout
-    );
-
-    if (!timeLayout) return;
-
+    float width, float height, float alpha) {
+    if (timeText.empty()) return;
+    auto* ctx = m_res->d2dContext;
+    ComPtr<IDWriteTextLayout> layout;
+    m_res->dwriteFactory->CreateTextLayout(timeText.c_str(), (UINT32)timeText.size(),
+        m_res->titleFormat, 200.0f, 100.0f, &layout);
+    if (!layout) return;
     DWRITE_TEXT_METRICS metrics;
-    timeLayout->GetMetrics(&metrics);
-
-    float textX = left + (islandWidth - metrics.width) / 2.0f;
-    float textY = top + (islandHeight - metrics.height) / 2.0f;
-
-    m_whiteBrush->SetOpacity(alpha);
-    m_d2dContext->DrawTextLayout(D2D1::Point2F(textX, textY), timeLayout.Get(), m_whiteBrush.Get());
+    layout->GetMetrics(&metrics);
+    m_res->whiteBrush->SetOpacity(alpha);
+    ctx->DrawTextLayout(D2D1::Point2F(left + (width - metrics.width) / 2.0f, top + (height - metrics.height) / 2.0f),
+        layout.Get(), m_res->whiteBrush);
 }

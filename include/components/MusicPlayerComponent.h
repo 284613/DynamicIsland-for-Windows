@@ -1,111 +1,65 @@
 // MusicPlayerComponent.h
 #pragma once
-#include <d2d1_1.h>
-#include <dwrite.h>
-#include <wrl/client.h>
-#include <string>
-#include <memory>
-#include <functional>
+#include "IIslandComponent.h"
 #include "IslandState.h"
-#include "Messages.h"
+#include <string>
+#include <vector>
 
-using namespace Microsoft::WRL;
-
-class MusicPlayerComponent {
+class MusicPlayerComponent : public IIslandComponent {
 public:
-    MusicPlayerComponent();
-    ~MusicPlayerComponent();
+    void OnAttach(SharedResources* res) override;
+    void Draw(const D2D1_RECT_F& rect, float contentAlpha, ULONGLONG currentTimeMs) override;
+    bool IsActive() const override { return m_hasSession || m_isPlaying; }
 
-    bool Initialize();
-
-    // Set D2D resources
-    void SetD2DResources(
-        ComPtr<ID2D1DeviceContext> d2dContext,
-        ComPtr<IDWriteFactory> dwriteFactory,
-        ComPtr<ID2D1Factory1> d2dFactory);
-
-    // Set text formats
-    void SetTextFormats(
-        ComPtr<IDWriteTextFormat> titleFormat,
-        ComPtr<IDWriteTextFormat> subFormat,
-        ComPtr<IDWriteTextFormat> iconFormat);
-
-    // Set brushes
-    void SetBrushes(
-        ComPtr<ID2D1SolidColorBrush> whiteBrush,
-        ComPtr<ID2D1SolidColorBrush> grayBrush,
-        ComPtr<ID2D1SolidColorBrush> themeBrush,
-        ComPtr<ID2D1SolidColorBrush> progressBgBrush,
-        ComPtr<ID2D1SolidColorBrush> progressFgBrush,
-        ComPtr<ID2D1SolidColorBrush> buttonHoverBrush);
-
-    // Set album bitmap
-    void SetAlbumBitmap(ComPtr<ID2D1Bitmap> bitmap);
-
-    // Set WIC factory
-    void SetWicFactory(ComPtr<IWICImagingFactory> wicFactory);
-
-    // Set scroll state from RenderEngine
+    // State setters — call before Draw each frame
+    void SetPlaybackState(bool hasSession, bool isPlaying, float progress,
+                          const std::wstring& title, const std::wstring& artist,
+                          const LyricData& lyric, bool showTime, const std::wstring& timeText);
+    void SetInteractionState(int hoveredButton, int pressedButton, int hoveredProgress, int pressedProgress);
     void SetScrollState(float titleScrollOffset, float lyricScrollOffset, bool titleScrolling, bool lyricScrolling);
+    void SetAlbumBitmap(ComPtr<ID2D1Bitmap> bitmap) { m_albumBitmap = bitmap; }
 
-    // Main Draw method - handles all music player rendering
-    void Draw(ID2D1DeviceContext* ctx, float left, float top, float width, float height,
-              const RenderContext& ctx_data, float dpi);
-
-    // Load album art
-    bool LoadAlbumArt(const std::wstring& file);
-    bool LoadAlbumArtFromMemory(const std::vector<uint8_t>* data, size_t size);
+    bool LoadAlbumArtFromMemory(const std::vector<uint8_t>& data);
 
 private:
-    // Internal rendering methods
-    void RenderExpanded(float left, float top, float width, float height, const RenderContext& ctx_data);
-    void RenderCompact(float left, float top, float width, float height, const RenderContext& ctx_data);
+    void RenderExpanded(float left, float top, float width, float height, float contentAlpha);
+    void RenderCompact(float left, float top, float width, float height, float contentAlpha);
     void RenderAlbumArt(float left, float top, float size, float alpha);
-    void RenderProgressBar(float left, float top, float width, float height,
-        float progress, float alpha, int hoveredProgress, int pressedProgress);
-    void RenderPlaybackButtons(float left, float top, float buttonSize, float alpha, bool isPlaying,
-        int hoveredButton, int pressedButton);
-    void RenderLyrics(float left, float top, float width, const std::wstring& lyric, float alpha);
-    void RenderCompactText(const std::wstring& fullText, float left, float top,
-        float textRight, float islandHeight, float alpha);
-    void RenderCompactTime(const std::wstring& timeText, float left, float top,
-        float islandWidth, float islandHeight, float alpha);
+    void RenderProgressBar(float left, float top, float width, float height, float alpha);
+    void RenderPlaybackButtons(float left, float top, float buttonSize, float alpha);
+    void RenderLyrics(float left, float top, float width, float alpha);
+    void RenderCompactText(const std::wstring& text, float left, float top, float textRight, float height, float alpha);
+    void RenderCompactTime(const std::wstring& timeText, float left, float top, float width, float height, float alpha);
 
-    // D2D resources
-    ComPtr<ID2D1DeviceContext> m_d2dContext;
-    ComPtr<IDWriteFactory> m_dwriteFactory;
-    ComPtr<ID2D1Factory1> m_d2dFactory;
-    ComPtr<IWICImagingFactory> m_wicFactory;
-
-    // Album art bitmap
+    SharedResources* m_res = nullptr;
     ComPtr<ID2D1Bitmap> m_albumBitmap;
 
-    // Text formats
-    ComPtr<IDWriteTextFormat> m_titleFormat;
-    ComPtr<IDWriteTextFormat> m_subFormat;
-    ComPtr<IDWriteTextFormat> m_iconFormat;
+    // Playback state
+    bool m_hasSession   = false;
+    bool m_isPlaying    = false;
+    float m_progress    = 0.0f;
+    std::wstring m_title;
+    std::wstring m_artist;
+    LyricData    m_lyric;
+    bool m_showTime = false;
+    std::wstring m_timeText;
 
-    // Brushes
-    ComPtr<ID2D1SolidColorBrush> m_whiteBrush;
-    ComPtr<ID2D1SolidColorBrush> m_grayBrush;
-    ComPtr<ID2D1SolidColorBrush> m_themeBrush;
-    ComPtr<ID2D1SolidColorBrush> m_progressBgBrush;
-    ComPtr<ID2D1SolidColorBrush> m_progressFgBrush;
-    ComPtr<ID2D1SolidColorBrush> m_buttonHoverBrush;
+    // Interaction state
+    int m_hoveredButton   = -1;
+    int m_pressedButton   = -1;
+    int m_hoveredProgress = -1;
+    int m_pressedProgress = -1;
 
-    // Scroll state (kept in sync with RenderEngine)
+    // Scroll state
     float m_titleScrollOffset = 0.0f;
     float m_lyricScrollOffset = 0.0f;
-    bool m_titleScrolling = false;
-    bool m_lyricScrolling = false;
+    bool  m_titleScrolling    = false;
+    bool  m_lyricScrolling    = false;
     std::wstring m_lastDrawnFullText;
-    std::wstring m_lastDrawnLyric;
 
-    // Constants
-    static constexpr float SCROLL_SPEED = 30.0f;
-    static constexpr float BUTTON_SIZE = 30.0f;
-    static constexpr float BUTTON_SPACING = 5.0f;
-    static constexpr float ALBUM_ART_SIZE = 60.0f;
-    static constexpr float ALBUM_ART_MARGIN = 20.0f;
     static constexpr float COMPACT_THRESHOLD = 60.0f;
+    static constexpr float BUTTON_SIZE       = 30.0f;
+    static constexpr float BUTTON_SPACING    = 5.0f;
+    static constexpr float ALBUM_ART_SIZE    = 60.0f;
+    static constexpr float ALBUM_ART_MARGIN  = 20.0f;
 };
