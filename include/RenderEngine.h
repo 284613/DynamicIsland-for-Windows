@@ -13,6 +13,9 @@
 #include <wincodec.h>
 #include "Messages.h" // 【加上这一行！】让画板认识 AlertInfo 结构体
 #include "IslandState.h"
+#include "components/IIslandComponent.h"
+#include <vector>
+#include <utility>
 #pragma comment(lib, "dcomp.lib")
 #pragma comment(lib, "d2d1.lib")
 #pragma comment(lib, "d3d11.lib")
@@ -73,10 +76,17 @@ private:
     // 新增：绘制播放控制按钮（仅在展开模式且有媒体会话时显示）
     void DrawPlaybackButtons(float left, float top, float buttonSize, float contentAlpha, bool isPlaying);
 
-    // Component instances for decoupled rendering
+    // Component instances for decoupled rendering (legacy, will be migrated)
     std::unique_ptr<MusicPlayerComponent> m_musicComponent;
     std::unique_ptr<AlertComponent> m_alertComponent;
     std::unique_ptr<VolumeComponent> m_volumeComponent;
+
+    // 组件注册表（PR1 骨架，后续各 PR 逐步填充）
+    void RegisterComponents();
+    SharedResources m_sharedRes;
+    // 优先级有序的组件列表：{DisplayMode, component}
+    // PR2+ 开始逐步往这里注册组件
+    std::vector<std::pair<IslandDisplayMode, IIslandComponent*>> m_componentStack;
 
 private:
     ComPtr<ID3D11Device> m_d3dDevice;

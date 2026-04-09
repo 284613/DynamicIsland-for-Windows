@@ -616,7 +616,8 @@ bool RenderEngine::Initialize(HWND hwnd, int canvasWidth, int canvasHeight) {
 
 	m_surface->EndDraw();
 
-
+	// 填充 SharedResources，注册组件（PR1 骨架）
+	RegisterComponents();
 
 	return true;
 
@@ -624,7 +625,23 @@ bool RenderEngine::Initialize(HWND hwnd, int canvasWidth, int canvasHeight) {
 
 }
 
+void RenderEngine::RegisterComponents() {
+	// 填充公共资源指针（组件 OnAttach 时会用到）
+	m_sharedRes.d2dContext    = m_d2dContext.Get();
+	m_sharedRes.dwriteFactory = m_dwriteFactory.Get();
+	m_sharedRes.d2dFactory    = m_d2dFactory.Get();
+	m_sharedRes.whiteBrush    = m_whiteBrush.Get();
+	m_sharedRes.grayBrush     = m_grayBrush.Get();
+	m_sharedRes.blackBrush    = m_blackBrush.Get();
+	m_sharedRes.themeBrush    = m_themeBrush.Get();
+	m_sharedRes.titleFormat   = m_textFormatTitle.Get();
+	m_sharedRes.subFormat     = m_textFormatSub.Get();
+	m_sharedRes.iconFormat    = m_iconTextFormat.Get();
 
+	// 组件优先级栈（PR2+ 开始逐步填入）
+	// 格式：{ IslandDisplayMode, component_ptr }
+	// m_componentStack = { ... };
+}
 
 void RenderEngine::SetDpi(float dpi) {
 
