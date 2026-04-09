@@ -39,35 +39,48 @@ Dynamic Island for Windows 是一款基于 C++/Win32 API 和 Direct2D 构建的 
 - **系统接口**: Win32 API, WinRT (Media/Notifications), WASAPI
 - **构建系统**: MSBuild / Visual Studio 2022
 
-### 项目结构 (Standardized C++ Structure)
+### 项目结构
 
 ```
-E:\vs\c++\DynamicIsland\
-├── src/                        # 源代码实现 (.cpp)
-│   ├── components/             # UI 组件实现 (Music, Alert, Volume, FilePanel)
-│   ├── main.cpp                # 程序入口
+DynamicIsland/
+├── src/
+│   ├── components/             # 独立 UI 组件（IIslandComponent 接口）
+│   │   ├── WeatherComponent    # 天气展开面板 + 意境动画（8 种）
+│   │   ├── MusicPlayerComponent# 专辑封面 + 歌词 + 进度条 + 按钮
+│   │   ├── AlertComponent      # 通知/WiFi/蓝牙/充电等提示卡片
+│   │   ├── VolumeComponent     # 主岛音量条
+│   │   ├── LyricsComponent     # 歌词滚动 + 弹簧物理
+│   │   └── WaveformComponent   # 三柱音频波形动画
+│   ├── RenderEngine.cpp        # D2D 渲染引擎（组件调度）
 │   ├── DynamicIsland.cpp       # 主窗口逻辑与状态机
-│   ├── RenderEngine.cpp        # Direct2D 渲染引擎
 │   ├── LayoutController.cpp    # 弹簧布局控制器
-│   └── ...                     # 其他监控与逻辑模块
+│   └── ...
 │
-├── include/                    # 头文件声明 (.h)
-│   ├── components/             # UI 组件头文件
-│   ├── DynamicIsland.h         # 主类定义
-│   ├── IslandState.h           # 渲染上下文与状态枚举
-│   ├── EventBus.h              # 事件驱动核心
-│   ├── Spring.h                # 弹簧物理引擎
-│   └── ...                     # 其他模块定义
+├── include/
+│   ├── components/
+│   │   ├── IIslandComponent.h  # 统一组件接口 + SharedResources
+│   │   └── *.h                 # 各组件头文件
+│   ├── IslandState.h           # RenderContext + 状态枚举
+│   ├── EventBus.h              # 线程安全事件总线
+│   └── ...
 │
-├── resources/                  # 资源文件
-│   ├── icon/                   # 系统图标与素材
-│   └── Dynamic Island.rc       # 资源脚本
-│
-├── docs/                       # 项目文档与优化方案
-├── vcxproj/                    # Visual Studio 项目配置副本
-├── DynamicIsland.sln           # 解决方案
-└── DynamicIsland.vcxproj       # 项目文件
+├── REFACTOR_PLAN.md            # 组件化重构计划（6 个 PR）
+├── DynamicIsland.sln
+└── DynamicIsland.vcxproj
 ```
+
+### 组件化重构进度
+
+| PR | 内容 | 状态 |
+|----|------|------|
+| PR1 | `IIslandComponent` 接口 + `SharedResources` + `RegisterComponents()` | ✅ 完成 |
+| PR2 | `WeatherComponent`（天气全部绘制 + 动画） | ✅ 完成 |
+| PR3 | `LyricsComponent` / `WaveformComponent` | ✅ 完成 |
+| PR4 | `MusicPlayerComponent` / `AlertComponent` / `VolumeComponent` 实现新接口 | ✅ 完成 |
+| PR5 | `FileStorageComponent` / `ClockComponent` | ⬜ 待开始 |
+| PR6 | 优先级调度表 + `RenderContext` 瘦身 + EventBus 数据流 | ⬜ 待开始 |
+
+详细计划见 [REFACTOR_PLAN.md](REFACTOR_PLAN.md)。
 
 ---
 

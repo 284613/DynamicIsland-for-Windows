@@ -454,42 +454,46 @@ include/IslandState.h         100 行  → ~25 行（RenderContext 瘦身）
 
 ## 九、执行顺序（6 个 PR）
 
-### PR1 — 基础设施（零风险）
-- 新建 `IIslandComponent.h`
-- 新建 `SharedResources.h`
-- `RenderEngine` 中添加 `RegisterComponents()` 骨架，但暂不改变任何绘制逻辑
-- 目标：编译通过，行为不变
+| PR | 状态 | 关键变更 |
+|----|------|---------|
+| PR1 | ✅ **已完成** | 新建 `IIslandComponent` + `SharedResources`；`RegisterComponents()` 骨架 |
+| PR2 | ✅ **已完成** | `WeatherComponent` 接管天气全部绘制；意境背景动画每次展开重置 |
+| PR3 | ✅ **已完成** | `LyricsComponent`（弹簧滚动）/ `WaveformComponent`（三柱动画）独立 |
+| PR4 | ✅ **已完成** | `AlertComponent` / `VolumeComponent` / `MusicPlayerComponent` 实现 `IIslandComponent`；`SharedResources` 扩展全部画刷 + WIC；旧内联代码以 `if(false)` 保留作 fallback |
+| PR5 | ⬜ 待开始 | 新建 `FileStorageComponent` / `ClockComponent` |
+| PR6 | ⬜ 待开始 | 优先级调度表替换 if-else 链；`RenderContext` 瘦身；EventBus 数据流 |
 
-### PR2 — 拆天气组件（最大收益，中等风险）
-- 新建 `WeatherComponent` / `WeatherRenderer` / `WeatherAnimations` / `WeatherIconRenderer`
-- 将 RenderEngine.cpp L4627–5684 全部搬入对应文件
-- RenderEngine 中天气相关状态变量删除，改为持有 `WeatherComponent` 实例
-- `DrawCapsule` 天气分支改为调用组件
-- 测试：Hourly 视图 / Daily 视图 / 所有意境动画类型 / compact 小图标
+### PR1 — 基础设施（✅ 已完成）
+- 新建 `IIslandComponent.h`（含 `SharedResources` struct）
+- `RenderEngine` 中添加 `RegisterComponents()` 骨架，行为不变
 
-### PR3 — 拆歌词和波形（低风险）
-- 新建 `LyricsComponent` / `WaveformComponent`
-- `RenderEngine::UpdateScroll()` 废弃，逻辑移入 `LyricsComponent::Update()`
-- 波形相关状态变量从 RenderEngine 删除
-- 测试：歌词滚动 / 波形动画 / compact+展开两处波形
+### PR2 — 拆天气组件（✅ 已完成）
+- 新建 `WeatherComponent`（单文件，含全部天气逻辑）
+- `DrawCapsule` 天气分支委托给组件；`SetExpanded(true)` 每次重置动画
+- compact 天气小图标也委托给 `DrawCompact()`
 
-### PR4 — 改造 Music / Alert / Volume（中等风险）
+### PR3 — 拆歌词和波形（✅ 已完成）
+- 新建 `LyricsComponent`（弹簧物理滚动 + 渐变遮罩）
+- 新建 `WaveformComponent`（随机目标高度 + 弹簧插值）
+- `UpdateScroll()` 末尾桥接两个组件
+
+### PR4 — 改造 Music / Alert / Volume（✅ 已完成）
 - 三个已有组件全部实现 `IIslandComponent`
-- 吸收 RenderEngine 内对应的内联绘制代码（总计约 1600 行）
-- 移除旧的 `SetBrushes` / `SetTextFormats` / `SetD2DResources` 接口
-- 测试：音乐 compact/展开 / 所有通知类型 / 主岛音量条 / 副岛音量
+- `OnAttach(SharedResources*)` 替换 `SetBrushes / SetTextFormats / SetD2DResources`
+- `SharedResources` 扩展：提示画刷（wifi/bt/charging/…）、音乐画刷（progressBg/Fg/buttonHover）、WIC
+- `DrawCapsule` alert/volume/expanded-music 分支委托给组件；旧内联代码保留为 `if(false)` fallback
+- 波形数据通过 `SetWaveHeights()` 传入；按钮 hover/press 效果恢复
 
-### PR5 — 新建 FileStorage / Clock（低风险）
-- 新建 `FileStorageComponent` / `ClockComponent`
+### PR5 — 新建 FileStorage / Clock（⬜ 待开始）
+- 新建 `FileStorageComponent`（拖拽提示 + compact/展开文件列表）
+- 新建 `ClockComponent`（compact 时间居中显示）
 - 对应绘制代码从 `DrawCapsule` 迁移
-- 测试：文件拖拽 / 暂存文件列表 / 时间显示
 
-### PR6 — 收尾：优先级表 + RenderContext 瘦身（中等风险）
-- `DrawCapsule` if-else 链替换为组件循环遍历
-- `RenderContext` 删除功能字段，只保留布局信息
-- `DynamicIsland::UpdatePhysics()` 中的数据填充代码删除，改为 EventBus 发送
-- 各组件订阅 EventBus 维护自身数据
-- 测试：全功能回归测试
+### PR6 — 收尾（⬜ 待开始）
+- `DrawCapsule` if-else 链替换为组件优先级栈循环
+- `RenderContext` 删除功能字段，只保留布局信息（7 字段）
+- 各组件通过 EventBus 订阅自己所需的数据，不再依赖 RenderContext 中转
+- 清除所有 `if(false)` fallback 旧代码
 
 ---
 
@@ -504,6 +508,29 @@ include/IslandState.h         100 行  → ~25 行（RenderContext 瘦身）
 | 新增通知类型需改文件 | RenderEngine | 只改 AlertComponent.cpp |
 | 新增独立功能 | 改 RenderContext → 改 UpdatePhysics → 改 DrawCapsule | 写组件 → RegisterComponents() 注册 |
 | 组件可独立编译测试 | 不可能 | 可以 |
+
+---
+
+## 十一、重构注意事项 (Lessons Learned)
+
+为了确保重构过程的高可用性和系统稳定性，必须严格遵守以下准则：
+
+1.  **高频编译验证**：每新增一个文件、每修改一处逻辑、每更新一次 `vcxproj`，必须立即执行 `msbuild`。严禁在未验证编译通过的情况下进行连续修改。
+2.  **保守删除原则**：在 `DrawCapsule` 的 `if-else` 链迁移过程中，采用“先注入、后委托、最后删除”的策略。在新组件未经过全场景验证前，禁止从 `RenderEngine.cpp` 中大段删除旧逻辑。
+3.  **功能逻辑守恒**：重构期间必须保证 `DrawCapsule` 的分支完整性。如果某个分支尚未组件化，其原有代码必须完整保留在 `else` 分支中，严禁出现功能真空期。
+4.  **慎用全量重写**：针对 `RenderEngine.cpp` 等超大型文件，优先使用外科手术式的 `replace` 修改。如必须使用 `write_file`，须反复核对函数闭合、宏定义（如 `min/max` 冲突）及变量作用域。
+5.  **类型与命名空间安全**：
+    *   警惕结构体重名（如 `RenderContext::HourlyForecast` 与全局 `::HourlyForecast`）。
+    *   在组件中使用 `(std::min)` 或 `#undef min` 以规避 `windows.h` 的宏干扰。
+6.  **窗口 Region 联动**：若组件涉及尺寸动态变化（如副岛弹出），必须确保在 `UpdatePhysics` 中同步触发 `UpdateWindowRegion`，否则内容会被系统裁剪。
+
+---
+
+## 十二、已知优化点
+
+| # | 描述 | 涉及文件 | 优先级 |
+|---|------|----------|--------|
+| 1 | **天气面板每次打开都重置动画**：`SetExpanded(true)` 时调用了 `ResetAnimation()`，导致意境背景每次展开都从头播放入场动画（云朵重新飘入、相位归零）。应改为：仅在天气类型切换时重置，面板重新展开时保留当前 phase 继续播放。修改位置：`WeatherComponent::SetExpanded()` 中的 `ResetAnimation()` 调用条件。 | `src/components/WeatherComponent.cpp` | 中 |
 
 ---
 

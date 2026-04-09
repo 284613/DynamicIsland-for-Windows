@@ -94,10 +94,10 @@ x64\Release\DynamicIsland.exe
 
 | PR | 内容 | 状态 |
 |----|------|------|
-| PR1 | 新建 `IIslandComponent` 接口 + `SharedResources` + `RegisterComponents()` 骨架 | ⬜ 待开始 |
-| PR2 | 拆天气组件：`WeatherComponent` / `WeatherRenderer` / `WeatherAnimations` / `WeatherIconRenderer` | ⬜ 待开始 |
-| PR3 | 新建 `LyricsComponent` / `WaveformComponent`，废弃 `RenderEngine::UpdateScroll()` | ⬜ 待开始 |
-| PR4 | 改造 `MusicPlayerComponent` / `AlertComponent` / `VolumeComponent` 实现新接口 | ⬜ 待开始 |
+| PR1 | 新建 `IIslandComponent` 接口 + `SharedResources` + `RegisterComponents()` 骨架 | ✅ 完成 |
+| PR2 | 拆天气组件：`WeatherComponent` / `WeatherRenderer` / `WeatherAnimations` / `WeatherIconRenderer` | ✅ 完成 |
+| PR3 | 新建 `LyricsComponent` / `WaveformComponent`，废弃 `RenderEngine::UpdateScroll()` | ✅ 完成 |
+| PR4 | 改造 `MusicPlayerComponent` / `AlertComponent` / `VolumeComponent` 实现新接口 | ✅ 完成 |
 | PR5 | 新建 `FileStorageComponent` / `ClockComponent` | ⬜ 待开始 |
 | PR6 | 优先级调度表替换 if-else 链，`RenderContext` 瘦身，切换 EventBus 数据流 | ⬜ 待开始 |
 
