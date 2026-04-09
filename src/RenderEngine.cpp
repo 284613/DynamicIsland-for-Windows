@@ -5196,7 +5196,7 @@ void RenderEngine::DrawWeatherAmbientBg(float L, float T, float R, float B, floa
     // 在展开面板中主动推进动画 phase（紧凑模式的 phase 更新路径不会执行到这里）
     if (m_lastWeatherAnimTime == 0) m_lastWeatherAnimTime = currentTime;
     float dt = (float)(currentTime - m_lastWeatherAnimTime) / 1000.0f;
-    if (dt > 0.0f && dt < 0.5f) m_weatherAnimPhase += dt * 3.0f;
+    if (dt > 0.0f && dt < 0.5f) m_weatherAnimPhase += dt * 1.5f;
     m_lastWeatherAnimTime = currentTime;
 
     float W = R - L;
