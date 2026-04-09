@@ -5424,7 +5424,7 @@ void RenderEngine::DrawWeatherAmbientBg(float L, float T, float R, float B, floa
     }
 
     // ================================================================
-    // 多云 / 阴天
+    // 多云 / 阴天 — 晴空飘来云朵逐渐遮盖，之后持续流动
     // ================================================================
     case WeatherType::PartlyCloudy:
     case WeatherType::Cloudy:
@@ -5433,41 +5433,80 @@ void RenderEngine::DrawWeatherAmbientBg(float L, float T, float R, float B, floa
         SYSTEMTIME st; GetLocalTime(&st);
         bool isNight = (st.wHour < 6 || st.wHour >= 18);
 
-        if (partlyCloudy && !isNight) {
-            auto bg = MakeLinGrad(D2D1::ColorF(0.28f,0.56f,0.88f), D2D1::ColorF(0.56f,0.80f,1.0f));
-            if (bg) m_d2dContext->FillRectangle(D2D1::RectF(L,T,R,B), bg.Get());
-            // 隐约太阳
-            float sunX = R-W*0.20f, sunY = T+H*0.22f, sunR = W*0.11f;
-            auto glow = MakeRadGrad(sunX, sunY, sunR*2.0f, sunR*2.0f,
-                D2D1::ColorF(1.0f,0.90f,0.35f,0.25f*alpha), D2D1::ColorF(1.0f,0.90f,0.35f,0.0f));
-            if (glow) m_d2dContext->FillEllipse(D2D1::Ellipse(D2D1::Point2F(sunX,sunY), sunR*2.0f, sunR*2.0f), glow.Get());
-            ComPtr<ID2D1SolidColorBrush> sunBrush;
-            m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(1.0f,0.92f,0.42f,alpha*0.85f), &sunBrush);
-            m_d2dContext->FillEllipse(D2D1::Ellipse(D2D1::Point2F(sunX,sunY), sunR, sunR), sunBrush.Get());
-        } else if (isNight) {
-            auto bg = MakeLinGrad(D2D1::ColorF(0.08f,0.10f,0.19f), D2D1::ColorF(0.13f,0.16f,0.28f));
-            if (bg) m_d2dContext->FillRectangle(D2D1::RectF(L,T,R,B), bg.Get());
+        // ---- 遮蔽度：0=晴朗 → maxCov=遮盖峰值，以慢速正弦振荡 ----
+        float maxCov   = partlyCloudy ? 0.52f : 0.88f;
+        float cycleSec = partlyCloudy ? 22.0f : 18.0f;   // phase 单位周期
+        float cover    = maxCov * 0.5f * (1.0f - cosf(fmodf(t, cycleSec) / cycleSec * 6.28318f));
+
+        // ---- 背景：晴蓝天 ↔ 阴灰天 按 cover 插值 ----
+        auto Lerp = [](float a, float b, float f) { return a + (b-a)*f; };
+        float skyR, skyG, skyB, ovR, ovG, ovB;
+        if (isNight) {
+            skyR=0.04f; skyG=0.05f; skyB=0.16f;
+            ovR=0.10f;  ovG=0.11f;  ovB=0.20f;
         } else {
-            auto bg = MakeLinGrad(D2D1::ColorF(0.34f,0.36f,0.42f), D2D1::ColorF(0.26f,0.28f,0.33f));
-            if (bg) m_d2dContext->FillRectangle(D2D1::RectF(L,T,R,B), bg.Get());
+            skyR=0.24f; skyG=0.54f; skyB=0.92f;
+            ovR=0.36f;  ovG=0.38f;  ovB=0.44f;
+        }
+        D2D1_COLOR_F bgTop = D2D1::ColorF(Lerp(skyR,ovR,cover), Lerp(skyG,ovG,cover), Lerp(skyB,ovB,cover));
+        D2D1_COLOR_F bgBot = isNight
+            ? D2D1::ColorF(Lerp(skyR+0.02f,ovR+0.03f,cover), Lerp(skyG+0.03f,ovG+0.03f,cover), Lerp(skyB+0.08f,ovB+0.05f,cover))
+            : D2D1::ColorF(Lerp(skyR+0.12f,ovR+0.08f,cover), Lerp(skyG+0.16f,ovG+0.06f,cover), Lerp(skyB+0.06f,ovB+0.02f,cover));
+        auto bg = MakeLinGrad(bgTop, bgBot);
+        if (bg) m_d2dContext->FillRectangle(D2D1::RectF(L,T,R,B), bg.Get());
+
+        // ---- 太阳（仅白天，cover 较低时可见）----
+        if (!isNight) {
+            float sunVis = fmaxf(0.0f, 1.0f - cover / 0.5f); // cover>0.5 完全消失
+            if (sunVis > 0.01f) {
+                float sunX = R-W*0.22f, sunY = T+H*0.23f, sunR = W*0.12f;
+                auto glow = MakeRadGrad(sunX, sunY, sunR*2.3f, sunR*2.3f,
+                    D2D1::ColorF(1.0f,0.92f,0.38f, 0.28f*alpha*sunVis),
+                    D2D1::ColorF(1.0f,0.92f,0.38f, 0.0f));
+                if (glow) m_d2dContext->FillEllipse(D2D1::Ellipse(D2D1::Point2F(sunX,sunY), sunR*2.3f, sunR*2.3f), glow.Get());
+                ComPtr<ID2D1SolidColorBrush> sunBrush;
+                m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(1.0f,0.93f,0.44f, alpha*sunVis), &sunBrush);
+                m_d2dContext->FillEllipse(D2D1::Ellipse(D2D1::Point2F(sunX,sunY), sunR, sunR), sunBrush.Get());
+            }
         }
 
-        // 多层云（深度感，不同速度漂移）
-        D2D1_COLOR_F cloudColor = isNight ? D2D1::ColorF(0.38f,0.40f,0.50f) : D2D1::ColorF(0.75f,0.77f,0.82f);
-        ComPtr<ID2D1SolidColorBrush> cb1, cb2, cb3;
-        m_d2dContext->CreateSolidColorBrush(cloudColor, &cb1);
-        D2D1_COLOR_F c2 = cloudColor; c2.a = 0.7f;
-        m_d2dContext->CreateSolidColorBrush(c2, &cb2);
-        D2D1_COLOR_F c3 = cloudColor; c3.a = 0.5f;
-        m_d2dContext->CreateSolidColorBrush(c3, &cb3);
+        // ---- 云朵：从右侧飘入，cover 控制入场进度，入场后持续漂移 ----
+        // 每朵云：目标 relX/relY、尺寸、入场延迟、漂移速度
+        struct CloudDef { float relX, relY, scale, delay, driftSpd, driftAmp; };
+        CloudDef clouds[] = {
+            { 0.50f, 0.22f, 0.36f, 0.00f, 0.18f, 0.038f }, // 主云，最先到
+            { 0.18f, 0.28f, 0.28f, 0.15f, 0.14f, 0.030f }, // 左侧云
+            { 0.82f, 0.18f, 0.26f, 0.25f, 0.20f, 0.032f }, // 右上云
+            { 0.38f, 0.48f, 0.30f, 0.38f, 0.12f, 0.025f }, // 中下层云
+            { 0.68f, 0.42f, 0.24f, 0.50f, 0.16f, 0.028f }, // 右下云
+        };
+        int numClouds = partlyCloudy ? 3 : 5;
 
-        float d1 = sinf(t*0.22f)*W*0.05f;
-        float d2 = sinf(t*0.15f+1.2f)*W*0.04f;
-        float d3 = sinf(t*0.18f+2.5f)*W*0.03f;
-        DrawCloud(cx+d1,          T+H*0.28f, W*0.36f, 0.88f, cb1.Get());
-        DrawCloud(L+W*0.20f+d2,   T+H*0.38f, W*0.28f, 0.65f, cb2.Get());
-        DrawCloud(R-W*0.15f+d3,   T+H*0.22f, W*0.26f, 0.60f, cb3.Get());
-        DrawCloud(cx-W*0.1f+d1,   T+H*0.50f, W*0.30f, 0.45f, cb2.Get()); // 低层云
+        D2D1_COLOR_F cloudCol = isNight
+            ? D2D1::ColorF(0.32f, 0.34f, 0.44f)
+            : D2D1::ColorF(0.88f, 0.90f, 0.95f);
+        ComPtr<ID2D1SolidColorBrush> cloudBrush;
+        m_d2dContext->CreateSolidColorBrush(cloudCol, &cloudBrush);
+
+        for (int i = 0; i < numClouds; i++) {
+            auto& c = clouds[i];
+            // 将全局 cover 映射到每朵云的局部进度（有延迟）
+            float localT = fmaxf(0.0f, (cover - c.delay) / (1.0f - c.delay));
+            localT = fminf(localT, 1.0f);
+            // 入场：从右侧外（x = R + scale*W）平滑移入目标位置
+            float targetX = L + c.relX * W;
+            float startX  = R + c.scale * W * 0.8f;
+            // 缓出：使用 1-(1-t)^2
+            float easedT = 1.0f - (1.0f-localT)*(1.0f-localT);
+            float cloudX = startX + (targetX - startX) * easedT;
+            // 入场后叠加持续漂移（sinf）
+            cloudX += sinf(t * c.driftSpd + i * 2.09f) * W * c.driftAmp;
+
+            float cloudY = T + c.relY * H;
+            float cloudOp = c.scale > 0.30f ? 0.92f : 0.78f; // 大云更实
+            cloudOp *= localT; // 淡入
+            DrawCloud(cloudX, cloudY, c.scale * W, cloudOp, cloudBrush.Get());
+        }
         break;
     }
 
