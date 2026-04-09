@@ -85,6 +85,17 @@ void MusicPlayerComponent::RenderExpanded(float left, float top, float width, fl
 
     RenderAlbumArt(artLeft, artTop, ALBUM_ART_SIZE, contentAlpha);
 
+    // Waveform (播放时显示在文本区右侧)
+    if (m_isPlaying) {
+        float waveRight  = right - 40.0f;
+        float baseBottom = artTop + 45.0f;
+        float h1 = m_waveH[0] * 0.5f, h2 = m_waveH[1] * 0.5f, h3 = m_waveH[2] * 0.5f;
+        m_res->themeBrush->SetOpacity(contentAlpha);
+        ctx->FillRectangle(D2D1::RectF(waveRight - 20.0f, baseBottom - h1, waveRight - 16.0f, baseBottom), m_res->themeBrush);
+        ctx->FillRectangle(D2D1::RectF(waveRight - 12.0f, baseBottom - h2, waveRight -  8.0f, baseBottom), m_res->themeBrush);
+        ctx->FillRectangle(D2D1::RectF(waveRight -  4.0f, baseBottom - h3, waveRight,         baseBottom), m_res->themeBrush);
+    }
+
     // Lyrics
     if (!m_lyric.text.empty())
         RenderLyrics(textLeft, artTop, textRight - textLeft, contentAlpha);
@@ -165,13 +176,36 @@ void MusicPlayerComponent::RenderProgressBar(float left, float top, float width,
 void MusicPlayerComponent::RenderPlaybackButtons(float left, float top, float buttonSize, float alpha) {
     auto* ctx = m_res->d2dContext;
     m_res->whiteBrush->SetOpacity(alpha);
-    const wchar_t prevIcon = L'\uE892', playIcon = L'\uE768', pauseIcon = L'\uE769', nextIcon = L'\uE893';
-    ctx->DrawTextW(&prevIcon, 1, m_res->iconFormat, D2D1::RectF(left, top, left + buttonSize, top + buttonSize), m_res->whiteBrush);
-    float playX = left + buttonSize + BUTTON_SPACING;
-    const wchar_t* pi = m_isPlaying ? &pauseIcon : &playIcon;
-    ctx->DrawTextW(pi, 1, m_res->iconFormat, D2D1::RectF(playX, top, playX + buttonSize, top + buttonSize), m_res->whiteBrush);
-    float nextX = left + (buttonSize + BUTTON_SPACING) * 2;
-    ctx->DrawTextW(&nextIcon, 1, m_res->iconFormat, D2D1::RectF(nextX, top, nextX + buttonSize, top + buttonSize), m_res->whiteBrush);
+
+    const wchar_t icons[3] = { L'\uE892',
+        m_isPlaying ? L'\uE769' : L'\uE768',
+        L'\uE893' };
+
+    for (int i = 0; i < 3; i++) {
+        float x = left + i * (buttonSize + BUTTON_SPACING);
+        D2D1_RECT_F r = D2D1::RectF(x, top, x + buttonSize, top + buttonSize);
+        bool hovered = (i == m_hoveredButton);
+        bool pressed = (i == m_pressedButton);
+
+        // Hover / press background
+        if (alpha > 0.1f && (hovered || pressed) && m_res->buttonHoverBrush) {
+            float bgOp = pressed ? 0.25f : 0.12f;
+            m_res->buttonHoverBrush->SetOpacity(bgOp * alpha);
+            ctx->FillRoundedRectangle(D2D1::RoundedRect(r, buttonSize / 2.0f, buttonSize / 2.0f), m_res->buttonHoverBrush);
+        }
+
+        // Icon (scale down when pressed)
+        if (pressed) {
+            D2D1_MATRIX_3X2_F old;
+            ctx->GetTransform(&old);
+            float cx = x + buttonSize / 2.0f, cy = top + buttonSize / 2.0f;
+            ctx->SetTransform(D2D1::Matrix3x2F::Scale(0.8f, 0.8f, D2D1::Point2F(cx, cy)) * old);
+            ctx->DrawText(&icons[i], 1, m_res->iconFormat, r, m_res->whiteBrush);
+            ctx->SetTransform(old);
+        } else {
+            ctx->DrawText(&icons[i], 1, m_res->iconFormat, r, m_res->whiteBrush);
+        }
+    }
 }
 
 void MusicPlayerComponent::RenderLyrics(float left, float top, float width, float alpha) {

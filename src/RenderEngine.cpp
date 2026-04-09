@@ -2557,6 +2557,7 @@ void RenderEngine::DrawCapsule(const RenderContext& ctx)
 						m_hoveredProgress, m_pressedProgress);
 					m_musicComponent->SetScrollState(m_titleScrollOffset, m_lyricScrollOffset,
 						m_titleScrolling, m_lyricScrolling);
+					m_musicComponent->SetWaveHeights(m_currentWaveHeight);
 					D2D1_RECT_F musicRect = D2D1::RectF(left, top, right, bottom);
 					m_musicComponent->Draw(musicRect, contentAlpha, GetTickCount64());
 				}

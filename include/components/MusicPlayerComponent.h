@@ -17,6 +17,7 @@ public:
                           const LyricData& lyric, bool showTime, const std::wstring& timeText);
     void SetInteractionState(int hoveredButton, int pressedButton, int hoveredProgress, int pressedProgress);
     void SetScrollState(float titleScrollOffset, float lyricScrollOffset, bool titleScrolling, bool lyricScrolling);
+    void SetWaveHeights(const float heights[3]) { m_waveH[0] = heights[0]; m_waveH[1] = heights[1]; m_waveH[2] = heights[2]; }
     void SetAlbumBitmap(ComPtr<ID2D1Bitmap> bitmap) { m_albumBitmap = bitmap; }
 
     bool LoadAlbumArtFromMemory(const std::vector<uint8_t>& data);
@@ -43,6 +44,9 @@ private:
     LyricData    m_lyric;
     bool m_showTime = false;
     std::wstring m_timeText;
+
+    // Wave heights
+    float m_waveH[3] = { 10.0f, 10.0f, 10.0f };
 
     // Interaction state
     int m_hoveredButton   = -1;
