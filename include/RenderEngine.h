@@ -14,6 +14,7 @@
 #include "Messages.h" // 【加上这一行！】让画板认识 AlertInfo 结构体
 #include "IslandState.h"
 #include "components/IIslandComponent.h"
+#include "components/WeatherComponent.h"
 #include <vector>
 #include <utility>
 #pragma comment(lib, "dcomp.lib")
@@ -80,6 +81,9 @@ private:
     std::unique_ptr<MusicPlayerComponent> m_musicComponent;
     std::unique_ptr<AlertComponent> m_alertComponent;
     std::unique_ptr<VolumeComponent> m_volumeComponent;
+
+    // PR2: 天气组件（已组件化）
+    std::unique_ptr<WeatherComponent> m_weatherComponent;
 
     // 组件注册表（PR1 骨架，后续各 PR 逐步填充）
     void RegisterComponents();

@@ -138,6 +138,8 @@
     <ClInclude Include="include\components\MusicPlayerComponent.h" />
     <ClInclude Include="include\components\VolumeComponent.h" />
     <ClInclude Include="include\components\FilePanelComponent.h" />
+    <ClInclude Include="include\components\IIslandComponent.h" />
+    <ClInclude Include="include\components\WeatherComponent.h" />
     <ClInclude Include="include\ConnectionMonitor.h" />
     <ClInclude Include="include\IslandState.h" />
     <ClInclude Include="include\Constants.h" />
@@ -175,6 +177,7 @@
     <ClCompile Include="src\components\MusicPlayerComponent.cpp" />
     <ClCompile Include="src\components\VolumeComponent.cpp" />
     <ClCompile Include="src\components\FilePanelComponent.cpp" />
+    <ClCompile Include="src\components\WeatherComponent.cpp" />
     <ClCompile Include="src\ConnectionMonitor.cpp" />
     <ClCompile Include="src\DynamicIsland.cpp" />
     <ClCompile Include="src\FilePanelWindow.cpp" />

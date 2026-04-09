@@ -638,9 +638,9 @@ void RenderEngine::RegisterComponents() {
 	m_sharedRes.subFormat     = m_textFormatSub.Get();
 	m_sharedRes.iconFormat    = m_iconTextFormat.Get();
 
-	// 组件优先级栈（PR2+ 开始逐步填入）
-	// 格式：{ IslandDisplayMode, component_ptr }
-	// m_componentStack = { ... };
+	// PR2: 初始化天气组件
+	m_weatherComponent = std::make_unique<WeatherComponent>();
+	m_weatherComponent->OnAttach(&m_sharedRes);
 }
 
 void RenderEngine::SetDpi(float dpi) {
@@ -1081,10 +1081,16 @@ void RenderEngine::DrawCapsule(const RenderContext& ctx)
 		bool compactMode = (islandHeight >= 35.0f && islandHeight < COMPACT_THRESHOLD);
 
 		if (ctx.mode == IslandDisplayMode::WeatherExpanded) {
-			if (ctx.weatherViewMode == WeatherViewMode::Daily)
-				DrawWeatherDaily(ctx, left, top, right, bottom, islandWidth, islandHeight);
-			else
-				DrawWeatherExpanded(ctx, left, top, right, bottom, islandWidth, islandHeight);
+			// PR2: 委托给 WeatherComponent
+			if (m_weatherComponent) {
+				m_weatherComponent->SetWeatherData(
+					ctx.weatherDesc, ctx.weatherTemp, ctx.weatherIconId,
+					ctx.hourlyForecasts, ctx.dailyForecasts);
+				m_weatherComponent->SetExpanded(true);
+				m_weatherComponent->SetViewMode(ctx.weatherViewMode);
+				D2D1_RECT_F weatherRect = D2D1::RectF(left, top, right, bottom);
+				m_weatherComponent->Draw(weatherRect, contentAlpha, GetTickCount64());
+			}
 		}
 		else if (m_isAlertActive)
 
