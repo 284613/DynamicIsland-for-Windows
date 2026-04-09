@@ -5145,6 +5145,11 @@ void RenderEngine::DrawWeatherDaily(const RenderContext& ctx, float left, float 
     float cellH = dataBottom - dataTop;
 
     ULONGLONG currentTime = GetTickCount64();
+    // 逐日视图不经过 DrawWeatherAmbientBg，在此推进动画 phase
+    if (m_lastWeatherAnimTime == 0) m_lastWeatherAnimTime = currentTime;
+    float dtDaily = (float)(currentTime - m_lastWeatherAnimTime) / 1000.0f;
+    if (dtDaily > 0.0f && dtDaily < 0.5f) m_weatherAnimPhase += dtDaily * 1.5f;
+    m_lastWeatherAnimTime = currentTime;
 
     for (size_t i = 0; i < count; ++i) {
         const auto& df = ctx.dailyForecasts[i];
