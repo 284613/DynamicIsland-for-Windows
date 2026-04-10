@@ -17,8 +17,8 @@ void WeatherComponent::Update(float deltaTime) {
 
 void WeatherComponent::SetWeatherData(
     const std::wstring& desc, float temp, const std::wstring& iconId,
-    const std::vector<RenderContext::HourlyForecast>& hourly,
-    const std::vector<RenderContext::DailyForecast>& daily)
+    const std::vector<HourlyForecast>& hourly,
+    const std::vector<DailyForecast>& daily)
 {
     WeatherType newType = MapWeatherDescToType(desc);
     if (newType != m_weatherType) {
@@ -30,11 +30,6 @@ void WeatherComponent::SetWeatherData(
     m_iconId = iconId;
     m_hourly = hourly;
     m_daily  = daily;
-}
-
-void WeatherComponent::SetExpanded(bool expanded) {
-    if (expanded && !m_isExpanded) ResetAnimation();
-    m_isExpanded = expanded;
 }
 
 // ── 主绘制入口 ─────────────────────────────────────────────────────────────
@@ -51,13 +46,31 @@ void WeatherComponent::Draw(const D2D1_RECT_F& rect, float contentAlpha, ULONGLO
 void WeatherComponent::DrawCompact(float iconX, float iconY, float iconSize,
                                    float contentAlpha, ULONGLONG currentTimeMs) {
     if (!m_res) return;
-    // 推进动画 phase（compact 路径）
+    auto* ctx = m_res->d2dContext;
+
+    // 推进动画 phase
     if (m_lastAnimTime == 0) m_lastAnimTime = currentTimeMs;
     float dt = (float)(currentTimeMs - m_lastAnimTime) / 1000.0f;
     if (dt > 0.0f && dt < 0.5f) m_animPhase += dt * 2.0f;
     m_lastAnimTime = currentTimeMs;
 
     DrawWeatherIcon(iconX, iconY, iconSize, contentAlpha, currentTimeMs);
+
+    // Temperature
+    if (m_temp != 0.0f && m_res->subFormat) {
+        std::wstring tempText = std::to_wstring((int)m_temp) + L"\u00B0";
+        ComPtr<IDWriteTextLayout> tempLayout;
+        m_res->dwriteFactory->CreateTextLayout(tempText.c_str(), (UINT32)tempText.size(),
+            m_res->subFormat, 80.0f, 100.0f, &tempLayout);
+        if (tempLayout) {
+            DWRITE_TEXT_METRICS metrics;
+            tempLayout->GetMetrics(&metrics);
+            float tempX = iconX - metrics.width - 5.0f;
+            float tempY = iconY + (iconSize - metrics.height) / 2.0f;
+            m_res->whiteBrush->SetOpacity(contentAlpha);
+            ctx->DrawTextLayout(D2D1::Point2F(tempX, tempY), tempLayout.Get(), m_res->whiteBrush);
+        }
+    }
 }
 
 bool WeatherComponent::OnMouseWheel(float /*x*/, float /*y*/, int delta) {
@@ -115,13 +128,13 @@ void WeatherComponent::DrawLine(float x1, float y1, float x2, float y2, ID2D1Bru
 WeatherType WeatherComponent::MapWeatherDescToType(const std::wstring& desc) const {
     std::wstring d = desc;
     for (auto& c : d) c = towlower(c);
-    if (d.find(L'雪') != std::wstring::npos || d.find(L'霜') != std::wstring::npos) return WeatherType::Snow;
-    if (d.find(L'雾') != std::wstring::npos || d.find(L'霾') != std::wstring::npos) return WeatherType::Fog;
-    if (d.find(L'雷暴') != std::wstring::npos || d.find(L'雷电') != std::wstring::npos) return WeatherType::Thunder;
-    if (d.find(L'雨') != std::wstring::npos || d.find(L'阵雨') != std::wstring::npos) return WeatherType::Rainy;
-    if (d.find(L'晴') != std::wstring::npos && d.find(L'多云') == std::wstring::npos && d.find(L'阴') == std::wstring::npos) return WeatherType::Clear;
-    if (d.find(L'多云') != std::wstring::npos || d.find(L'间晴') != std::wstring::npos || d.find(L'间多云') != std::wstring::npos) return WeatherType::PartlyCloudy;
-    if (d.find(L'阴') != std::wstring::npos) return WeatherType::Cloudy;
+    if (d.find(L"雪") != std::wstring::npos || d.find(L"霜") != std::wstring::npos) return WeatherType::Snow;
+    if (d.find(L"雾") != std::wstring::npos || d.find(L"霾") != std::wstring::npos) return WeatherType::Fog;
+    if (d.find(L"雷暴") != std::wstring::npos || d.find(L"雷电") != std::wstring::npos) return WeatherType::Thunder;
+    if (d.find(L"雨") != std::wstring::npos || d.find(L"阵雨") != std::wstring::npos) return WeatherType::Rainy;
+    if (d.find(L"晴") != std::wstring::npos && d.find(L"多云") == std::wstring::npos && d.find(L"阴") == std::wstring::npos) return WeatherType::Clear;
+    if (d.find(L"多云") != std::wstring::npos || d.find(L"间晴") != std::wstring::npos || d.find(L"间多云") != std::wstring::npos) return WeatherType::PartlyCloudy;
+    if (d.find(L"阴") != std::wstring::npos) return WeatherType::Cloudy;
     return WeatherType::Default;
 }
 

@@ -10,6 +10,7 @@ public:
 
     void SetActive(bool active) { m_isActive = active; }
     void SetVolumeLevel(float level) { m_volumeLevel = level; }
+    void DrawSecondary(float secLeft, float secTop, float secWidth, float secHeight, float secAlpha);
 
 private:
     const wchar_t* GetVolumeIcon(float level);

@@ -491,7 +491,7 @@ LRESULT SettingsWindow::WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPar
         case WM_HSCROLL:
         {
             HWND sliderHwnd = (HWND)lParam;
-            int pos = SendMessage(sliderHwnd, TBM_GETPOS, 0, 0);
+            int pos = static_cast<int>(SendMessage(sliderHwnd, TBM_GETPOS, 0, 0));
 
             if (sliderHwnd == m_sliderMainWidth.hwnd) {
                 std::wstring valStr = std::to_wstring(pos);

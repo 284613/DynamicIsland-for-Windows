@@ -43,6 +43,7 @@ public:
     void Previous();
 
     std::wstring GetAlbumArt();
+    std::vector<uint8_t> GetAlbumArtDataCopy();
     bool IsPlaying() const;  // 新增
     // MediaMonitor.h public 部分添加
     void SetTargetWindow(HWND hwnd) { m_targetHwnd = hwnd; }
@@ -55,6 +56,7 @@ public:
     float GetVolume();               // 【新增】获取当前音量 (0.0 ~ 1.0)
     void SetVolume(float volume);    // 【新增】设置当前音量 (0.0 ~ 1.0)
     void SetExpandedState(bool expanded); // 【OPT-02】设置岛屿展开状态，动态调整轮询频率
+    void RequestAlbumArtRefresh();
 private:
     void BackgroundMediaWorker(); // 后台拉取媒体信息的线程
     std::vector<uint8_t>* ReadThumbnailToMemory(const IRandomAccessStreamReference& thumbnail);

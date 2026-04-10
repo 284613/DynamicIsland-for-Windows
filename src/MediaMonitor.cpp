@@ -264,10 +264,23 @@ void MediaMonitor::SetExpandedState(bool expanded) {
 	// 收起状态由智能休眠逻辑自动调整
 }
 
+void MediaMonitor::RequestAlbumArtRefresh() {
+	m_needAlbumArtUpdate = true;
+}
+
 std::wstring MediaMonitor::GetAlbumArt()
 {
 	std::lock_guard<std::mutex> lock(m_mutex);
 	return L""; // 不再返回文件路径
+}
+
+std::vector<uint8_t> MediaMonitor::GetAlbumArtDataCopy()
+{
+	std::lock_guard<std::mutex> lock(m_mutex);
+	if (!m_albumArtData) {
+		return {};
+	}
+	return *m_albumArtData;
 }
 // MediaMonitor.cpp 中 ReadThumbnailToMemory 函数的实现
 std::vector<uint8_t>* MediaMonitor::ReadThumbnailToMemory(const IRandomAccessStreamReference& thumbnail)

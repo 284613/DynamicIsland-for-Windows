@@ -1,6 +1,6 @@
 # DynamicIsland 组件化重构计划
 
-> 目标：将 `RenderEngine.cpp`（5684 行）拆解为多个独立组件，使新增/修改功能只需改对应组件文件，不触碰渲染引擎核心。
+> 目标：将 `RenderEngine.cpp`（5684 行）拆解为多个独立组件，使新增/修改功能只需改对应组件文件，不触碰渲染引擎核心。本文档现已更新为最终落地结果。
 
 ---
 
@@ -72,7 +72,7 @@ DrawCapsule()
 数据流：
 ```
 Monitor/Plugin → EventBus → 各组件订阅自己需要的事件
-RenderContext  → 只保留布局信息（width/height/alpha/mode）
+RenderContext  → 只保留布局与帧信息（width/height/alpha/mode/time）
 ```
 
 ---
@@ -351,7 +351,7 @@ struct RenderContext {
 };
 ```
 
-**重构后（只保留布局信息，~20 行）：**
+**重构后（只保留布局/帧信息，40 行）：**
 ```cpp
 struct RenderContext {
     float             islandWidth;
@@ -360,8 +360,8 @@ struct RenderContext {
     float             contentAlpha;
     float             secondaryHeight;   // 副岛动画高度
     float             secondaryAlpha;    // 副岛透明度
-    IslandDisplayMode mode;              // 当前优先显示的模式
-    ULONGLONG         currentTimeMs;     // 当前帧时间戳
+    IslandDisplayMode mode;
+    ULONGLONG         currentTimeMs;
 };
 ```
 
@@ -459,9 +459,9 @@ include/IslandState.h         100 行  → ~25 行（RenderContext 瘦身）
 | PR1 | ✅ **已完成** | 新建 `IIslandComponent` + `SharedResources`；`RegisterComponents()` 骨架 |
 | PR2 | ✅ **已完成** | `WeatherComponent` 接管天气全部绘制；意境背景动画每次展开重置 |
 | PR3 | ✅ **已完成** | `LyricsComponent`（弹簧滚动）/ `WaveformComponent`（三柱动画）独立 |
-| PR4 | ✅ **已完成** | `AlertComponent` / `VolumeComponent` / `MusicPlayerComponent` 实现 `IIslandComponent`；`SharedResources` 扩展全部画刷 + WIC；旧内联代码以 `if(false)` 保留作 fallback |
+| PR4 | ✅ **已完成** | `AlertComponent` / `VolumeComponent` / `MusicPlayerComponent` 实现 `IIslandComponent`；`SharedResources` 扩展全部画刷 + WIC |
 | PR5 | ✅ **已完成** | 新建 `ClockComponent`（时钟居中显示）；重构 `FilePanelComponent` 实现 `IIslandComponent` |
-| PR6 | ✅ **已完成** | 优先级调度表替换 if-else 链；`RenderContext` 瘦身（移除10个死字段）；EventBus 清理（移除10个未用事件类型） |
+| PR6 | ✅ **已完成** | 优先级调度表替换 if-else 链；`RenderContext` 瘦身；EventBus 清理；删除全部 `if(false)` fallback |
 
 ### PR1 — 基础设施（✅ 已完成）
 - 新建 `IIslandComponent.h`（含 `SharedResources` struct）
@@ -481,32 +481,34 @@ include/IslandState.h         100 行  → ~25 行（RenderContext 瘦身）
 - 三个已有组件全部实现 `IIslandComponent`
 - `OnAttach(SharedResources*)` 替换 `SetBrushes / SetTextFormats / SetD2DResources`
 - `SharedResources` 扩展：提示画刷（wifi/bt/charging/…）、音乐画刷（progressBg/Fg/buttonHover）、WIC
-- `DrawCapsule` alert/volume/expanded-music 分支委托给组件；旧内联代码保留为 `if(false)` fallback
+- `DrawCapsule` alert/volume/expanded-music 分支委托给组件
 - 波形数据通过 `SetWaveHeights()` 传入；按钮 hover/press 效果恢复
 
 ### PR5 — 新建 FileStorage / Clock（✅ 已完成）
 - 新建 `ClockComponent`（时钟居中显示）
 - 重构 `FilePanelComponent` 实现 `IIslandComponent` 接口（拖拽提示 + compact/展开文件列表）
-- 组件已注册到 `RegisterComponents()`，旧内联代码保留在 `DrawCapsule`（待 PR6 迁移）
+- 组件已注册到 `RegisterComponents()`
 
 ### PR6 — 收尾（✅ 已完成）
 - `DetermineDisplayMode()` if-else 链替换为 `DisplayModePriorityTable`（可配置优先级调度表）
 - `RenderContext` 删除 10 个死字段（`storedFiles`/`hoveredFileIndex`/`isFileDeleteHovered`/`weatherSuggestion`/`weatherHasWarning`/`isAlertActive`/`alertType`/`alertName`/`alertDeviceType`）
 - `EventBus` 清理：移除 10 个未发布事件类型（`PowerChange`/`MediaProgressChanged`/`SystemTimeChanged`/`VolumeChanged`/`WindowStateChanged`/`HoverStateChanged`/`DragStateChanged`/`NotificationRemoved`/`NetworkStatusChanged`/`BluetoothStatusChanged`）及 3 个未用便捷发布方法
+- **删除全部 `if(false)` fallback 内联代码**（commit `0cb447e`）
 
 ---
 
-## 十、预期指标
+## 十、实际指标
 
-| 指标 | 重构前 | 重构后 |
+| 指标 | 重构前 | 重构后（实际） |
 |------|--------|--------|
-| RenderEngine.cpp | 5684 行 | ~600 行 |
-| DrawCapsule() | ~2300 行 | ~60 行 |
-| RenderContext | 100 行 / 30+ 字段 | ~25 行 / 7 字段 |
-| 新增天气动画需改文件 | RenderEngine + DynamicIsland + IslandState | 只改 WeatherAnimations.cpp |
+| RenderEngine.cpp | 5684 行 | 354 行 |
+| RenderEngine.h | 194 行 | 105 行 |
+| DrawCapsule() | ~2300 行 | 约 80 行主干 |
+| RenderContext | 100 行 / 30+ 字段 | 40 行 / 8 个有效字段 |
+| 新增天气动画需改文件 | RenderEngine + DynamicIsland + IslandState | 只改 WeatherComponent.cpp |
 | 新增通知类型需改文件 | RenderEngine | 只改 AlertComponent.cpp |
 | 新增独立功能 | 改 RenderContext → 改 UpdatePhysics → 改 DrawCapsule | 写组件 → RegisterComponents() 注册 |
-| 组件可独立编译测试 | 不可能 | 可以 |
+| 组件可独立编译测试 | 不可能 | 可以（SharedResources 注入即可） |
 
 ---
 
@@ -525,12 +527,26 @@ include/IslandState.h         100 行  → ~25 行（RenderContext 瘦身）
 
 ---
 
-## 十二、已知优化点
+## 十二、收尾修正（2026-04-10）
 
-| # | 描述 | 涉及文件 | 优先级 |
-|---|------|----------|--------|
-| 1 | **天气面板每次打开都重置动画**：`SetExpanded(true)` 时调用了 `ResetAnimation()`，导致意境背景每次展开都从头播放入场动画（云朵重新飘入、相位归零）。应改为：仅在天气类型切换时重置，面板重新展开时保留当前 phase 继续播放。修改位置：`WeatherComponent::SetExpanded()` 中的 `ResetAnimation()` 调用条件。 | `src/components/WeatherComponent.cpp` | 中 |
+| # | 描述 | 涉及文件 | 状态 |
+|---|------|----------|------|
+| 1 | 天气展开重开不再重置意境动画，只在天气类型切换时重置 phase | `src/components/WeatherComponent.cpp` | ✅ 已修复 |
+| 2 | 音量副岛高度变化会同步触发 `UpdateWindowRegion`，避免内容被系统裁切 | `src/DynamicIsland.cpp` | ✅ 已修复 |
+| 3 | 天气展开态点击/滚轮不再穿透到底层音乐命中测试 | `src/DynamicIsland.cpp` | ✅ 已修复 |
+| 4 | 空闲态点击不会误进音乐面板；天气面板手动收缩会先回 compact 再自动缩到 mini | `src/DynamicIsland.cpp` | ✅ 已修复 |
+| 5 | 副岛背景与内容职责拆分：壳体由 `RenderEngine` 绘制，`VolumeComponent` 只绘制内容，避免视觉发暗 | `src/RenderEngine.cpp`, `src/components/VolumeComponent.cpp` | ✅ 已修复 |
+| 6 | 首次展开音乐面板时主动补同步当前专辑封面，不再依赖切歌事件 | `src/MediaMonitor.cpp`, `src/DynamicIsland.cpp` | ✅ 已修复 |
 
 ---
 
-*生成时间：2026-04-09*
+## 十三、已知优化点
+
+| # | 描述 | 涉及文件 | 优先级 |
+|---|------|----------|--------|
+| 1 | 天气展开面板切换 `Hourly/Daily` 时仍是直接切页，尚未加入过渡动画 | `src/components/WeatherComponent.cpp` | 中 |
+| 2 | 音乐展开态首次主动刷新封面目前依赖后台线程下一轮读取，可继续优化为展开瞬间同步抓取当前 SMTC thumbnail | `src/MediaMonitor.cpp`, `src/DynamicIsland.cpp` | 中 |
+
+---
+
+*生成时间：2026-04-09 · 最后更新：2026-04-10（组件化全部完成）*

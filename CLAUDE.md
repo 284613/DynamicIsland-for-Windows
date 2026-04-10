@@ -16,12 +16,37 @@
 
 **核心机制**：EventBus 事件总线 · 弹簧物理动画 · DirtyFlags 按需渲染（空闲 0% CPU）· Win32 Region 多岛合并
 
+## 组件化状态
+
+所有 UI 功能已委托给独立组件（`src/components/`），本轮收尾后 `RenderEngine.cpp` 从 **5684 行缩减至 354 行**，只保留初始化、共享资源注入、主/副岛壳体绘制、组件调度和输入分发。
+
+| 组件 | 文件 | 职责 |
+|------|------|------|
+| `WeatherComponent` | `WeatherComponent.cpp` | 意境背景动画（8种天气）、展开面板、紧凑小图标 |
+| `MusicPlayerComponent` | `MusicPlayerComponent.cpp` | 专辑封面、歌名滚动、进度条、播放按钮 |
+| `LyricsComponent` | `LyricsComponent.cpp` | 歌词弹簧物理滚动 |
+| `WaveformComponent` | `WaveformComponent.cpp` | 三柱音频波形动画 |
+| `AlertComponent` | `AlertComponent.cpp` | WiFi/蓝牙/充电/低电/通知卡片 |
+| `VolumeComponent` | `VolumeComponent.cpp` | 主岛音量条 + 副岛音量 |
+| `FilePanelComponent` | `FilePanelComponent.cpp` | 文件拖放/暂存 |
+| `ClockComponent` | `ClockComponent.cpp` | 紧凑态时钟居中 |
+
+`RenderContext` 已瘦身为纯布局上下文，仅包含：
+- `islandWidth`
+- `islandHeight`
+- `canvasWidth`
+- `contentAlpha`
+- `secondaryHeight`
+- `secondaryAlpha`
+- `mode`
+- `currentTimeMs`
+
 ## 关键文件
 
 | 文件 | 作用 |
 |------|------|
 | `src/DynamicIsland.cpp` | 主窗口逻辑、状态机、优先级调度 |
-| `src/RenderEngine.cpp` | Direct2D 绘制，含天气展开面板 `DrawWeatherExpanded()` |
+| `src/RenderEngine.cpp` | Direct2D 生命周期、共享资源、主/副岛壳体、组件调度 |
 | `src/WeatherPlugin.cpp` | 和风天气 API（Now/Hourly/Daily/Indices）|
 | `src/LayoutController.cpp` | 弹簧布局，坐标计算含 `m_dpiScale` |
 | `include/IslandState.h` | `RenderContext` · `IslandDisplayMode` 定义 |
@@ -42,6 +67,7 @@
   - **右卡**：2×3 逐小时网格（时间 / 矢量小图标 / 温度）
   - **滚轮切换**：`WeatherViewMode::Hourly ↔ Daily`（`DrawWeatherDaily` 7列逐日网格）
 - `ShouldKeepRendering()` 在 `m_isWeatherExpanded` 时持续渲染
+- 天气展开态点击与滚轮输入已和音乐控件完全隔离
 
 **意境背景天气类型**（`DrawWeatherAmbientBg`）：
 
@@ -66,9 +92,11 @@ enum class WeatherViewMode { Hourly, Daily };
 ## 开发规范
 
 - UI 线程禁止阻塞网络请求，天气 API 必须在独立线程（`std::thread::detach`）
-- 新组件放 `src/components/`，实现 `IMessageHandler`
+- 新组件放 `src/components/`，实现 `IIslandComponent`
 - 布局坐标乘 `m_dpiScale`
 - 渲染入口 `RenderEngine::DrawCapsule` → 按 `RenderContext.mode` 分发
+- `DynamicIsland` 负责同步组件业务状态；`RenderEngine` 不再承载业务字段
+- 副岛背景统一由 `RenderEngine` 绘制，副岛内容只在 `VolumeComponent::DrawSecondary()` 中处理
 
 ## Build
 
@@ -81,24 +109,24 @@ x64\Release\DynamicIsland.exe
 
 ## 📋 下一步规划
 
-### 功能待办
+### 功能优化
 - 天气展开面板切换动画（`contentAlpha` 淡出 → 切换视图 → 淡入）
 - 逐日视图中矢量图标按 `iconDay` ID 精确映射（当前用 `textDay` 推断）
 - 意境背景雨滴/雪花数量随天气强度（小雨/大雨/暴雨）动态调整
 
-### 🔧 组件化重构（详见 `REFACTOR_PLAN.md`）
+### 🔧 组件化重构（已完成 ✅）
 
-目标：将 `RenderEngine.cpp`（5684 行）拆解为独立组件，新增功能只改对应组件文件。
+**6 个 PR 全部完成**，详见 `REFACTOR_PLAN.md`。
 
-**执行顺序（6 个 PR）：**
+**实际结果：**
+- `RenderEngine.cpp` 5684 行 → `354` 行
+- `RenderEngine.h` 194 行 → `105` 行
+- `IslandState.h` 100 行 → `40` 行
 
-| PR | 内容 | 状态 |
-|----|------|------|
-| PR1 | 新建 `IIslandComponent` 接口 + `SharedResources` + `RegisterComponents()` 骨架 | ✅ 完成 |
-| PR2 | 拆天气组件：`WeatherComponent` / `WeatherRenderer` / `WeatherAnimations` / `WeatherIconRenderer` | ✅ 完成 |
-| PR3 | 新建 `LyricsComponent` / `WaveformComponent`，废弃 `RenderEngine::UpdateScroll()` | ✅ 完成 |
-| PR4 | 改造 `MusicPlayerComponent` / `AlertComponent` / `VolumeComponent` 实现新接口 | ✅ 完成 |
-| PR5 | 新建 `FileStorageComponent` / `ClockComponent` | ✅ 完成 |
-| PR6 | 优先级调度表替换 if-else 链，`RenderContext` 瘦身，切换 EventBus 数据流 | ✅ 完成 |
+### 组件化要点（开发规范）
 
-**预期结果：** `RenderEngine.cpp` 5684 行 → ~600 行，`DrawCapsule()` 2300 行 → ~60 行
+- 新增/修改功能只改对应组件文件，不触碰 `RenderEngine.cpp`
+- 组件通过 `OnAttach(SharedResources*)` 获取 D2D 资源
+- 滚动/动画状态在 `Update(float dt)` 中推进，在 `Draw()` 中渲染
+- 副岛（secondary island）由 `RenderEngine` 画壳、`VolumeComponent::DrawSecondary()` 画内容，仅在音量调节激活时显示
+- 当前已修复的收尾交互问题包括：mini 态误绘制、天气展开态点击穿透、天气收缩直接跳 mini、副岛 Region 不刷新、首次专辑图不同步

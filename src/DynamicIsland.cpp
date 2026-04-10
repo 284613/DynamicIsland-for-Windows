@@ -554,18 +554,7 @@ bool DynamicIsland::Initialize(HINSTANCE hInstance) {
 
 
 	m_weatherTemp = m_systemMonitor.GetWeatherTemperature();
-
-
-
-
-
-	m_renderer.SetWeatherInfo(m_weatherDesc, m_weatherTemp);
-
-
-
-
-
-	RegisterHotKey(m_window.GetHWND(), HOTKEY_ID, MOD_CONTROL | MOD_ALT, 'I');
+RegisterHotKey(m_window.GetHWND(), HOTKEY_ID, MOD_CONTROL | MOD_ALT, 'I');
 
 
 
@@ -592,51 +581,20 @@ bool DynamicIsland::Initialize(HINSTANCE hInstance) {
 	RenderContext initCtx;
 
 	initCtx.islandWidth = GetCurrentWidth();
-
 	initCtx.islandHeight = GetCurrentHeight();
-
 	initCtx.canvasWidth = CANVAS_WIDTH;
-
 	initCtx.contentAlpha = GetCurrentAlpha();
-
-	initCtx.audioLevel = m_mediaMonitor.GetAudioLevel();
-
-	initCtx.title = m_mediaMonitor.GetTitle();
-
-	initCtx.artist = m_mediaMonitor.GetArtist();
-
-	initCtx.isPlaying = isPlaying;
-
-	initCtx.hasSession = hasSession;
-
-	initCtx.showTime = false;
-
-	initCtx.timeText = L"";
-
-	initCtx.progress = 0.0f;
-
-	initCtx.hoveredProgress = -1;
-
-	initCtx.pressedProgress = -1;
-
-	initCtx.lyric.text = L"";
-	initCtx.lyric.currentMs = -1;
-	initCtx.lyric.nextMs = -1;
-	initCtx.lyric.positionMs = 0;
-
-	initCtx.isVolumeActive = false;
-
-	initCtx.volumeLevel = 0.0f;
-
-	initCtx.isDragHovering = false;
-
-	initCtx.storedFileCount = m_storedFiles.size();
-
-	initCtx.weatherDesc = m_weatherDesc;
-
-	initCtx.weatherTemp = m_weatherTemp;
-
 	initCtx.mode = IslandDisplayMode::Idle;
+	initCtx.currentTimeMs = GetTickCount64();
+
+	m_renderer.SetPlaybackState(hasSession, isPlaying, 0.0f, m_mediaMonitor.GetTitle(), m_mediaMonitor.GetArtist());
+	m_renderer.SetLyricData({ L"", -1, -1, 0 });
+	m_renderer.SetWaveformState(m_mediaMonitor.GetAudioLevel(), GetCurrentHeight());
+	m_renderer.SetTimeData(false, L"");
+	m_renderer.SetVolumeState(false, 0.0f);
+	m_renderer.SetFileState(false, m_storedFiles);
+	m_renderer.SetWeatherState(m_weatherDesc, m_weatherTemp, L"", {}, {}, false, m_weatherViewMode);
+	m_renderer.SetAlertState(false, AlertInfo{});
 
 
 
@@ -741,6 +699,10 @@ bool DynamicIsland::Initialize(HINSTANCE hInstance) {
     m_cachedHasSession = m_mediaMonitor.HasSession();
     m_cachedTitle = m_mediaMonitor.GetTitle();
     m_cachedArtist = m_mediaMonitor.GetArtist();
+	auto initialAlbumArt = m_mediaMonitor.GetAlbumArtDataCopy();
+	if (!initialAlbumArt.empty()) {
+		m_renderer.LoadAlbumArtFromMemory(initialAlbumArt);
+	}
 
 	return true;
 
@@ -788,7 +750,7 @@ void DynamicIsland::Invalidate(uint32_t flags) {
 bool DynamicIsland::ShouldKeepRendering() const {
     if (!m_layoutController.IsSettled()) return true;       // 弹簧动画中
     if (m_cachedIsPlaying && m_state != IslandState::Alert) return true;  // 音频可视化
-    if (m_renderer.IsScrolling()) return true;              // 文字滚动中
+    if (m_renderer.HasActiveAnimations()) return true;      // 组件动画/滚动中
     if (m_isVolumeControlActive) return true;               // 音量条显示中
     if (m_isAlertActive) return true;                       // 通知显示中
     if (m_isDraggingProgress) return true;                  // 拖动进度条
@@ -1273,105 +1235,52 @@ void DynamicIsland::UpdatePhysics() {
 
 
 	}
-
-
-
-
-
-	m_renderer.SetPlaybackButtonStates(m_hoveredButtonIndex, m_pressedButtonIndex);
-
+	m_renderer.SetPlaybackState(hasSession, isPlaying, progress, realTitle, realArtist);
+	m_renderer.SetMusicInteractionState(m_hoveredButtonIndex, m_pressedButtonIndex, m_hoveredProgress, m_pressedProgress);
+	m_renderer.SetLyricData(currentLyricData);
+	m_renderer.SetWaveformState(realAudioLevel, GetCurrentHeight());
+	m_renderer.SetTimeData(showTime, timeStr);
+	m_renderer.SetVolumeState(m_isVolumeControlActive, m_currentVolume);
+	m_renderer.SetFileState(m_isDragHovering, m_storedFiles);
 	m_renderer.SetAlertState(m_isAlertActive, m_currentAlert);
 
-	m_renderer.SetProgressBarStates(m_hoveredProgress, m_pressedProgress);
-
-	// Determine IslandDisplayMode based on current state
-
-	IslandDisplayMode mode = DetermineDisplayMode();
-
-	// Construct RenderContext
-
-	RenderContext ctx;
-
+	std::vector<HourlyForecast> hourlyForecasts;
+	std::vector<DailyForecast> dailyForecasts;
+	std::wstring weatherIconId = L"100";
 	if (m_systemMonitor.GetWeatherPlugin()) {
 		m_weatherDesc = m_systemMonitor.GetWeatherPlugin()->GetWeatherDescription();
 		m_weatherTemp = m_systemMonitor.GetWeatherPlugin()->GetTemperature();
-		ctx.weatherIconId = m_systemMonitor.GetWeatherPlugin()->GetIconId();
-
-		auto srcForecasts = m_systemMonitor.GetWeatherPlugin()->GetHourlyForecast();
-		ctx.hourlyForecasts.clear();
-		for (const auto& hf : srcForecasts) {
-			ctx.hourlyForecasts.push_back({hf.time, hf.icon, hf.text, hf.temp});
-		}
-
-		auto srcDaily = m_systemMonitor.GetWeatherPlugin()->GetDailyForecast();
-		ctx.dailyForecasts.clear();
-		for (const auto& df : srcDaily) {
-			ctx.dailyForecasts.push_back({df.date, df.iconDay, df.textDay, df.tempMax, df.tempMin});
-		}
-	} else {
-		ctx.weatherIconId = L"100";
+		weatherIconId = m_systemMonitor.GetWeatherPlugin()->GetIconId();
+		hourlyForecasts = m_systemMonitor.GetWeatherPlugin()->GetHourlyForecast();
+		dailyForecasts = m_systemMonitor.GetWeatherPlugin()->GetDailyForecast();
 	}
+	m_renderer.SetWeatherState(m_weatherDesc, m_weatherTemp, weatherIconId,
+		hourlyForecasts, dailyForecasts, m_isWeatherExpanded, m_weatherViewMode);
 
+	IslandDisplayMode mode = DetermineDisplayMode();
+	RenderContext ctx;
 	ctx.islandWidth = GetCurrentWidth();
-
 	ctx.islandHeight = GetCurrentHeight();
-
 	ctx.canvasWidth = CANVAS_WIDTH;
-
 	ctx.contentAlpha = GetCurrentAlpha();
-
-	ctx.audioLevel = realAudioLevel;
-
-	ctx.title = realTitle;
-
-	ctx.artist = realArtist;
-
-	ctx.isPlaying = isPlaying;
-
-	ctx.hasSession = hasSession;
-
-	ctx.showTime = showTime;
-
-	ctx.timeText = timeStr;
-
-	ctx.progress = progress;
-
-	ctx.hoveredProgress = m_hoveredProgress;
-
-	ctx.pressedProgress = m_pressedProgress;
-
-	ctx.lyric = currentLyricData;
-
-	ctx.isVolumeActive = m_isVolumeControlActive;
-
-	ctx.volumeLevel = m_currentVolume;
-
-	ctx.isDragHovering = m_isDragHovering;
-
-	ctx.storedFileCount = m_storedFiles.size();
-
-	ctx.weatherDesc = m_weatherDesc;
-
-	ctx.weatherTemp = m_weatherTemp;
-
-	ctx.weatherViewMode = m_weatherViewMode;
-
-	ctx.mode = mode;
-
-	// [新增] 传递副岛动画状态
 	ctx.secondaryHeight = m_layoutController.GetSecondaryHeight();
 	ctx.secondaryAlpha = m_layoutController.GetSecondaryAlpha();
+	ctx.mode = mode;
+	ctx.currentTimeMs = now;
 
-	m_renderer.UpdateScroll(deltaTime, realAudioLevel, GetCurrentHeight(), ctx.lyric);
 	m_renderer.DrawCapsule(ctx);
 
-	// 仅在尺寸变化时更新 Region
-	static float lastRegionW = 0, lastRegionH = 0;
+	// 在主岛或副岛尺寸变化时更新 Region
+	static float lastRegionW = 0, lastRegionH = 0, lastRegionSecH = 0;
 	float curW = GetCurrentWidth(), curH = GetCurrentHeight();
-	if (std::abs(curW - lastRegionW) > 0.5f || std::abs(curH - lastRegionH) > 0.5f) {
+	float curSecH = m_layoutController.GetSecondaryHeight();
+	if (std::abs(curW - lastRegionW) > 0.5f ||
+		std::abs(curH - lastRegionH) > 0.5f ||
+		std::abs(curSecH - lastRegionSecH) > 0.5f) {
 		UpdateWindowRegion();
 		lastRegionW = curW;
 		lastRegionH = curH;
+		lastRegionSecH = curSecH;
 	}
 
 	// === 自适应渲染循环控制 ===
@@ -1722,7 +1631,7 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 			                      pt.y >= top && pt.y <= top + islandHeight);
 
 			if (isOverWeather) {
-				m_renderer.TriggerWeatherAnimOnce();
+				EnsureRenderLoopRunning();
 			}
 		}
 
@@ -2501,33 +2410,16 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 		if (m_state == IslandState::Collapsed) {
+			// 仅在当前确实处于音乐紧凑态时，点击主岛才展开到音乐面板
+			if (DetermineDisplayMode() == IslandDisplayMode::MusicCompact) {
+				m_state = IslandState::Expanded;
+				TransitionTo(IslandDisplayMode::MusicExpanded);
+				m_mediaMonitor.SetExpandedState(true);
+				m_mediaMonitor.RequestAlbumArtRefresh();
 
-
-
-
-
-			// 点击时：展开到 Expanded
-
-
-
-
-
-			m_state = IslandState::Expanded;
-
-
-
-
-
-			TransitionTo(IslandDisplayMode::MusicExpanded);
-
-
-
-
-
-			if (m_systemMonitor.GetWeatherPlugin()) {
-
-				m_systemMonitor.GetWeatherPlugin()->RequestRefresh();
-
+				if (m_systemMonitor.GetWeatherPlugin()) {
+					m_systemMonitor.GetWeatherPlugin()->RequestRefresh();
+				}
 			}
 
 		} else {
@@ -2542,8 +2434,16 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 				m_isVolumeControlActive = false;
 				KillTimer(hwnd, m_volumeTimerId);
 			}
+			m_mediaMonitor.SetExpandedState(false);
 
-			TransitionTo(IslandDisplayMode::MusicCompact);
+			IslandDisplayMode nextMode = DetermineDisplayMode();
+			if (nextMode == IslandDisplayMode::Idle) {
+				SetTargetSize(Constants::Size::COMPACT_WIDTH, Constants::Size::COMPACT_HEIGHT);
+				StartAnimation();
+				SetTimer(hwnd, m_displayTimerId, 5000, nullptr);
+			} else {
+				TransitionTo(nextMode);
+			}
 
 		}
 
@@ -3181,18 +3081,7 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 				m_weatherTemp = m_systemMonitor.GetWeatherTemperature();
-
-
-
-
-
-				m_renderer.SetWeatherInfo(m_weatherDesc, m_weatherTemp);
-
-
-
-
-
-			}
+}
 
 
 
@@ -3465,6 +3354,7 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 		// 天气展开模式：滚轮切换 逐小时 ↔ 逐日
 		if (currentMode == IslandDisplayMode::WeatherExpanded) {
 			int delta = GET_WHEEL_DELTA_WPARAM(wParam);
+			m_renderer.OnMouseWheel(0.0f, 0.0f, delta);
 			m_weatherViewMode = (delta > 0) ? WeatherViewMode::Hourly : WeatherViewMode::Daily;
 			EnsureRenderLoopRunning();
 			return 0;

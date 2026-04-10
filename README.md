@@ -6,7 +6,7 @@
 
 Dynamic Island for Windows 是一款基于 C++/Win32 API 和 Direct2D 构建的 Windows 桌面应用，旨在为 Windows 用户带来类似 iPhone 14 Pro 灵动岛的交互体验。
 
-应用悬浮于屏幕顶部区域，以紧凑的胶囊形态呈现，能够智能检测并展示系统任务状态（音乐播放、通知提醒等），同时支持丰富的功能扩展。
+应用悬浮于屏幕顶部区域，以紧凑的胶囊形态呈现，能够智能检测并展示系统任务状态（音乐播放、通知提醒等），同时支持丰富的功能扩展。当前版本已完成组件化收尾，渲染引擎只负责壳体、共享资源、组件调度和副岛绘制。
 
 ---
 
@@ -18,8 +18,8 @@ Dynamic Island for Windows 是一款基于 C++/Win32 API 和 Direct2D 构建的 
 |---------|------|
 | **按需渲染引擎** | [HOT] 核心重构：引入 DirtyFlags 标脏机制。空闲态定时器完全停止，实现 0% CPU 占用，仅在有变化或动画时渲染。 |
 | **音乐播放器组件** | 显示专辑封面、歌曲名、歌手、播放进度条，支持播放/暂停/上一曲/下一曲控制 |
-| **多岛交互模式** | [NEW] 支持多岛协同显示（如音乐展开时调节音量，下方弹出独立副岛），含平滑弹簧动画 |
-| **媒体封面缓存** | [NEW] 专辑封面支持本地磁盘缓存，实现切歌瞬间秒开，无抓取延迟 |
+| **多岛交互模式** | [NEW] 支持多岛协同显示（如音乐展开时调节音量，下方弹出独立副岛），含平滑弹簧动画与 Region 同步更新 |
+| **媒体封面缓存** | [NEW] 专辑封面支持本地磁盘缓存，并在首次展开音乐面板时主动补同步当前封面 |
 | **媒体会话监控** | 自动检测 Spotify、网易云音乐等主流音乐软件的播放状态（WinRT SMTC 会话） |
 | **歌词监控** | 支持网易云音乐歌词获取与实时滚动显示（含本地缓存与弹簧动画） |
 | **音量调节优化** | 仅在播放音乐时允许调节，展开态支持副岛反馈，避免全局误触 |
@@ -30,15 +30,6 @@ Dynamic Island for Windows 是一款基于 C++/Win32 API 和 Direct2D 构建的 
 
 ---
 
-## 技术架构
-
-### 技术栈
-
-- **语言**: C++17
-- **图形渲染**: Direct2D 1.1 + DirectComposition + D3D11
-- **系统接口**: Win32 API, WinRT (Media/Notifications), WASAPI
-- **构建系统**: MSBuild / Visual Studio 2022
-
 ### 项目结构
 
 ```
@@ -48,10 +39,12 @@ DynamicIsland/
 │   │   ├── WeatherComponent    # 天气展开面板 + 意境动画（8 种）
 │   │   ├── MusicPlayerComponent# 专辑封面 + 歌词 + 进度条 + 按钮
 │   │   ├── AlertComponent      # 通知/WiFi/蓝牙/充电等提示卡片
-│   │   ├── VolumeComponent     # 主岛音量条
+│   │   ├── VolumeComponent     # 主岛音量条 + 副岛音量
 │   │   ├── LyricsComponent     # 歌词滚动 + 弹簧物理
-│   │   └── WaveformComponent   # 三柱音频波形动画
-│   ├── RenderEngine.cpp        # D2D 渲染引擎（组件调度）
+│   │   ├── WaveformComponent   # 三柱音频波形动画
+│   │   ├── FilePanelComponent  # 文件拖放/暂存
+│   │   └── ClockComponent      # 紧凑态时钟
+│   ├── RenderEngine.cpp        # D2D 渲染引擎（~354 行，壳体 + 调度）
 │   ├── DynamicIsland.cpp       # 主窗口逻辑与状态机
 │   ├── LayoutController.cpp    # 弹簧布局控制器
 │   └── ...
@@ -59,17 +52,26 @@ DynamicIsland/
 ├── include/
 │   ├── components/
 │   │   ├── IIslandComponent.h  # 统一组件接口 + SharedResources
-│   │   └── *.h                 # 各组件头文件
-│   ├── IslandState.h           # RenderContext + 状态枚举
+│   │   └── *.h                  # 各组件头文件
+│   ├── IslandState.h           # 瘦身后的 RenderContext + 状态枚举
 │   ├── EventBus.h              # 线程安全事件总线
 │   └── ...
 │
-├── REFACTOR_PLAN.md            # 组件化重构计划（6 个 PR）
+├── REFACTOR_PLAN.md            # 组件化重构计划（已完成）
 ├── DynamicIsland.sln
 └── DynamicIsland.vcxproj
 ```
 
+### 技术架构
+
+- **语言**: C++17
+- **图形渲染**: Direct2D 1.1 + DirectComposition + D3D11
+- **系统接口**: Win32 API, WinRT (Media/Notifications), WASAPI
+- **构建系统**: MSBuild / Visual Studio 2022
+
 ### 组件化重构进度
+
+**✅ 全部完成（PR1-PR6 + 收尾修正）**
 
 | PR | 内容 | 状态 |
 |----|------|------|
@@ -81,6 +83,18 @@ DynamicIsland/
 | PR6 | 优先级调度表 + `RenderContext` 瘦身 + EventBus 数据流 | ✅ 完成 |
 
 详细计划见 [REFACTOR_PLAN.md](REFACTOR_PLAN.md)。
+
+**重构效果：**
+- `RenderEngine.cpp`: `5684` 行 → `354` 行
+- `include/RenderEngine.h`: `194` 行 → `105` 行
+- `include/IslandState.h`: `100` 行 → `40` 行
+- `RenderContext` 只保留布局/透明度/模式/时间戳
+
+**当前实现特征：**
+- `DynamicIsland` 每帧只把业务状态同步给组件，再传递瘦身后的 `RenderContext`
+- `RenderEngine` 不再保留天气、歌词滚动、专辑图、通知图、文件 UI 等业务私有状态
+- 天气展开态滚轮只影响天气视图，不再透传到底层音乐控件
+- 音量副岛由引擎画壳体、`VolumeComponent` 只画内容
 
 ---
 

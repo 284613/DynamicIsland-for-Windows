@@ -1,7 +1,5 @@
-// AlertComponent.h
 #pragma once
 #include "IIslandComponent.h"
-#include "IslandState.h"
 #include "Messages.h"
 #include <string>
 #include <vector>
@@ -14,7 +12,9 @@ public:
     bool IsActive() const override { return m_isAlertActive; }
 
     void SetAlertState(bool active, const AlertInfo& info);
-    void SetAlertBitmap(ComPtr<ID2D1Bitmap> bitmap);
+    bool LoadAlertIcon(const std::wstring& file);
+    bool LoadAlertIconFromMemory(const std::vector<uint8_t>& data);
+    void ClearAlertBitmap() { m_alertBitmap.Reset(); }
 
 private:
     const wchar_t* GetIconText(int alertType);

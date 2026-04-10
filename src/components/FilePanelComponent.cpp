@@ -89,7 +89,7 @@ void FilePanelComponent::RenderCompactView(const D2D1_RECT_F& rect, float conten
     float height = rect.bottom - rect.top;
 
     float iconSize = 18.0f;
-    std::wstring text = std::to_wstring(m_storedFileCount) + L" 个文件";
+    std::wstring text = L"已暂存 " + std::to_wstring(m_storedFileCount) + L" 个文件";
 
     auto textLayout = CreateTextLayout(text, m_res->titleFormat, 100.0f);
     if (!textLayout) return;
