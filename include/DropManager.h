@@ -33,13 +33,13 @@ public:
 
     // --- IDropTarget 接口 ---
     HRESULT STDMETHODCALLTYPE DragEnter(IDataObject* pDataObj, DWORD grfKeyState, POINTL pt, DWORD* pdwEffect) override {
-        *pdwEffect = DROPEFFECT_COPY;
+        *pdwEffect = DROPEFFECT_MOVE;
         PostMessage(m_hwnd, WM_DRAG_ENTER, 0, 0); // 通知 UI：文件悬停进来了！
         return S_OK;
     }
 
     HRESULT STDMETHODCALLTYPE DragOver(DWORD grfKeyState, POINTL pt, DWORD* pdwEffect) override {
-        *pdwEffect = DROPEFFECT_COPY;
+        *pdwEffect = DROPEFFECT_MOVE;
         return S_OK;
     }
 
@@ -49,7 +49,7 @@ public:
     }
 
     HRESULT STDMETHODCALLTYPE Drop(IDataObject* pDataObj, DWORD grfKeyState, POINTL pt, DWORD* pdwEffect) override {
-        *pdwEffect = DROPEFFECT_COPY;
+        *pdwEffect = DROPEFFECT_MOVE;
         FORMATETC fmt = { CF_HDROP, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
         STGMEDIUM stg;
 

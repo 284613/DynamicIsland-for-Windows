@@ -15,11 +15,10 @@
 
 
 #include <cmath>
-
-
-
+#include <fstream>
 #include <iostream>
-
+#include <mutex>
+#include <sstream>
 #include <shlwapi.h>
 
 #pragma comment(lib, "shlwapi.lib")
@@ -31,10 +30,58 @@
 
 
 #include "RenderEngine.h"
-
-
-
 #include "LyricsMonitor.h"
+
+namespace {
+std::wstring GetInputDebugLogPath() {
+    wchar_t exePath[MAX_PATH] = {};
+    if (!GetModuleFileNameW(nullptr, exePath, MAX_PATH)) {
+        return L"DynamicIsland_input_debug.log";
+    }
+    PathRemoveFileSpecW(exePath);
+    return std::wstring(exePath) + L"\\DynamicIsland_input_debug.log";
+}
+
+void AppendInputDebugLog(const std::wstring& message) {
+    static std::mutex s_logMutex;
+    std::lock_guard<std::mutex> lock(s_logMutex);
+
+    SYSTEMTIME st{};
+    GetLocalTime(&st);
+    std::wostringstream oss;
+    oss << L"["
+        << st.wHour << L":" << st.wMinute << L":" << st.wSecond << L"." << st.wMilliseconds
+        << L"] " << message << L"\r\n";
+
+    const std::wstring line = oss.str();
+    OutputDebugStringW(line.c_str());
+    std::wofstream out(GetInputDebugLogPath(), std::ios::app);
+    if (out.is_open()) {
+        out << line;
+    }
+}
+
+const wchar_t* SecondaryKindToString(SecondaryContentKind kind) {
+    switch (kind) {
+    case SecondaryContentKind::None: return L"None";
+    case SecondaryContentKind::Volume: return L"Volume";
+    case SecondaryContentKind::FileMini: return L"FileMini";
+    case SecondaryContentKind::FileExpanded: return L"FileExpanded";
+    case SecondaryContentKind::FileDropTarget: return L"FileDropTarget";
+    default: return L"Unknown";
+    }
+}
+
+const wchar_t* FileHitKindToString(FilePanelComponent::HitResult::Kind kind) {
+    switch (kind) {
+    case FilePanelComponent::HitResult::Kind::None: return L"None";
+    case FilePanelComponent::HitResult::Kind::MiniBody: return L"MiniBody";
+    case FilePanelComponent::HitResult::Kind::ExpandedBackground: return L"ExpandedBackground";
+    case FilePanelComponent::HitResult::Kind::FileItem: return L"FileItem";
+    default: return L"Unknown";
+    }
+}
+}
 
 std::wstring ExtractIconFromExe(const std::wstring& appName) {
 
@@ -202,6 +249,231 @@ IslandDisplayMode DynamicIsland::DetermineDisplayMode() const {
 	return IslandDisplayMode::Idle;
 }
 
+SecondaryContentKind DynamicIsland::DetermineSecondaryContent() const {
+	const bool isExpandedEnough = (GetCurrentHeight() >= Constants::Size::COMPACT_MIN_HEIGHT);
+	if (m_isVolumeControlActive && isExpandedEnough && !m_isAlertActive) {
+		return SecondaryContentKind::Volume;
+	}
+	if (m_isDragHovering) {
+		return SecondaryContentKind::FileDropTarget;
+	}
+	if (m_fileStash.HasItems()) {
+		return m_fileSecondaryExpanded ? SecondaryContentKind::FileExpanded : SecondaryContentKind::FileMini;
+	}
+	return SecondaryContentKind::None;
+}
+
+D2D1_RECT_F DynamicIsland::GetSecondaryRectLogical() const {
+	float secHeight = m_layoutController.GetSecondaryHeight();
+	float secWidth = Constants::Size::SECONDARY_WIDTH;
+	switch (DetermineSecondaryContent()) {
+	case SecondaryContentKind::FileExpanded:
+		secWidth = Constants::Size::FILE_SECONDARY_EXPANDED_WIDTH;
+		break;
+	case SecondaryContentKind::FileDropTarget:
+		secWidth = Constants::Size::FILE_SECONDARY_DROPTARGET_WIDTH;
+		break;
+	default:
+		break;
+	}
+	float left = (CANVAS_WIDTH - GetCurrentWidth()) / 2.0f;
+	float top = 10.0f;
+	float bottom = top + GetCurrentHeight();
+	float secLeft = (CANVAS_WIDTH - secWidth) / 2.0f;
+	float secTop = bottom + 12.0f;
+	return D2D1::RectF(secLeft, secTop, secLeft + secWidth, secTop + secHeight);
+}
+
+void DynamicIsland::ResetFileSecondaryInteraction() {
+	m_fileHoveredIndex = -1;
+	m_filePressedIndex = -1;
+	m_fileLastClickIndex = -1;
+	m_fileLastClickTime = 0;
+	m_fileDragStarted = false;
+	m_filePressPoint = {};
+}
+
+void DynamicIsland::ShowFileStashLimitAlert() {
+	AlertInfo info{};
+	info.type = Constants::Alert::TYPE_FILE;
+	info.name = L"文件暂存已满";
+	info.deviceType = L"最多暂存 5 个文件";
+	info.priority = PRIORITY_P3_BACKGROUND;
+	m_alertQueue.push(info);
+	ProcessNextAlert();
+}
+
+void DynamicIsland::RemoveFileStashIndex(int index) {
+	if (index < 0 || index >= (int)m_fileStash.Count()) return;
+	m_fileStash.RemoveIndex((size_t)index);
+	if (!m_fileStash.HasItems()) {
+		m_fileSecondaryExpanded = false;
+		m_fileSelectedIndex = -1;
+		m_fileHoveredIndex = -1;
+	} else if (m_fileSelectedIndex >= (int)m_fileStash.Count()) {
+		m_fileSelectedIndex = (int)m_fileStash.Count() - 1;
+	}
+}
+
+bool DynamicIsland::HandleFileSecondaryMouseDown(HWND hwnd, POINT pt) {
+	SecondaryContentKind secondary = DetermineSecondaryContent();
+	D2D1_RECT_F secondaryRect = GetSecondaryRectLogical();
+	{
+		std::wostringstream oss;
+		oss << L"MouseDown secondary=" << SecondaryKindToString(secondary)
+			<< L" pt=(" << pt.x << L"," << pt.y << L")"
+			<< L" rect=(" << secondaryRect.left << L"," << secondaryRect.top << L"," << secondaryRect.right << L"," << secondaryRect.bottom << L")"
+			<< L" count=" << m_fileStash.Count()
+			<< L" expanded=" << (m_fileSecondaryExpanded ? 1 : 0);
+		AppendInputDebugLog(oss.str());
+	}
+	if (secondary != SecondaryContentKind::FileMini &&
+		secondary != SecondaryContentKind::FileExpanded &&
+		secondary != SecondaryContentKind::FileDropTarget) {
+		AppendInputDebugLog(L"MouseDown ignored: secondary content not file-related");
+		return false;
+	}
+
+	if ((float)pt.x < secondaryRect.left || (float)pt.x > secondaryRect.right ||
+		(float)pt.y < secondaryRect.top || (float)pt.y > secondaryRect.bottom) {
+		AppendInputDebugLog(L"MouseDown ignored: point outside secondary rect");
+		return false;
+	}
+
+	auto hit = m_renderer.HitTestFileSecondary((float)pt.x, (float)pt.y);
+	{
+		std::wostringstream oss;
+		oss << L"MouseDown hit=" << FileHitKindToString(hit.kind) << L" index=" << hit.index;
+		AppendInputDebugLog(oss.str());
+	}
+	if (secondary == SecondaryContentKind::FileMini || secondary == SecondaryContentKind::FileDropTarget) {
+		m_fileSecondaryExpanded = m_fileStash.HasItems();
+		StartAnimation();
+		AppendInputDebugLog(m_fileSecondaryExpanded ? L"MouseDown action: expand file secondary" : L"MouseDown action: cannot expand because stash empty");
+		Invalidate(Dirty_FileDrop | Dirty_Region);
+		return true;
+	}
+
+	if (hit.kind == FilePanelComponent::HitResult::Kind::ExpandedBackground) {
+		m_fileSecondaryExpanded = false;
+		m_fileHoveredIndex = -1;
+		StartAnimation();
+		AppendInputDebugLog(L"MouseDown action: collapse file secondary");
+		Invalidate(Dirty_FileDrop | Dirty_Region);
+		return true;
+	}
+
+	if (hit.kind == FilePanelComponent::HitResult::Kind::FileItem) {
+		m_filePressedIndex = hit.index;
+		m_filePressPoint = pt;
+		m_fileDragStarted = false;
+		AppendInputDebugLog(L"MouseDown action: press file item");
+		return true;
+	}
+
+	AppendInputDebugLog(L"MouseDown action: consumed with no state change");
+	return true;
+}
+
+bool DynamicIsland::HandleFileSecondaryMouseMove(HWND hwnd, POINT pt, WPARAM keyState) {
+	SecondaryContentKind secondary = DetermineSecondaryContent();
+	bool secondaryVisible = (secondary == SecondaryContentKind::FileMini ||
+		secondary == SecondaryContentKind::FileExpanded ||
+		secondary == SecondaryContentKind::FileDropTarget);
+	D2D1_RECT_F secondaryRect = GetSecondaryRectLogical();
+	bool insideSecondary = secondaryVisible &&
+		(float)pt.x >= secondaryRect.left && (float)pt.x <= secondaryRect.right &&
+		(float)pt.y >= secondaryRect.top && (float)pt.y <= secondaryRect.bottom;
+
+	if (insideSecondary) {
+		auto hit = m_renderer.HitTestFileSecondary((float)pt.x, (float)pt.y);
+		int newHovered = (hit.kind == FilePanelComponent::HitResult::Kind::FileItem) ? hit.index : -1;
+		if (newHovered != m_fileHoveredIndex) {
+			std::wostringstream oss;
+			oss << L"MouseMove hover change: secondary=" << SecondaryKindToString(secondary)
+				<< L" hit=" << FileHitKindToString(hit.kind) << L" index=" << hit.index;
+			AppendInputDebugLog(oss.str());
+			m_fileHoveredIndex = newHovered;
+			Invalidate(Dirty_Hover | Dirty_FileDrop);
+		}
+	}
+	else if (m_fileHoveredIndex != -1) {
+		m_fileHoveredIndex = -1;
+		Invalidate(Dirty_Hover | Dirty_FileDrop);
+	}
+
+	if (m_filePressedIndex != -1 && (keyState & MK_LBUTTON)) {
+		int dx = pt.x - m_filePressPoint.x;
+		int dy = pt.y - m_filePressPoint.y;
+		if (std::abs(dx) >= GetSystemMetrics(SM_CXDRAG) || std::abs(dy) >= GetSystemMetrics(SM_CYDRAG)) {
+			bool moved = false;
+			m_fileDragStarted = true;
+			AppendInputDebugLog(L"MouseMove action: begin file drag");
+			m_fileStash.BeginMoveDrag(hwnd, (size_t)m_filePressedIndex, moved);
+			if (moved) {
+				AppendInputDebugLog(L"MouseMove action: drag completed with move effect");
+				RemoveFileStashIndex(m_filePressedIndex);
+			}
+			m_filePressedIndex = -1;
+			Invalidate(Dirty_FileDrop | Dirty_Region);
+			return true;
+		}
+	}
+
+	return insideSecondary;
+}
+
+bool DynamicIsland::HandleFileSecondaryMouseUp(POINT pt) {
+	SecondaryContentKind secondary = DetermineSecondaryContent();
+	bool secondaryVisible = (secondary == SecondaryContentKind::FileMini ||
+		secondary == SecondaryContentKind::FileExpanded ||
+		secondary == SecondaryContentKind::FileDropTarget);
+	D2D1_RECT_F secondaryRect = GetSecondaryRectLogical();
+	bool isOverSecondary = secondaryVisible &&
+		(float)pt.x >= secondaryRect.left && (float)pt.x <= secondaryRect.right &&
+		(float)pt.y >= secondaryRect.top && (float)pt.y <= secondaryRect.bottom;
+	auto hit = isOverSecondary ? m_renderer.HitTestFileSecondary((float)pt.x, (float)pt.y) : FilePanelComponent::HitResult{};
+	{
+		std::wostringstream oss;
+		oss << L"MouseUp secondary=" << SecondaryKindToString(secondary)
+			<< L" pt=(" << pt.x << L"," << pt.y << L")"
+			<< L" inside=" << (isOverSecondary ? 1 : 0)
+			<< L" hit=" << FileHitKindToString(hit.kind) << L" index=" << hit.index
+			<< L" pressedIndex=" << m_filePressedIndex
+			<< L" dragStarted=" << (m_fileDragStarted ? 1 : 0);
+		AppendInputDebugLog(oss.str());
+	}
+
+	if (m_filePressedIndex != -1 && !m_fileDragStarted &&
+		hit.kind == FilePanelComponent::HitResult::Kind::FileItem &&
+		hit.index == m_filePressedIndex) {
+		m_fileSelectedIndex = hit.index;
+		ULONGLONG now = GetTickCount64();
+		bool isDoubleClick = (m_fileLastClickIndex == hit.index) &&
+			(now - m_fileLastClickTime <= (ULONGLONG)GetDoubleClickTime());
+		if (isDoubleClick) {
+			m_fileStash.OpenIndex((size_t)hit.index);
+			m_fileLastClickIndex = -1;
+			m_fileLastClickTime = 0;
+			AppendInputDebugLog(L"MouseUp action: open file item");
+		}
+		else {
+			m_fileStash.PreviewIndex((size_t)hit.index);
+			m_fileLastClickIndex = hit.index;
+			m_fileLastClickTime = now;
+			AppendInputDebugLog(L"MouseUp action: preview file item");
+		}
+		Invalidate(Dirty_FileDrop);
+		m_filePressedIndex = -1;
+		return true;
+	}
+
+	m_filePressedIndex = -1;
+	m_fileDragStarted = false;
+	AppendInputDebugLog(isOverSecondary ? L"MouseUp action: consume secondary click" : L"MouseUp ignored outside secondary");
+	return isOverSecondary;
+}
+
 
 
 
@@ -277,6 +549,9 @@ void DynamicIsland::LoadConfig() {
 
 
 	CANVAS_HEIGHT = (float)GetPrivateProfileIntW(L"Settings", L"CanvasHeight", (int)Constants::Size::CANVAS_HEIGHT, configPath.c_str());
+	if (CANVAS_HEIGHT < Constants::Size::CANVAS_HEIGHT) {
+		CANVAS_HEIGHT = Constants::Size::CANVAS_HEIGHT;
+	}
 
 
 
@@ -392,7 +667,6 @@ bool DynamicIsland::Initialize(HINSTANCE hInstance) {
 	m_priorityTable = {
 		{ IslandDisplayMode::Alert,          100, [this]() { return m_isAlertActive; } },
 		{ IslandDisplayMode::WeatherExpanded,  90, [this]() { return m_isWeatherExpanded; } },
-		{ IslandDisplayMode::FileDrop,         80, [this]() { return m_isDragHovering || !m_storedFiles.empty(); } },
 		{ IslandDisplayMode::MusicExpanded,    70, [this]() { return m_state == IslandState::Expanded && m_mediaMonitor.HasSession(); } },
 		{ IslandDisplayMode::Volume,           60, [this]() { return m_isVolumeControlActive; } },
 		{ IslandDisplayMode::MusicCompact,     50, [this]() { return m_state == IslandState::Collapsed && m_mediaMonitor.IsPlaying(); } },
@@ -487,19 +761,7 @@ bool DynamicIsland::Initialize(HINSTANCE hInstance) {
 
 
 
-	// 初始化文件面板窗口
-
-
-
-
-
-	m_filePanel.Create(hInstance, m_window.GetHWND());
-
-
-
-
-
-	m_mediaMonitor.SetTargetWindow(m_window.GetHWND());
+	// 初始化文件面板窗口`r`nm_mediaMonitor.SetTargetWindow(m_window.GetHWND());
 
 
 
@@ -592,7 +854,7 @@ RegisterHotKey(m_window.GetHWND(), HOTKEY_ID, MOD_CONTROL | MOD_ALT, 'I');
 	m_renderer.SetWaveformState(m_mediaMonitor.GetAudioLevel(), GetCurrentHeight());
 	m_renderer.SetTimeData(false, L"");
 	m_renderer.SetVolumeState(false, 0.0f);
-	m_renderer.SetFileState(false, m_storedFiles);
+	m_renderer.SetFileState(SecondaryContentKind::None, m_fileStash.Items(), -1, -1);
 	m_renderer.SetWeatherState(m_weatherDesc, m_weatherTemp, L"", {}, {}, false, m_weatherViewMode);
 	m_renderer.SetAlertState(false, AlertInfo{});
 
@@ -869,65 +1131,25 @@ void DynamicIsland::UpdatePhysics() {
 
 
 	// 正常物理更新 - 使用弹簧动画系统
-
-	// --- [新增] 更新副岛动画目标 ---
-	const float COMPACT_THRESHOLD = 55.0f;
-	bool isExpanded = (GetCurrentHeight() >= COMPACT_THRESHOLD);
-	if (m_isVolumeControlActive && isExpanded && !m_isAlertActive) {
+	SecondaryContentKind secondaryContent = DetermineSecondaryContent();
+	switch (secondaryContent) {
+	case SecondaryContentKind::Volume:
+	case SecondaryContentKind::FileMini:
 		m_layoutController.SetSecondaryTarget(Constants::Size::SECONDARY_HEIGHT, 1.0f);
-	} else {
+		break;
+	case SecondaryContentKind::FileExpanded:
+		m_layoutController.SetSecondaryTarget(Constants::Size::FILE_SECONDARY_EXPANDED_HEIGHT, 1.0f);
+		break;
+	case SecondaryContentKind::FileDropTarget:
+		m_layoutController.SetSecondaryTarget(Constants::Size::FILE_SECONDARY_DROPTARGET_HEIGHT, 1.0f);
+		break;
+	case SecondaryContentKind::None:
+	default:
 		m_layoutController.SetSecondaryTarget(0.0f, 0.0f);
+		break;
 	}
 
 	m_layoutController.UpdatePhysics();
-
-
-
-
-
-	// 更新文件面板位置 - 与胶囊顶部对齐
-
-
-
-
-
-	if (m_filePanel.IsVisible()) {
-
-
-
-
-
-		RECT islandRect;
-
-
-
-
-
-		GetWindowRect(m_window.GetHWND(), &islandRect);
-
-
-
-
-
-		int panelX = islandRect.right + 5;
-
-
-
-
-
-		int panelY = islandRect.top;  // Top aligned with island
-
-
-
-
-
-		m_filePanel.UpdatePosition(panelX, panelY, GetCurrentHeight());
-
-
-
-
-
-	}
 
 
 
@@ -951,7 +1173,7 @@ void DynamicIsland::UpdatePhysics() {
 
 
 
-		if (m_mediaMonitor.IsPlaying() && GetTargetHeight() < Constants::Size::COMPACT_MIN_HEIGHT && m_storedFiles.empty()) {
+		if (m_mediaMonitor.IsPlaying() && GetTargetHeight() < Constants::Size::COMPACT_MIN_HEIGHT && !m_fileStash.HasItems()) {
 
 
 
@@ -1241,7 +1463,7 @@ void DynamicIsland::UpdatePhysics() {
 	m_renderer.SetWaveformState(realAudioLevel, GetCurrentHeight());
 	m_renderer.SetTimeData(showTime, timeStr);
 	m_renderer.SetVolumeState(m_isVolumeControlActive, m_currentVolume);
-	m_renderer.SetFileState(m_isDragHovering, m_storedFiles);
+	m_renderer.SetFileState(secondaryContent, m_fileStash.Items(), m_fileSelectedIndex, m_fileHoveredIndex);
 	m_renderer.SetAlertState(m_isAlertActive, m_currentAlert);
 
 	std::vector<HourlyForecast> hourlyForecasts;
@@ -1265,6 +1487,7 @@ void DynamicIsland::UpdatePhysics() {
 	ctx.contentAlpha = GetCurrentAlpha();
 	ctx.secondaryHeight = m_layoutController.GetSecondaryHeight();
 	ctx.secondaryAlpha = m_layoutController.GetSecondaryAlpha();
+	ctx.secondaryContent = secondaryContent;
 	ctx.mode = mode;
 	ctx.currentTimeMs = now;
 
@@ -1315,108 +1538,34 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 	case WM_NCHITTEST: {
-
-
-
-
-
 		POINT physicalPt;
-
-
-
-
-
 		physicalPt.x = GET_X_LPARAM(lParam);
-
-
-
-
-
 		physicalPt.y = GET_Y_LPARAM(lParam);
-
-
-
-
-
 		ScreenToClient(hwnd, &physicalPt);
 
-
-
-
-
-		POINT pt; // 转成逻辑坐标，供后续的 HitTest 使用
-
-
-
-
-
-		// 【修改】加入 std::round，解决边缘像素计算错位的问题
-
-
-
-
-
+		POINT pt;
 		pt.x = (LONG)std::round(physicalPt.x / m_dpiScale);
-
-
-
-
-
 		pt.y = (LONG)std::round(physicalPt.y / m_dpiScale);
 
-
-
-
-
 		float left = (CANVAS_WIDTH - GetCurrentWidth()) / 2.0f;
-
-
-
-
-
 		float right = left + GetCurrentWidth();
-
-
-
-
-
 		float top = 10.0f;
-
-
-
-
-
 		float bottom = top + GetCurrentHeight();
-
-
-
-
-
 		if (pt.x >= left && pt.x <= right && pt.y >= top && pt.y <= bottom) {
-
-
-
-
-
 			return HTCLIENT;
-
-
-
-
-
 		}
 
-
-
-
+		SecondaryContentKind secondary = DetermineSecondaryContent();
+		if (secondary != SecondaryContentKind::None) {
+			D2D1_RECT_F secondaryRect = GetSecondaryRectLogical();
+			if ((float)pt.x >= secondaryRect.left && (float)pt.x <= secondaryRect.right &&
+				(float)pt.y >= secondaryRect.top && (float)pt.y <= secondaryRect.bottom) {
+				return HTCLIENT;
+			}
+		}
 
 		Invalidate(Dirty_Hover);
 		return HTTRANSPARENT;
-
-
-
-
-
 	}
 
 
@@ -1545,13 +1694,15 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-			// 悬停时：无论是否播放，都展开到Compact态
+			bool suppressHoverResize = m_fileStash.HasItems();
+
+			
 
 
 
 
 
-			if (m_isHovering && m_state == IslandState::Collapsed) {
+			if (!suppressHoverResize && m_isHovering && m_state == IslandState::Collapsed) {
 
 
 
@@ -1581,7 +1732,7 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-			} else if (!m_isHovering && m_state == IslandState::Collapsed) {
+			} else if (!suppressHoverResize && !m_isHovering && m_state == IslandState::Collapsed) {
 
 
 
@@ -2096,7 +2247,10 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 			    SetTimer(hwnd, m_displayTimerId, 5000, nullptr);
 			}}
 
-		Invalidate(Dirty_Hover);
+		if (m_fileHoveredIndex != -1) {
+			m_fileHoveredIndex = -1;
+		}
+		Invalidate(Dirty_Hover | Dirty_FileDrop);
 		return 0;
 
 
@@ -2159,9 +2313,24 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 		pt.y = (LONG)std::round(physicalPt.y / m_dpiScale);
 
+		if (HandleFileSecondaryMouseDown(hwnd, pt)) {
+			return 0;
+		}
 
-
-
+		SecondaryContentKind secondary = DetermineSecondaryContent();
+		IslandDisplayMode primaryMode = DetermineDisplayMode();
+		float islandLeft = (CANVAS_WIDTH - GetCurrentWidth()) / 2.0f;
+		float islandRight = islandLeft + GetCurrentWidth();
+		float islandTop = 10.0f;
+		float islandBottom = islandTop + GetCurrentHeight();
+		bool isOverPrimaryIsland = pt.x >= islandLeft && pt.x <= islandRight && pt.y >= islandTop && pt.y <= islandBottom;
+		if (secondary == SecondaryContentKind::FileMini && primaryMode == IslandDisplayMode::Idle && isOverPrimaryIsland) {
+			m_fileSecondaryExpanded = true;
+			StartAnimation();
+			Invalidate(Dirty_FileDrop | Dirty_Region);
+			AppendInputDebugLog(L"MouseDown fallback: expand file secondary from primary island click");
+			return 0;
+		}
 
 		// --- 检查是否点中了按钮 ---
 
@@ -2513,9 +2682,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 		pt.y = (LONG)std::round(physicalPt.y / m_dpiScale);
 
-
-
-
+		if (HandleFileSecondaryMouseUp(pt)) {
+			return 0;
+		}
 
 		// 释放进度条拖动
 
@@ -2698,119 +2867,44 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 	case WM_DRAG_ENTER: {
-
-
-
-
-
 		m_isDragHovering = true;
-
-
-
-
-
-		// 文件拖来时，强制展开成大面板迎接它
-		TransitionTo(IslandDisplayMode::FileDrop);
-
 		Invalidate(Dirty_FileDrop);
 		return 0;
-
 	}
 
 	case WM_DRAG_LEAVE: {
-
 		m_isDragHovering = false;
-
-		// 文件移走时，如果没有其他任务，恢复折叠
-
-		if (m_state == IslandState::Collapsed && !m_isAlertActive && !m_mediaMonitor.HasSession()) {
-
-			TransitionTo(IslandDisplayMode::Idle);
-
-		} else {
-
-			// 否则根据当前状态重新确定显示模式
-
-			TransitionTo(DetermineDisplayMode());
-
-		}
-
+		m_fileHoveredIndex = -1;
 		Invalidate(Dirty_FileDrop);
 		return 0;
-
 	}
 
 	case WM_DROP_FILE: {
-
 		HDROP hDrop = (HDROP)wParam;
-
+		std::vector<std::wstring> droppedPaths;
 		UINT fileCount = DragQueryFileW(hDrop, 0xFFFFFFFF, nullptr, 0);
-
 		for (UINT i = 0; i < fileCount; ++i) {
-
 			wchar_t path[MAX_PATH];
-
 			DragQueryFileW(hDrop, i, path, MAX_PATH);
-
-			std::wstring newPath(path);
-
-			if (std::find(m_storedFiles.begin(), m_storedFiles.end(), newPath) == m_storedFiles.end()) {
-
-				m_storedFiles.push_back(newPath);
-
-			}
-
+			droppedPaths.emplace_back(path);
 		}
-
 		DragFinish(hDrop);
 
 		m_isDragHovering = false;
-
-		// 显示文件面板（独立于胶囊展开状态）
-
-		m_filePanel.UpdateFiles(m_storedFiles);
-
-		m_filePanel.Show();
-
-		// 不再展开胶囊 - 文件面板独立显示
-
-		if (m_storedFiles.empty()) {
-
-			SetTimer(hwnd, m_displayTimerId, 3000, nullptr);
-
+		std::wstring errorMessage;
+		if (!m_fileStash.AddPaths(droppedPaths, &errorMessage) && !errorMessage.empty()) {
+			ShowFileStashLimitAlert();
 		}
-
+		if (m_fileStash.HasItems() && m_fileSelectedIndex < 0) {
+			m_fileSelectedIndex = 0;
+		}
 		Invalidate(Dirty_FileDrop);
 		return 0;
-
 	}
 
 	case WM_FILE_REMOVED: {
-
-		int index = (int)wParam;
-
-		if (index >= 0 && index < (int)m_storedFiles.size()) {
-
-			m_storedFiles.erase(m_storedFiles.begin() + index);
-
-			m_filePanel.UpdateFiles(m_storedFiles);
-
-			if (m_storedFiles.empty()) {
-
-				m_filePanel.Hide();
-
-				// Collapse to Compact state (not Mini)
-
-				m_state = IslandState::Collapsed;
-
-				TransitionTo(IslandDisplayMode::MusicCompact);
-
-			}
-
-		}
-
+		RemoveFileStashIndex((int)wParam);
 		return 0;
-
 	}
 
 	case WM_HOTKEY: {
@@ -3093,7 +3187,7 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
-			if (!m_storedFiles.empty()) {
+			if (!!m_fileStash.HasItems()) {
 
 
 
@@ -3158,22 +3252,6 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 				KillTimer(hwnd, m_displayTimerId);
 
 			}
-
-
-
-
-
-			// 隐藏文件面板
-
-
-
-
-
-			m_filePanel.Hide();
-
-
-
-
 
 			KillTimer(hwnd, m_displayTimerId);
 
@@ -3934,11 +4012,21 @@ void DynamicIsland::UpdateWindowRegion() {
 	float secHeight = m_layoutController.GetSecondaryHeight();
 	if (secHeight > 1.0f) {
 		float secWidth = Constants::Size::SECONDARY_WIDTH;
+		switch (DetermineSecondaryContent()) {
+		case SecondaryContentKind::FileExpanded:
+			secWidth = Constants::Size::FILE_SECONDARY_EXPANDED_WIDTH;
+			break;
+		case SecondaryContentKind::FileDropTarget:
+			secWidth = Constants::Size::FILE_SECONDARY_DROPTARGET_WIDTH;
+			break;
+		default:
+			break;
+		}
 		float secLeft = (CANVAS_WIDTH - secWidth) / 2.0f;
 		float secTop = bottom + 12.0f;
 		float secRight = secLeft + secWidth;
 		float secBottom = secTop + secHeight;
-		float secRadius = secHeight / 2.0f;
+		float secRadius = (secHeight < 60.0f) ? (secHeight / 2.0f) : 20.0f;
 
 		int sileft = (int)(secLeft * m_dpiScale + 0.5f);
 		int sitop = (int)(secTop * m_dpiScale + 0.5f);

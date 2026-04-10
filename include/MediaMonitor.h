@@ -58,6 +58,10 @@ public:
     void SetExpandedState(bool expanded); // 【OPT-02】设置岛屿展开状态，动态调整轮询频率
     void RequestAlbumArtRefresh();
 private:
+    void RequestImmediateRefresh(bool refreshAlbumArt);
+    void SyncCurrentSession();
+    void AttachSessionHandlers(const GlobalSystemMediaTransportControlsSession& session);
+    void DetachSessionHandlers();
     void BackgroundMediaWorker(); // 后台拉取媒体信息的线程
     std::vector<uint8_t>* ReadThumbnailToMemory(const IRandomAccessStreamReference& thumbnail);
     void ClearAlbumArt();
@@ -94,7 +98,15 @@ private:
     std::atomic<std::chrono::seconds::rep> m_duration{ 0 };  // 总时长（秒）
     std::mutex m_controlMutex; // 控制操作的互斥锁，防止同时调用多个控制函数导致状态混乱
     event_token m_sessionChangedToken; // 【OPT-02】会话变更事件订阅
+    event_token m_playbackInfoChangedToken{};
+    event_token m_mediaPropertiesChangedToken{};
+    event_token m_timelinePropertiesChangedToken{};
+    GlobalSystemMediaTransportControlsSessionManager m_manager{ nullptr };
+    GlobalSystemMediaTransportControlsSession m_currentSession{ nullptr };
     int m_pollIntervalMs = 1000; // 【OPT-02】当前轮询间隔（毫秒）
+    std::atomic<bool> m_eventWakeRequested{ false };
+    std::mutex m_waitMutex;
+    std::condition_variable m_waitCv;
    
 
     

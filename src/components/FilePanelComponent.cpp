@@ -20,36 +20,74 @@ void FilePanelComponent::OnAttach(SharedResources* res) {
     m_res = res;
 }
 
-void FilePanelComponent::SetDragHovering(bool hovering) {
-    m_isDragHovering = hovering;
-}
-
-void FilePanelComponent::SetStoredFiles(size_t count, const std::vector<std::wstring>& files) {
-    m_storedFileCount = count;
+void FilePanelComponent::SetStoredFiles(const std::vector<FileStashItem>& files) {
     m_storedFiles = files;
+    if (m_selectedFileIndex >= (int)m_storedFiles.size()) {
+        m_selectedFileIndex = m_storedFiles.empty() ? -1 : 0;
+    }
 }
 
-void FilePanelComponent::SetHoverState(int hoveredIndex, bool isDeleteHovered) {
+void FilePanelComponent::SetInteractionState(int selectedIndex, int hoveredIndex) {
+    m_selectedFileIndex = selectedIndex;
     m_hoveredFileIndex = hoveredIndex;
-    m_isFileDeleteHovered = isDeleteHovered;
+}
+
+bool FilePanelComponent::ContainsPoint(float x, float y) const {
+    return x >= m_lastRect.left && x <= m_lastRect.right && y >= m_lastRect.top && y <= m_lastRect.bottom;
+}
+
+FilePanelComponent::HitResult FilePanelComponent::HitTest(float x, float y) const {
+    HitResult result;
+    if (!ContainsPoint(x, y)) return result;
+
+    if (m_viewMode == ViewMode::Mini || m_viewMode == ViewMode::DropTarget) {
+        result.kind = HitResult::Kind::MiniBody;
+        return result;
+    }
+
+    if (m_viewMode != ViewMode::Expanded) {
+        return result;
+    }
+
+    float listTop = m_lastRect.top + PREVIEW_HEIGHT + 8.0f;
+    if (y < listTop) {
+        result.kind = HitResult::Kind::ExpandedBackground;
+        return result;
+    }
+
+    int index = (int)((y - listTop) / ITEM_HEIGHT);
+    if (index >= 0 && index < (int)m_storedFiles.size()) {
+        result.kind = HitResult::Kind::FileItem;
+        result.index = index;
+        return result;
+    }
+
+    result.kind = HitResult::Kind::ExpandedBackground;
+    return result;
 }
 
 void FilePanelComponent::Draw(const D2D1_RECT_F& rect, float contentAlpha, ULONGLONG) {
-    if (!m_res || !m_res->d2dContext) return;
-
+    if (!m_res || !m_res->d2dContext || m_viewMode == ViewMode::Hidden || contentAlpha <= 0.01f) return;
+    m_lastRect = rect;
     float height = rect.bottom - rect.top;
-    float width = rect.right - rect.left;
+    bool treatAsExpanded = (height >= 90.0f);
+    bool treatAsMini = (height <= 64.0f);
 
-    if (contentAlpha <= 0.01f) return;
-
-    if (m_isDragHovering) {
+    switch (m_viewMode) {
+    case ViewMode::DropTarget:
         RenderDragHint(rect, contentAlpha);
-    } else if (m_storedFileCount > 0) {
-        if (height < 60.0f) {
-            RenderCompactView(rect, contentAlpha);
-        } else {
-            RenderExpandedView(rect, contentAlpha);
-        }
+        break;
+    case ViewMode::Mini:
+        if (treatAsMini) RenderCompactView(rect, contentAlpha);
+        else RenderExpandedView(rect, contentAlpha);
+        break;
+    case ViewMode::Expanded:
+        if (treatAsExpanded) RenderExpandedView(rect, contentAlpha);
+        else RenderCompactView(rect, contentAlpha);
+        break;
+    case ViewMode::Hidden:
+    default:
+        break;
     }
 }
 
@@ -60,25 +98,24 @@ void FilePanelComponent::RenderDragHint(const D2D1_RECT_F& rect, float contentAl
     float width = rect.right - rect.left;
     float height = rect.bottom - rect.top;
 
-    float iconSize = 28.0f;
-    float startX = left + (width - iconSize) / 2.0f;
-    float startY = top + (height - iconSize) / 2.0f - 12.0f;
+    m_res->whiteBrush->SetOpacity(0.08f * contentAlpha);
+    D2D1_ROUNDED_RECT bgRect = D2D1::RoundedRect(rect, height / 2.0f, height / 2.0f);
+    ctx->DrawRoundedRectangle(&bgRect, m_res->whiteBrush, 1.2f);
 
-    // Draw down arrow icon
+    float iconSize = 22.0f;
+    float iconY = top + (height - iconSize) / 2.0f;
+    float iconX = left + 18.0f;
     m_res->themeBrush->SetOpacity(contentAlpha);
     ctx->DrawTextW(L"\uE8E5", 1, m_res->iconFormat,
-        D2D1::RectF(startX, startY, startX + iconSize, startY + iconSize), m_res->themeBrush);
+        D2D1::RectF(iconX, iconY, iconX + iconSize, iconY + iconSize), m_res->themeBrush);
 
-    // Draw hint text
-    std::wstring text = L"松开以暂存文件";
-    auto textLayout = CreateTextLayout(text, m_res->subFormat, 200.0f);
-    if (!textLayout) return;
-
+    std::wstring text = L"拖入以剪切暂存";
+    auto layout = CreateTextLayout(text, m_res->titleFormat, width - 60.0f);
+    if (!layout) return;
     DWRITE_TEXT_METRICS metrics;
-    textLayout->GetMetrics(&metrics);
-
+    layout->GetMetrics(&metrics);
     m_res->whiteBrush->SetOpacity(contentAlpha);
-    ctx->DrawTextLayout(D2D1::Point2F(left + (width - metrics.width) / 2.0f, startY + 35.0f), textLayout.Get(), m_res->whiteBrush);
+    ctx->DrawTextLayout(D2D1::Point2F(iconX + iconSize + 12.0f, top + (height - metrics.height) / 2.0f), layout.Get(), m_res->whiteBrush);
 }
 
 void FilePanelComponent::RenderCompactView(const D2D1_RECT_F& rect, float contentAlpha) {
@@ -87,65 +124,108 @@ void FilePanelComponent::RenderCompactView(const D2D1_RECT_F& rect, float conten
     float top = rect.top;
     float width = rect.right - rect.left;
     float height = rect.bottom - rect.top;
+    D2D1_ROUNDED_RECT capsuleRect = D2D1::RoundedRect(rect, height / 2.0f, height / 2.0f);
+    m_res->whiteBrush->SetOpacity(0.10f * contentAlpha);
+    ctx->DrawRoundedRectangle(&capsuleRect, m_res->whiteBrush, 1.0f);
 
-    float iconSize = 18.0f;
-    std::wstring text = L"已暂存 " + std::to_wstring(m_storedFileCount) + L" 个文件";
+    int iconCount = (int)(std::min)(m_storedFiles.size(), (size_t)3);
+    float stackX = left + 18.0f;
+    float stackY = top + 8.0f;
+    for (int i = 0; i < iconCount; ++i) {
+        float offset = (float)i * 8.0f;
+        D2D1_RECT_F iconRect = D2D1::RectF(stackX + offset, stackY - offset * 0.2f, stackX + offset + 20.0f, stackY + 20.0f - offset * 0.2f);
+        m_res->fileBrush->SetOpacity((0.85f - i * 0.15f) * contentAlpha);
+        ctx->FillRoundedRectangle(D2D1::RoundedRect(iconRect, 4.0f, 4.0f), m_res->fileBrush);
+    }
 
-    auto textLayout = CreateTextLayout(text, m_res->titleFormat, 100.0f);
-    if (!textLayout) return;
+    std::wstring countText = std::to_wstring(m_storedFiles.size()) + L" 个文件";
+    auto countLayout = CreateTextLayout(countText, m_res->titleFormat, width - 86.0f);
+    if (countLayout) {
+        DWRITE_TEXT_METRICS metrics;
+        countLayout->GetMetrics(&metrics);
+        m_res->whiteBrush->SetOpacity(contentAlpha);
+        ctx->DrawTextLayout(D2D1::Point2F(left + 58.0f, top + (height - metrics.height) / 2.0f), countLayout.Get(), m_res->whiteBrush);
+    }
+}
 
-    DWRITE_TEXT_METRICS metrics;
-    textLayout->GetMetrics(&metrics);
+void FilePanelComponent::RenderPreviewPane(const D2D1_RECT_F& rect, float contentAlpha) {
+    if (m_storedFiles.empty() || m_selectedFileIndex < 0 || m_selectedFileIndex >= (int)m_storedFiles.size()) return;
 
-    float totalWidth = iconSize + 8.0f + metrics.width;
-    float startX = left + (width - totalWidth) / 2.0f;
-    float textY = top + (height - metrics.height) / 2.0f;
+    auto* ctx = m_res->d2dContext;
+    const auto& item = m_storedFiles[m_selectedFileIndex];
+    D2D1_RECT_F previewRect = D2D1::RectF(rect.left + 8.0f, rect.top + 8.0f, rect.right - 8.0f, rect.top + PREVIEW_HEIGHT);
+    m_res->blackBrush->SetOpacity(0.18f * contentAlpha);
+    D2D1_ROUNDED_RECT previewRoundedRect = D2D1::RoundedRect(previewRect, 12.0f, 12.0f);
+    ctx->FillRoundedRectangle(&previewRoundedRect, m_res->blackBrush);
 
-    // Draw folder icon
-    m_res->themeBrush->SetOpacity(contentAlpha);
-    ctx->DrawTextW(L"\uE8B7", 1, m_res->iconFormat,
-        D2D1::RectF(startX, top + (height - iconSize) / 2.0f, startX + iconSize, top + (height - iconSize) / 2.0f + iconSize), m_res->themeBrush);
+    float iconLeft = previewRect.left + 12.0f;
+    float iconTop = previewRect.top + 12.0f;
+    float iconSize = 38.0f;
+    auto icon = GetFileIcon(item.stagedPath);
+    if (icon) {
+        ctx->DrawBitmap(icon.Get(), D2D1::RectF(iconLeft, iconTop, iconLeft + iconSize, iconTop + iconSize), contentAlpha, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+    } else {
+        m_res->fileBrush->SetOpacity(contentAlpha);
+        D2D1_ROUNDED_RECT iconRect = D2D1::RoundedRect(D2D1::RectF(iconLeft, iconTop, iconLeft + iconSize, iconTop + iconSize), 8.0f, 8.0f);
+        ctx->FillRoundedRectangle(&iconRect, m_res->fileBrush);
+    }
 
-    m_res->whiteBrush->SetOpacity(contentAlpha);
-    ctx->DrawTextLayout(D2D1::Point2F(startX + iconSize + 8.0f, textY), textLayout.Get(), m_res->whiteBrush);
+    float textLeft = iconLeft + iconSize + 12.0f;
+    auto nameLayout = CreateTextLayout(item.displayName, m_res->titleFormat, previewRect.right - textLeft - 8.0f);
+    if (nameLayout) {
+        nameLayout->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+        m_res->whiteBrush->SetOpacity(contentAlpha);
+        ctx->DrawTextLayout(D2D1::Point2F(textLeft, previewRect.top + 10.0f), nameLayout.Get(), m_res->whiteBrush);
+    }
+
+    std::wstring meta = item.extension.empty() ? L"系统文件" : item.extension + L" · " + std::to_wstring((item.sizeBytes + 1023) / 1024) + L" KB";
+    auto metaLayout = CreateTextLayout(meta, m_res->subFormat, previewRect.right - textLeft - 8.0f);
+    if (metaLayout) {
+        m_res->grayBrush->SetOpacity(0.80f * contentAlpha);
+        ctx->DrawTextLayout(D2D1::Point2F(textLeft, previewRect.top + 34.0f), metaLayout.Get(), m_res->grayBrush);
+    }
 }
 
 void FilePanelComponent::RenderExpandedView(const D2D1_RECT_F& rect, float contentAlpha) {
     auto* ctx = m_res->d2dContext;
-    float left = rect.left;
-    float top = rect.top;
-    float width = rect.right - rect.left;
+    D2D1_ROUNDED_RECT panelRect = D2D1::RoundedRect(rect, 18.0f, 18.0f);
+    m_res->whiteBrush->SetOpacity(0.10f * contentAlpha);
+    ctx->DrawRoundedRectangle(&panelRect, m_res->whiteBrush, 1.0f);
 
-    float artSize = 60.0f;
-    float artLeft = left + 20.0f;
-    float artTop = top + 30.0f;
+    RenderPreviewPane(rect, contentAlpha);
 
-    D2D1_ROUNDED_RECT artRect = D2D1::RoundedRect(D2D1::RectF(artLeft, artTop, artLeft + artSize, artTop + artSize), 12.0f, 12.0f);
+    float listTop = rect.top + PREVIEW_HEIGHT + 8.0f;
+    for (size_t i = 0; i < m_storedFiles.size() && i < FileStashStore::kMaxItems; ++i) {
+        float rowTop = listTop + (float)i * ITEM_HEIGHT;
+        D2D1_RECT_F rowRect = D2D1::RectF(rect.left + 8.0f, rowTop, rect.right - 8.0f, rowTop + ITEM_HEIGHT - 2.0f);
 
-    // Dark gray background
-    m_res->darkGrayBrush->SetOpacity(contentAlpha);
-    ctx->FillRoundedRectangle(&artRect, m_res->darkGrayBrush);
+        if ((int)i == m_selectedFileIndex) {
+            m_res->fileBrush->SetOpacity(0.18f * contentAlpha);
+            D2D1_ROUNDED_RECT rowRoundedRect = D2D1::RoundedRect(rowRect, 10.0f, 10.0f);
+            ctx->FillRoundedRectangle(&rowRoundedRect, m_res->fileBrush);
+        } else if ((int)i == m_hoveredFileIndex) {
+            m_res->whiteBrush->SetOpacity(0.08f * contentAlpha);
+            D2D1_ROUNDED_RECT rowRoundedRect = D2D1::RoundedRect(rowRect, 10.0f, 10.0f);
+            ctx->FillRoundedRectangle(&rowRoundedRect, m_res->whiteBrush);
+        }
 
-    // Folder icon
-    m_res->themeBrush->SetOpacity(contentAlpha);
-    ctx->DrawTextW(L"\uE8B7", 1, m_res->iconFormat,
-        D2D1::RectF(artLeft, artTop, artLeft + artSize, artTop + artSize), m_res->themeBrush);
+        auto icon = GetFileIcon(m_storedFiles[i].stagedPath);
+        float iconLeft = rowRect.left + 8.0f;
+        float iconTop = rowRect.top + 4.0f;
+        if (icon) {
+            ctx->DrawBitmap(icon.Get(), D2D1::RectF(iconLeft, iconTop, iconLeft + 18.0f, iconTop + 18.0f), contentAlpha, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+        } else {
+            m_res->fileBrush->SetOpacity(contentAlpha);
+            D2D1_ROUNDED_RECT smallIconRect = D2D1::RoundedRect(D2D1::RectF(iconLeft, iconTop, iconLeft + 18.0f, iconTop + 18.0f), 4.0f, 4.0f);
+            ctx->FillRoundedRectangle(&smallIconRect, m_res->fileBrush);
+        }
 
-    // Text
-    float textLeftFile = artLeft + artSize + 15.0f;
-    std::wstring textTop = L"文件暂存区";
-    std::wstring textBot = std::to_wstring(m_storedFileCount) + L" 个文件 (点击全部打开)";
-
-    auto topLayout = CreateTextLayout(textTop, m_res->subFormat, 200.0f);
-    auto botLayout = CreateTextLayout(textBot, m_res->titleFormat, 200.0f);
-
-    if (topLayout) {
-        m_res->grayBrush->SetOpacity(contentAlpha);
-        ctx->DrawTextLayout(D2D1::Point2F(textLeftFile, artTop + 5.0f), topLayout.Get(), m_res->grayBrush);
-    }
-    if (botLayout) {
-        m_res->whiteBrush->SetOpacity(contentAlpha);
-        ctx->DrawTextLayout(D2D1::Point2F(textLeftFile, artTop + 28.0f), botLayout.Get(), m_res->whiteBrush);
+        auto nameLayout = CreateTextLayout(m_storedFiles[i].displayName, m_res->subFormat, rowRect.right - iconLeft - 28.0f);
+        if (nameLayout) {
+            nameLayout->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+            m_res->whiteBrush->SetOpacity(contentAlpha);
+            ctx->DrawTextLayout(D2D1::Point2F(iconLeft + 26.0f, rowRect.top + 4.0f), nameLayout.Get(), m_res->whiteBrush);
+        }
     }
 }
 
@@ -167,12 +247,11 @@ ComPtr<ID2D1Bitmap> FilePanelComponent::GetFileIcon(const std::wstring& path) {
     }
 
     std::wstring cacheKey = (ext == L".exe" || ext == L".lnk") ? path : ext;
-
     if (m_iconCache.count(cacheKey)) {
         return m_iconCache[cacheKey];
     }
 
-    SHFILEINFOW sfi = {0};
+    SHFILEINFOW sfi = { 0 };
     if (SHGetFileInfoW(path.c_str(), 0, &sfi, sizeof(sfi), SHGFI_ICON | SHGFI_SMALLICON)) {
         if (sfi.hIcon) {
             ComPtr<IWICBitmap> wicBitmap;

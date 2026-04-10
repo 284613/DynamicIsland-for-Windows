@@ -81,127 +81,183 @@ std::wstring MediaMonitor::GetArtist() {
 	return m_artist;
 }
 
-// 运行在独立的后台线程中，每隔1秒抓取一次正在播放的音乐信息
-void MediaMonitor::BackgroundMediaWorker() {
+void MediaMonitor::RequestImmediateRefresh(bool refreshAlbumArt) {
+	if (refreshAlbumArt) {
+		m_needAlbumArtUpdate = true;
+	}
+	m_eventWakeRequested = true;
+	m_waitCv.notify_one();
+}
+
+void MediaMonitor::DetachSessionHandlers() {
+	if (m_currentSession) {
+		if (m_playbackInfoChangedToken.value) {
+			m_currentSession.PlaybackInfoChanged(m_playbackInfoChangedToken);
+			m_playbackInfoChangedToken = {};
+		}
+		if (m_mediaPropertiesChangedToken.value) {
+			m_currentSession.MediaPropertiesChanged(m_mediaPropertiesChangedToken);
+			m_mediaPropertiesChangedToken = {};
+		}
+		if (m_timelinePropertiesChangedToken.value) {
+			m_currentSession.TimelinePropertiesChanged(m_timelinePropertiesChangedToken);
+			m_timelinePropertiesChangedToken = {};
+		}
+	}
+	m_currentSession = nullptr;
+}
+
+void MediaMonitor::AttachSessionHandlers(const GlobalSystemMediaTransportControlsSession& session) {
+	DetachSessionHandlers();
+	m_currentSession = session;
+	if (!m_currentSession) return;
+
+	m_playbackInfoChangedToken = m_currentSession.PlaybackInfoChanged([this](auto const&, auto const&) {
+		RequestImmediateRefresh(false);
+	});
+	m_mediaPropertiesChangedToken = m_currentSession.MediaPropertiesChanged([this](auto const&, auto const&) {
+		RequestImmediateRefresh(true);
+	});
+	m_timelinePropertiesChangedToken = m_currentSession.TimelinePropertiesChanged([this](auto const&, auto const&) {
+		RequestImmediateRefresh(false);
+	});
+}
+
+void MediaMonitor::SyncCurrentSession() {
+	bool wasPlaying = m_isPlaying.load();
+	bool hadSession = m_hasSession.load();
+
 	try {
-		auto manager = GlobalSystemMediaTransportControlsSessionManager::RequestAsync().get();
+		if (!m_manager) {
+			m_manager = GlobalSystemMediaTransportControlsSessionManager::RequestAsync().get();
+			if (m_manager && !m_sessionChangedToken.value) {
+				m_sessionChangedToken = m_manager.CurrentSessionChanged([this](auto const&, auto const&) {
+					RequestImmediateRefresh(false);
+				});
+			}
+		}
 
-		while (m_running) {
-			bool wasPlaying = m_isPlaying.load();
-			bool hadSession = m_hasSession.load();
+		auto session = m_manager ? m_manager.GetCurrentSession() : GlobalSystemMediaTransportControlsSession(nullptr);
+		if ((session && !m_currentSession) || (!session && m_currentSession) || (session && m_currentSession && session.SourceAppUserModelId() != m_currentSession.SourceAppUserModelId())) {
+			AttachSessionHandlers(session);
+		}
 
-			try {
-				if (manager) {
-					auto session = manager.GetCurrentSession();
-					m_hasSession = (session != nullptr);
-					if (session) {
-						auto playbackInfo = session.GetPlaybackInfo();
-						auto status = playbackInfo.PlaybackStatus();
-						m_isPlaying = (status == GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing);
+		m_hasSession = (session != nullptr);
+		if (session) {
+			auto playbackInfo = session.GetPlaybackInfo();
+			auto status = playbackInfo.PlaybackStatus();
+			m_isPlaying = (status == GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing);
 
-						// 获取播放进度
-						auto timelineProperties = session.GetTimelineProperties();
-						if (timelineProperties) {
-							auto position = timelineProperties.Position();
-							auto duration = timelineProperties.EndTime();
-							m_position = std::chrono::duration_cast<std::chrono::seconds>(position).count();
-							m_duration = std::chrono::duration_cast<std::chrono::seconds>(duration).count();
-						}
+			auto timelineProperties = session.GetTimelineProperties();
+			if (timelineProperties) {
+				auto position = timelineProperties.Position();
+				auto duration = timelineProperties.EndTime();
+				m_position = std::chrono::duration_cast<std::chrono::seconds>(position).count();
+				m_duration = std::chrono::duration_cast<std::chrono::seconds>(duration).count();
+			}
 
-						auto props = session.TryGetMediaPropertiesAsync().get();
-						if (props) {
-							std::wstring currentTitle = props.Title().c_str();
-							std::wstring currentArtist = props.Artist().c_str();
+			auto props = session.TryGetMediaPropertiesAsync().get();
+			if (props) {
+				std::wstring currentTitle = props.Title().c_str();
+				std::wstring currentArtist = props.Artist().c_str();
 
-							bool songChanged = (currentTitle != m_lastPolledTitle || currentArtist != m_lastPolledArtist);
-							
-							if (songChanged || m_needAlbumArtUpdate) {
-								if (songChanged) {
-									m_lastPolledTitle = currentTitle;
-									m_lastPolledArtist = currentArtist;
-									m_needAlbumArtUpdate = true;
+				bool songChanged = (currentTitle != m_lastPolledTitle || currentArtist != m_lastPolledArtist);
+				if (songChanged || m_needAlbumArtUpdate) {
+					if (songChanged) {
+						m_lastPolledTitle = currentTitle;
+						m_lastPolledArtist = currentArtist;
+						m_needAlbumArtUpdate = true;
 
-									std::lock_guard<std::mutex> lock(m_mutex);
-									m_title = currentTitle;
-									m_artist = currentArtist;
-								}
-
-								// --- [核心改进] 优先从本地缓存加载 ---
-								std::wstring cachePath = GetAlbumArtCachePath(currentTitle, currentArtist);
-								std::vector<uint8_t>* cachedData = LoadFromCache(cachePath);
-
-								if (cachedData) {
-									{
-										std::lock_guard<std::mutex> lock(m_mutex);
-										if (m_albumArtData) delete m_albumArtData;
-										m_albumArtData = cachedData;
-									}
-									ImageData* imageData = new ImageData{ *cachedData };
-									Event e(EventType::MediaMetadataChanged, 0, 0);
-									e.userData = imageData;
-									EventBus::GetInstance().Publish(e);
-									m_needAlbumArtUpdate = false;
-								} else {
-									// 缓存没有，从系统抓取
-									auto thumbnail = props.Thumbnail();
-									if (thumbnail) {
-										std::vector<uint8_t>* newData = ReadThumbnailToMemory(thumbnail);
-										if (newData) {
-											{
-												std::lock_guard<std::mutex> lock(m_mutex);
-												if (m_albumArtData) delete m_albumArtData;
-												m_albumArtData = newData;
-											}
-											ImageData* imageData = new ImageData{ *newData };
-											Event e(EventType::MediaMetadataChanged, 0, 0);
-											e.userData = imageData;
-											EventBus::GetInstance().Publish(e);
-											
-											// 保存到缓存供下次使用
-											SaveToCache(cachePath, *newData);
-											m_needAlbumArtUpdate = false;
-										}
-									} else {
-										static int retryCount = 0;
-										if (songChanged) retryCount = 0;
-										if (++retryCount > 5) {
-											ClearAlbumArt();
-											m_needAlbumArtUpdate = false;
-											retryCount = 0;
-										}
-									}
-								}
-							}
-						}
+						std::lock_guard<std::mutex> lock(m_mutex);
+						m_title = currentTitle;
+						m_artist = currentArtist;
 					}
-					else {
-						m_isPlaying = false;
-						if (m_lastPolledTitle != L"") {
-							m_lastPolledTitle = L"";
-							m_lastPolledArtist = L"";
+
+					std::wstring cachePath = GetAlbumArtCachePath(currentTitle, currentArtist);
+					std::vector<uint8_t>* cachedData = LoadFromCache(cachePath);
+
+					if (cachedData) {
+						{
 							std::lock_guard<std::mutex> lock(m_mutex);
-							m_title = L"无音乐播放";
-							m_artist = L"";
-							ClearAlbumArt();
+							if (m_albumArtData) delete m_albumArtData;
+							m_albumArtData = cachedData;
+						}
+						ImageData* imageData = new ImageData{ *cachedData };
+						Event e(EventType::MediaMetadataChanged, 0, 0);
+						e.userData = imageData;
+						EventBus::GetInstance().Publish(e);
+						m_needAlbumArtUpdate = false;
+					} else {
+						auto thumbnail = props.Thumbnail();
+						if (thumbnail) {
+							std::vector<uint8_t>* newData = ReadThumbnailToMemory(thumbnail);
+							if (newData) {
+								{
+									std::lock_guard<std::mutex> lock(m_mutex);
+									if (m_albumArtData) delete m_albumArtData;
+									m_albumArtData = newData;
+								}
+								ImageData* imageData = new ImageData{ *newData };
+								Event e(EventType::MediaMetadataChanged, 0, 0);
+								e.userData = imageData;
+								EventBus::GetInstance().Publish(e);
+								SaveToCache(cachePath, *newData);
+								m_needAlbumArtUpdate = false;
+							}
 						}
 					}
 				}
 			}
-			catch (winrt::hresult_error const&) {}
-			catch (...) {}
-
-			if (m_isPlaying.load() != wasPlaying) {
-				EventBus::GetInstance().PublishMediaPlaybackStateChanged(m_isPlaying.load());
+		} else {
+			DetachSessionHandlers();
+			m_isPlaying = false;
+			if (m_lastPolledTitle != L"") {
+				m_lastPolledTitle.clear();
+				m_lastPolledArtist.clear();
+				{
+					std::lock_guard<std::mutex> lock(m_mutex);
+					m_title = L"无音乐播放";
+					m_artist = L"";
+				}
+				ClearAlbumArt();
 			}
-			if (m_hasSession.load() != hadSession) {
-				EventBus::GetInstance().PublishMediaSessionChanged(m_hasSession.load());
-			}
-
-			if (m_isPlaying) m_pollIntervalMs = 1000;
-			else if (m_hasSession) m_pollIntervalMs = 5000;
-			else m_pollIntervalMs = 10000;
-			Sleep(m_pollIntervalMs);
 		}
+	} catch (winrt::hresult_error const&) {
+	} catch (...) {
+	}
+
+	if (m_isPlaying.load() != wasPlaying) {
+		EventBus::GetInstance().PublishMediaPlaybackStateChanged(m_isPlaying.load());
+	}
+	if (m_hasSession.load() != hadSession) {
+		EventBus::GetInstance().PublishMediaSessionChanged(m_hasSession.load());
+	}
+
+	if (m_isPlaying) m_pollIntervalMs = 500;
+	else if (m_hasSession) m_pollIntervalMs = 1500;
+	else m_pollIntervalMs = 4000;
+}
+
+// 运行在独立的后台线程中，使用事件唤醒 + 轮询兜底
+void MediaMonitor::BackgroundMediaWorker() {
+	try {
+		winrt::init_apartment(winrt::apartment_type::multi_threaded);
+		RequestImmediateRefresh(true);
+
+		while (m_running) {
+			SyncCurrentSession();
+			std::unique_lock<std::mutex> lock(m_waitMutex);
+			m_waitCv.wait_for(lock, std::chrono::milliseconds(m_pollIntervalMs), [this]() {
+				return !m_running || m_eventWakeRequested.load();
+			});
+			m_eventWakeRequested = false;
+		}
+
+		if (m_manager && m_sessionChangedToken.value) {
+			m_manager.CurrentSessionChanged(m_sessionChangedToken);
+			m_sessionChangedToken = {};
+		}
+		DetachSessionHandlers();
 	}
 	catch (...) {
 		m_running = false;

@@ -40,10 +40,14 @@ namespace Size {
     // 副岛（音量/静音等）尺寸
     constexpr float SECONDARY_WIDTH = 220.0f;
     constexpr float SECONDARY_HEIGHT = 36.0f;
+    constexpr float FILE_SECONDARY_EXPANDED_WIDTH = 340.0f;
+    constexpr float FILE_SECONDARY_DROPTARGET_WIDTH = 260.0f;
+    constexpr float FILE_SECONDARY_EXPANDED_HEIGHT = 176.0f;
+    constexpr float FILE_SECONDARY_DROPTARGET_HEIGHT = 56.0f;
     
     // 画布尺寸
     constexpr float CANVAS_WIDTH = 400.0f;
-    constexpr float CANVAS_HEIGHT = 300.0f;
+    constexpr float CANVAS_HEIGHT = 420.0f;
     
     // 紧凑模式阈值
     constexpr float COMPACT_THRESHOLD = 60.0f;

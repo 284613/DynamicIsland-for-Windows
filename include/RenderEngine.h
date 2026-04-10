@@ -42,6 +42,8 @@ public:
     bool OnMouseWheel(float x, float y, int delta);
     bool OnMouseMove(float x, float y);
     bool OnMouseClick(float x, float y);
+    bool SecondaryContainsPoint(float x, float y) const;
+    FilePanelComponent::HitResult HitTestFileSecondary(float x, float y) const;
 
     bool HasActiveAnimations() const;
 
@@ -52,7 +54,7 @@ public:
     void SetWaveformState(float audioLevel, float islandHeight);
     void SetTimeData(bool showTime, const std::wstring& timeText);
     void SetVolumeState(bool active, float volumeLevel);
-    void SetFileState(bool isDragHovering, const std::vector<std::wstring>& storedFiles);
+    void SetFileState(SecondaryContentKind mode, const std::vector<FileStashItem>& storedFiles, int selectedIndex, int hoveredIndex);
     void SetWeatherState(const std::wstring& desc, float temp, const std::wstring& iconId,
                          const std::vector<HourlyForecast>& hourly, const std::vector<DailyForecast>& daily,
                          bool expanded, WeatherViewMode viewMode);
@@ -69,6 +71,7 @@ private:
     IIslandComponent* ResolvePrimaryComponent(IslandDisplayMode mode);
     void DrawPrimaryContent(const D2D1_RECT_F& contentRect, const RenderContext& ctx);
     void DrawSecondaryIsland(const RenderContext& ctx, float top, float bottom);
+    IIslandComponent* ResolveSecondaryComponent(SecondaryContentKind kind);
 
     SharedResources m_sharedRes;
 
@@ -121,4 +124,6 @@ private:
 
     IslandDisplayMode m_lastMode = IslandDisplayMode::Idle;
     IIslandComponent* m_activePrimaryComponent = nullptr;
+    IIslandComponent* m_activeSecondaryComponent = nullptr;
+    D2D1_RECT_F m_lastSecondaryRect = D2D1::RectF(0, 0, 0, 0);
 };

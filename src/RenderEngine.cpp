@@ -205,10 +205,26 @@ void RenderEngine::SetVolumeState(bool active, float volumeLevel) {
     }
 }
 
-void RenderEngine::SetFileState(bool isDragHovering, const std::vector<std::wstring>& storedFiles) {
+void RenderEngine::SetFileState(SecondaryContentKind mode, const std::vector<FileStashItem>& storedFiles, int selectedIndex, int hoveredIndex) {
     if (m_fileStorageComponent) {
-        m_fileStorageComponent->SetDragHovering(isDragHovering);
-        m_fileStorageComponent->SetStoredFiles(storedFiles.size(), storedFiles);
+        FilePanelComponent::ViewMode viewMode = FilePanelComponent::ViewMode::Hidden;
+        switch (mode) {
+        case SecondaryContentKind::FileMini:
+            viewMode = FilePanelComponent::ViewMode::Mini;
+            break;
+        case SecondaryContentKind::FileExpanded:
+            viewMode = FilePanelComponent::ViewMode::Expanded;
+            break;
+        case SecondaryContentKind::FileDropTarget:
+            viewMode = FilePanelComponent::ViewMode::DropTarget;
+            break;
+        default:
+            viewMode = FilePanelComponent::ViewMode::Hidden;
+            break;
+        }
+        m_fileStorageComponent->SetViewMode(viewMode);
+        m_fileStorageComponent->SetStoredFiles(storedFiles);
+        m_fileStorageComponent->SetInteractionState(selectedIndex, hoveredIndex);
     }
 }
 
@@ -280,6 +296,20 @@ IIslandComponent* RenderEngine::ResolvePrimaryComponent(IslandDisplayMode mode) 
     }
 }
 
+IIslandComponent* RenderEngine::ResolveSecondaryComponent(SecondaryContentKind kind) {
+    switch (kind) {
+    case SecondaryContentKind::Volume:
+        return m_volumeComponent.get();
+    case SecondaryContentKind::FileMini:
+    case SecondaryContentKind::FileExpanded:
+    case SecondaryContentKind::FileDropTarget:
+        return m_fileStorageComponent.get();
+    case SecondaryContentKind::None:
+    default:
+        return nullptr;
+    }
+}
+
 void RenderEngine::DrawPrimaryContent(const D2D1_RECT_F& contentRect, const RenderContext& ctx) {
     m_activePrimaryComponent = ResolvePrimaryComponent(ctx.mode);
 
@@ -324,19 +354,40 @@ void RenderEngine::DrawPrimaryContent(const D2D1_RECT_F& contentRect, const Rend
 }
 
 void RenderEngine::DrawSecondaryIsland(const RenderContext& ctx, float top, float bottom) {
-    if (!m_volumeComponent || ctx.secondaryHeight <= 0.1f || ctx.secondaryAlpha <= 0.01f) return;
+    if (ctx.secondaryHeight <= 0.1f || ctx.secondaryAlpha <= 0.01f || ctx.secondaryContent == SecondaryContentKind::None) {
+        m_activeSecondaryComponent = nullptr;
+        m_lastSecondaryRect = D2D1::RectF(0, 0, 0, 0);
+        return;
+    }
 
     float secWidth = Constants::Size::SECONDARY_WIDTH;
+    switch (ctx.secondaryContent) {
+    case SecondaryContentKind::FileExpanded:
+        secWidth = Constants::Size::FILE_SECONDARY_EXPANDED_WIDTH;
+        break;
+    case SecondaryContentKind::FileDropTarget:
+        secWidth = Constants::Size::FILE_SECONDARY_DROPTARGET_WIDTH;
+        break;
+    default:
+        break;
+    }
     float secLeft = (ctx.canvasWidth - secWidth) / 2.0f;
     float secTop = bottom + 12.0f;
     float secRight = secLeft + secWidth;
     float secBottom = secTop + ctx.secondaryHeight;
-    float secRadius = ctx.secondaryHeight / 2.0f;
+    float secRadius = (ctx.secondaryHeight < 60.0f) ? (ctx.secondaryHeight / 2.0f) : 20.0f;
 
     D2D1_ROUNDED_RECT secRect = D2D1::RoundedRect(D2D1::RectF(secLeft, secTop, secRight, secBottom), secRadius, secRadius);
-    m_blackBrush->SetOpacity(ctx.secondaryAlpha);
+    float shellAlpha = (ctx.secondaryContent == SecondaryContentKind::Volume) ? ctx.secondaryAlpha : 1.0f;
+    m_blackBrush->SetOpacity(shellAlpha);
     m_d2dContext->FillRoundedRectangle(&secRect, m_blackBrush.Get());
-    m_volumeComponent->DrawSecondary(secLeft, secTop, secWidth, ctx.secondaryHeight, ctx.secondaryAlpha);
+    m_activeSecondaryComponent = ResolveSecondaryComponent(ctx.secondaryContent);
+    m_lastSecondaryRect = secRect.rect;
+    if (ctx.secondaryContent == SecondaryContentKind::Volume && m_volumeComponent) {
+        m_volumeComponent->DrawSecondary(secLeft, secTop, secWidth, ctx.secondaryHeight, ctx.secondaryAlpha);
+    } else if (m_fileStorageComponent) {
+        m_fileStorageComponent->Draw(secRect.rect, ctx.secondaryAlpha, ctx.currentTimeMs);
+    }
 }
 
 void RenderEngine::DrawCapsule(const RenderContext& ctx) {
@@ -413,11 +464,31 @@ bool RenderEngine::OnMouseWheel(float x, float y, int delta) {
 }
 
 bool RenderEngine::OnMouseMove(float x, float y) {
+    if (m_activeSecondaryComponent &&
+        x >= m_lastSecondaryRect.left && x <= m_lastSecondaryRect.right &&
+        y >= m_lastSecondaryRect.top && y <= m_lastSecondaryRect.bottom) {
+        return m_activeSecondaryComponent->OnMouseMove(x, y);
+    }
     return m_activePrimaryComponent ? m_activePrimaryComponent->OnMouseMove(x, y) : false;
 }
 
 bool RenderEngine::OnMouseClick(float x, float y) {
+    if (m_activeSecondaryComponent &&
+        x >= m_lastSecondaryRect.left && x <= m_lastSecondaryRect.right &&
+        y >= m_lastSecondaryRect.top && y <= m_lastSecondaryRect.bottom) {
+        return m_activeSecondaryComponent->OnMouseClick(x, y);
+    }
     return m_activePrimaryComponent ? m_activePrimaryComponent->OnMouseClick(x, y) : false;
+}
+
+bool RenderEngine::SecondaryContainsPoint(float x, float y) const {
+    return x >= m_lastSecondaryRect.left && x <= m_lastSecondaryRect.right &&
+        y >= m_lastSecondaryRect.top && y <= m_lastSecondaryRect.bottom;
+}
+
+FilePanelComponent::HitResult RenderEngine::HitTestFileSecondary(float x, float y) const {
+    if (!m_fileStorageComponent) return {};
+    return m_fileStorageComponent->HitTest(x, y);
 }
 
 bool RenderEngine::HasActiveAnimations() const {

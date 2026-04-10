@@ -12,9 +12,11 @@
 #include "LyricsMonitor.h"
 #include "SystemMonitor.h"
 #include "FilePanelWindow.h"
+#include "FileStashStore.h"
 #include "LayoutController.h"
 #include "Spring.h"
 #include "Constants.h"
+#include <d2d1_1.h>
 #pragma comment(lib, "shell32.lib")
 
 #define WM_TRAYICON (WM_USER + 101)
@@ -74,6 +76,14 @@ private:
     void TransitionTo(IslandDisplayMode mode);
     void SetTargetSize(float width, float height);
     IslandDisplayMode DetermineDisplayMode() const;
+    SecondaryContentKind DetermineSecondaryContent() const;
+    D2D1_RECT_F GetSecondaryRectLogical() const;
+    bool HandleFileSecondaryMouseDown(HWND hwnd, POINT pt);
+    bool HandleFileSecondaryMouseMove(HWND hwnd, POINT pt, WPARAM keyState);
+    bool HandleFileSecondaryMouseUp(POINT pt);
+    void ResetFileSecondaryInteraction();
+    void ShowFileStashLimitAlert();
+    void RemoveFileStashIndex(int index);
 
     float GetCurrentWidth() const { return m_layoutController.GetCurrentWidth(); }
     float GetCurrentHeight() const { return m_layoutController.GetCurrentHeight(); }
@@ -170,8 +180,15 @@ private:
 
 
     bool m_isDragHovering = false; // 【新增】是否有文件拖拽悬停在岛屿上方
-    //std::wstring m_storedFilePath; // 保存暂存的文件路径
-    std::vector<std::wstring> m_storedFiles; // 保存暂存的多个文件路径
+    FileStashStore m_fileStash;
+    bool m_fileSecondaryExpanded = false;
+    int m_fileSelectedIndex = -1;
+    int m_fileHoveredIndex = -1;
+    int m_filePressedIndex = -1;
+    int m_fileLastClickIndex = -1;
+    ULONGLONG m_fileLastClickTime = 0;
+    POINT m_filePressPoint{};
+    bool m_fileDragStarted = false;
 
     bool m_isFullscreen = false; // 全屏检测标志
 

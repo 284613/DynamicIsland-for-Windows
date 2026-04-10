@@ -18,6 +18,15 @@ enum class IslandDisplayMode
     FileDrop
 };
 
+enum class SecondaryContentKind
+{
+    None,
+    Volume,
+    FileMini,
+    FileExpanded,
+    FileDropTarget
+};
+
 struct DisplayModeEntry {
     IslandDisplayMode mode;
     int priority;
@@ -41,6 +50,7 @@ struct RenderContext
     float contentAlpha = 0.0f;
     float secondaryHeight = 0.0f;
     float secondaryAlpha = 0.0f;
+    SecondaryContentKind secondaryContent = SecondaryContentKind::None;
     IslandDisplayMode mode = IslandDisplayMode::Idle;
     ULONGLONG currentTimeMs = 0;
 };
