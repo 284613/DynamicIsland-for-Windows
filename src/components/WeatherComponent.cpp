@@ -299,6 +299,42 @@ void WeatherComponent::DrawWeatherAmbientBg(float L, float T, float R, float B, 
     float W = R - L, H = B - T;
     float cx = L + W * 0.5f;
     float t  = m_animPhase;
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+    enum class SceneTime { Dawn, Day, Dusk, Night };
+    SceneTime sceneTime = SceneTime::Day;
+    if (st.wHour < 5 || st.wHour >= 19) {
+        sceneTime = SceneTime::Night;
+    } else if (st.wHour < 7) {
+        sceneTime = SceneTime::Dawn;
+    } else if (st.wHour < 17) {
+        sceneTime = SceneTime::Day;
+    } else {
+        sceneTime = SceneTime::Dusk;
+    }
+    auto GetPrecipitationStrength = [&](bool snow) -> float {
+        const std::wstring& d = m_desc;
+        if (snow) {
+            if (d.find(L"暴雪") != std::wstring::npos) return 1.30f;
+            if (d.find(L"大雪") != std::wstring::npos) return 1.05f;
+            if (d.find(L"中雪") != std::wstring::npos) return 0.82f;
+            if (d.find(L"小雪") != std::wstring::npos) return 0.58f;
+            if (d.find(L"阵雪") != std::wstring::npos) return 0.70f;
+            if (d.find(L"雨夹雪") != std::wstring::npos) return 0.74f;
+            return 0.72f;
+        }
+
+        if (d.find(L"特大暴雨") != std::wstring::npos) return 1.40f;
+        if (d.find(L"大暴雨") != std::wstring::npos || d.find(L"暴雨") != std::wstring::npos) return 1.22f;
+        if (d.find(L"大雨") != std::wstring::npos) return 1.00f;
+        if (d.find(L"中雨") != std::wstring::npos) return 0.78f;
+        if (d.find(L"小雨") != std::wstring::npos) return 0.56f;
+        if (d.find(L"毛毛雨") != std::wstring::npos || d.find(L"细雨") != std::wstring::npos) return 0.42f;
+        if (d.find(L"冻雨") != std::wstring::npos) return 0.86f;
+        if (d.find(L"雷阵雨") != std::wstring::npos || d.find(L"雷雨") != std::wstring::npos) return 0.92f;
+        if (d.find(L"阵雨") != std::wstring::npos) return 0.64f;
+        return 0.74f;
+    };
 
     auto MakeLinGrad = [&](D2D1_COLOR_F topC, D2D1_COLOR_F botC) -> ComPtr<ID2D1LinearGradientBrush> {
         D2D1_GRADIENT_STOP stops[2] = { {0.0f, topC}, {1.0f, botC} };
@@ -318,14 +354,6 @@ void WeatherComponent::DrawWeatherAmbientBg(float L, float T, float R, float B, 
         if (b) b->SetOpacity(alpha);
         return b;
     };
-    auto DrawCloudLocal = [&](float ccx, float ccy, float s, float op, ID2D1Brush* brush) {
-        brush->SetOpacity(op * alpha);
-        ctx->FillEllipse(D2D1::Ellipse(D2D1::Point2F(ccx,         ccy),         s*1.00f, s*0.44f), brush);
-        ctx->FillEllipse(D2D1::Ellipse(D2D1::Point2F(ccx-s*0.52f, ccy-s*0.22f), s*0.42f, s*0.38f), brush);
-        ctx->FillEllipse(D2D1::Ellipse(D2D1::Point2F(ccx+s*0.42f, ccy-s*0.17f), s*0.38f, s*0.33f), brush);
-        ctx->FillEllipse(D2D1::Ellipse(D2D1::Point2F(ccx-s*0.15f, ccy-s*0.42f), s*0.40f, s*0.36f), brush);
-        brush->SetOpacity(alpha);
-    };
     auto DrawLineLocal = [&](float x1, float y1, float x2, float y2, ID2D1Brush* brush, float w) {
         ComPtr<ID2D1PathGeometry> pg; fac->CreatePathGeometry(&pg);
         ComPtr<ID2D1GeometrySink> sk; pg->Open(&sk);
@@ -335,6 +363,170 @@ void WeatherComponent::DrawWeatherAmbientBg(float L, float T, float R, float B, 
         ComPtr<ID2D1StrokeStyle> ss;
         fac->CreateStrokeStyle(D2D1::StrokeStyleProperties(D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND), nullptr, 0, &ss);
         ctx->DrawGeometry(pg.Get(), brush, w, ss.Get());
+    };
+    auto FillSoftLight = [&](float ox, float oy, float rx, float ry, D2D1_COLOR_F inner, D2D1_COLOR_F outer) {
+        auto glow = MakeRadGrad(ox, oy, rx, ry, inner, outer);
+        if (glow) {
+            ctx->FillEllipse(D2D1::Ellipse(D2D1::Point2F(ox, oy), rx, ry), glow.Get());
+        }
+    };
+    auto FillMistBand = [&](float cy, float widthScale, float heightScale, float drift, D2D1_COLOR_F color) {
+        ComPtr<ID2D1SolidColorBrush> mistBrush;
+        ctx->CreateSolidColorBrush(color, &mistBrush);
+        if (!mistBrush) return;
+        mistBrush->SetOpacity(color.a * alpha);
+        ctx->FillEllipse(
+            D2D1::Ellipse(D2D1::Point2F(cx + drift, cy), W * widthScale, H * heightScale),
+            mistBrush.Get());
+    };
+    auto FillAtmosphereLayer = [&](float topY, float bottomY, D2D1_COLOR_F topColor, D2D1_COLOR_F bottomColor) {
+        D2D1_GRADIENT_STOP stops[2] = {
+            {0.0f, topColor},
+            {1.0f, bottomColor}
+        };
+        ComPtr<ID2D1GradientStopCollection> coll;
+        if (FAILED(ctx->CreateGradientStopCollection(stops, 2, &coll))) return;
+        ComPtr<ID2D1LinearGradientBrush> hazeBrush;
+        ctx->CreateLinearGradientBrush(
+            D2D1::LinearGradientBrushProperties(D2D1::Point2F(cx, topY), D2D1::Point2F(cx, bottomY)),
+            coll.Get(),
+            &hazeBrush);
+        if (hazeBrush) {
+            ctx->FillRectangle(D2D1::RectF(L, topY, R, bottomY), hazeBrush.Get());
+        }
+    };
+    auto FillCloudBand = [&](float centerX, float centerY, float width, float height, float opacity, D2D1_COLOR_F color) {
+        ComPtr<ID2D1SolidColorBrush> cloudBrush;
+        ctx->CreateSolidColorBrush(color, &cloudBrush);
+        if (!cloudBrush) return;
+        cloudBrush->SetOpacity(opacity * alpha);
+
+        ctx->FillEllipse(D2D1::Ellipse(D2D1::Point2F(centerX, centerY), width * 0.42f, height * 0.34f), cloudBrush.Get());
+        ctx->FillEllipse(D2D1::Ellipse(D2D1::Point2F(centerX - width * 0.28f, centerY - height * 0.08f), width * 0.24f, height * 0.24f), cloudBrush.Get());
+        ctx->FillEllipse(D2D1::Ellipse(D2D1::Point2F(centerX + width * 0.30f, centerY - height * 0.05f), width * 0.26f, height * 0.22f), cloudBrush.Get());
+        ctx->FillEllipse(D2D1::Ellipse(D2D1::Point2F(centerX - width * 0.05f, centerY - height * 0.18f), width * 0.28f, height * 0.25f), cloudBrush.Get());
+    };
+    auto FillRidge = [&](float baseY, float amp1, float amp2, float freq1, float freq2, float drift,
+                         D2D1_COLOR_F color, float opacity) {
+        ComPtr<ID2D1SolidColorBrush> ridgeBrush;
+        ctx->CreateSolidColorBrush(color, &ridgeBrush);
+        if (!ridgeBrush) return;
+        ridgeBrush->SetOpacity(opacity * alpha);
+
+        ComPtr<ID2D1PathGeometry> ridge;
+        fac->CreatePathGeometry(&ridge);
+        ComPtr<ID2D1GeometrySink> sink;
+        ridge->Open(&sink);
+        sink->BeginFigure(D2D1::Point2F(L, B), D2D1_FIGURE_BEGIN_FILLED);
+        constexpr int kSegments = 60;
+        for (int i = 0; i <= kSegments; ++i) {
+            float xf = (float)i / (float)kSegments;
+            float x = L + xf * W;
+            float y = baseY
+                + sinf(xf * 6.28318f * freq1 + drift) * amp1
+                + cosf(xf * 6.28318f * freq2 + drift * 0.7f) * amp2
+                + sinf(xf * 6.28318f * (freq1 * 2.6f) + drift * 1.4f) * (amp1 * 0.22f)
+                + cosf(xf * 6.28318f * (freq2 * 1.7f) + drift * 1.1f) * (amp2 * 0.18f);
+            sink->AddLine(D2D1::Point2F(x, y));
+        }
+        sink->AddLine(D2D1::Point2F(R, B));
+        sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+        sink->Close();
+        ctx->FillGeometry(ridge.Get(), ridgeBrush.Get());
+    };
+    auto FillTreeLine = [&](float baseY, float spacing, float minHeight, float maxHeight,
+                            D2D1_COLOR_F color, float opacity, float drift) {
+        ComPtr<ID2D1SolidColorBrush> treeBrush;
+        ctx->CreateSolidColorBrush(color, &treeBrush);
+        if (!treeBrush) return;
+        treeBrush->SetOpacity(opacity * alpha);
+
+        ComPtr<ID2D1PathGeometry> forest;
+        fac->CreatePathGeometry(&forest);
+        ComPtr<ID2D1GeometrySink> sink;
+        forest->Open(&sink);
+        sink->BeginFigure(D2D1::Point2F(L, B), D2D1_FIGURE_BEGIN_FILLED);
+
+        constexpr int kSegments = 72;
+        for (int i = 0; i <= kSegments; ++i) {
+            float xf = (float)i / (float)kSegments;
+            float x = L + xf * W;
+            float jagged = sinf(xf * 6.28318f * 8.0f + drift * 1.6f)
+                         + 0.55f * cosf(xf * 6.28318f * 15.0f + drift * 0.9f)
+                         + 0.25f * sinf(xf * 6.28318f * 27.0f + drift * 2.1f);
+            float treeShape = 0.5f + 0.5f * jagged;
+            float height = minHeight + (maxHeight - minHeight) * treeShape;
+            float y = baseY - height;
+            sink->AddLine(D2D1::Point2F(x, y));
+        }
+
+        sink->AddLine(D2D1::Point2F(R, B));
+        sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+        sink->Close();
+        ctx->FillGeometry(forest.Get(), treeBrush.Get());
+    };
+    auto DrawRainCurtain = [&](int count, float speed, float startY, float travel, float slant,
+                               float dropLength, float thickness, float opacity, float swayScale) {
+        ComPtr<ID2D1SolidColorBrush> rainBrush;
+        ctx->CreateSolidColorBrush(D2D1::ColorF(0.76f, 0.86f, 0.98f, opacity * alpha), &rainBrush);
+        if (!rainBrush) return;
+
+        for (int i = 0; i < count; ++i) {
+            float seed = i * 0.618f;
+            float phase = fmodf(t * speed + seed, 1.0f);
+            float startX = L + fmodf(i * W * 0.173f + sinf(t * 0.45f + i) * W * swayScale + W, W);
+            float y = startY + phase * travel;
+            float x = startX + phase * dropLength * slant;
+            x = L + fmodf(x - L + W, W);
+            rainBrush->SetOpacity(opacity * (0.55f + 0.45f * (1.0f - phase)) * alpha);
+            DrawLineLocal(x, y, x + dropLength * slant, y + dropLength, rainBrush.Get(), thickness);
+        }
+    };
+    auto DrawSnowField = [&](int count, float speed, float startY, float travel,
+                             float driftAmp, float minSize, float maxSize, float opacity) {
+        ComPtr<ID2D1SolidColorBrush> snowBrush;
+        ctx->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, opacity * alpha), &snowBrush);
+        if (!snowBrush) return;
+
+        for (int i = 0; i < count; ++i) {
+            float seed = i * 0.173f;
+            float phase = fmodf(t * speed + seed, 1.0f);
+            float swirl = sinf(t * (0.45f + 0.04f * i) + i * 1.37f);
+            float x = L + fmodf(i * W * 0.121f + swirl * W * driftAmp + W, W);
+            float y = startY + phase * travel;
+            float size = minSize + (maxSize - minSize) * (0.5f + 0.5f * sinf(i * 1.73f));
+            snowBrush->SetOpacity(opacity * (0.55f + 0.45f * sinf(phase * 3.14159f)) * alpha);
+            ctx->FillEllipse(D2D1::Ellipse(D2D1::Point2F(x, y), size, size * 0.92f), snowBrush.Get());
+        }
+    };
+    auto DrawVignette = [&]() {
+        D2D1_GRADIENT_STOP vignetteStops[2] = {
+            {0.0f, D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f)},
+            {1.0f, D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.22f * alpha)}
+        };
+        ComPtr<ID2D1GradientStopCollection> vignetteColl;
+        ctx->CreateGradientStopCollection(vignetteStops, 2, &vignetteColl);
+        if (!vignetteColl) return;
+        ComPtr<ID2D1RadialGradientBrush> vignetteBrush;
+        ctx->CreateRadialGradientBrush(
+            D2D1::RadialGradientBrushProperties(
+                D2D1::Point2F(cx, T + H * 0.48f),
+                D2D1::Point2F(0, 0),
+                W * 0.70f,
+                H * 0.62f),
+            vignetteColl.Get(),
+            &vignetteBrush);
+        if (vignetteBrush) {
+            ctx->FillRectangle(D2D1::RectF(L, T, R, B), vignetteBrush.Get());
+        }
+    };
+    auto FillGroundGlow = [&](float centerY, float heightScale, D2D1_COLOR_F color, float opacity) {
+        auto glow = MakeRadGrad(cx, centerY, W * 0.75f, H * heightScale,
+            D2D1::ColorF(color.r, color.g, color.b, opacity * alpha),
+            D2D1::ColorF(color.r, color.g, color.b, 0.0f));
+        if (glow) {
+            ctx->FillEllipse(D2D1::Ellipse(D2D1::Point2F(cx, centerY), W * 0.75f, H * heightScale), glow.Get());
+        }
     };
 
     // 裁剪
@@ -346,32 +538,44 @@ void WeatherComponent::DrawWeatherAmbientBg(float L, float T, float R, float B, 
     case WeatherType::Rainy:
     case WeatherType::Thunder: {
         bool isThunder = (m_weatherType == WeatherType::Thunder);
-        auto bg = isThunder
-            ? MakeLinGrad(D2D1::ColorF(0.07f,0.08f,0.14f), D2D1::ColorF(0.11f,0.13f,0.21f))
-            : MakeLinGrad(D2D1::ColorF(0.13f,0.17f,0.27f), D2D1::ColorF(0.18f,0.23f,0.36f));
-        if (bg) ctx->FillRectangle(D2D1::RectF(L,T,R,B), bg.Get());
-
-        ComPtr<ID2D1SolidColorBrush> cloudBrush;
-        ctx->CreateSolidColorBrush(isThunder ? D2D1::ColorF(0.30f,0.31f,0.38f) : D2D1::ColorF(0.42f,0.45f,0.52f), &cloudBrush);
-        float d1=sinf(t*0.28f)*W*0.04f, d2=sinf(t*0.19f+1.0f)*W*0.03f, d3=sinf(t*0.23f+2.1f)*W*0.035f;
-        DrawCloudLocal(cx+d1,         T+H*0.24f, W*0.34f, 0.90f, cloudBrush.Get());
-        DrawCloudLocal(L+W*0.22f+d2,  T+H*0.19f, W*0.24f, 0.72f, cloudBrush.Get());
-        DrawCloudLocal(R-W*0.18f+d3,  T+H*0.26f, W*0.22f, 0.66f, cloudBrush.Get());
-
-        ComPtr<ID2D1SolidColorBrush> rainBrush;
-        ctx->CreateSolidColorBrush(D2D1::ColorF(0.62f,0.74f,0.92f,0.75f), &rainBrush);
-        rainBrush->SetOpacity(0.75f * alpha);
-        int dropN = isThunder ? 22 : 15;
-        float speed = isThunder ? 3.8f : 2.4f;
-        float dropH = H*0.13f, angleSlant = 0.14f;
-        for (int i = 0; i < dropN; i++) {
-            float xBase = L + fmodf(i*W*0.618f, W);
-            float phase = fmodf(t*speed + i*0.41f, 1.0f);
-            float dy = T + H*0.42f + phase*H*0.62f;
-            float dx = xBase + phase*dropH*angleSlant;
-            dx = L + fmodf(dx-L, W);
-            DrawLineLocal(dx, dy, dx+dropH*angleSlant, dy+dropH, rainBrush.Get(), isThunder ? 1.1f : 0.85f);
+        float rainStrength = GetPrecipitationStrength(false);
+        D2D1_COLOR_F rainTop = isThunder ? D2D1::ColorF(0.05f,0.07f,0.12f) : D2D1::ColorF(0.18f,0.21f,0.27f);
+        D2D1_COLOR_F rainBot = isThunder ? D2D1::ColorF(0.12f,0.15f,0.20f) : D2D1::ColorF(0.24f,0.27f,0.31f);
+        if (sceneTime == SceneTime::Dawn) {
+            rainTop = D2D1::ColorF(0.22f, 0.20f, 0.24f);
+            rainBot = D2D1::ColorF(0.34f, 0.30f, 0.32f);
+        } else if (sceneTime == SceneTime::Dusk) {
+            rainTop = D2D1::ColorF(0.18f, 0.15f, 0.18f);
+            rainBot = D2D1::ColorF(0.26f, 0.22f, 0.24f);
+        } else if (sceneTime == SceneTime::Night) {
+            rainTop = D2D1::ColorF(0.04f, 0.05f, 0.09f);
+            rainBot = D2D1::ColorF(0.10f, 0.12f, 0.17f);
         }
+        auto bg = MakeLinGrad(rainTop, rainBot);
+        if (bg) ctx->FillRectangle(D2D1::RectF(L,T,R,B), bg.Get());
+        FillSoftLight(L + W * 0.32f, T + H * 0.10f, W * 0.38f, H * 0.22f,
+            D2D1::ColorF(0.64f, 0.72f, 0.84f, 0.07f * alpha),
+            D2D1::ColorF(0.64f, 0.72f, 0.84f, 0.0f));
+        FillAtmosphereLayer(T + H * 0.42f, B - H * 0.12f,
+            D2D1::ColorF(0.62f, 0.68f, 0.74f, 0.08f * alpha),
+            D2D1::ColorF(0.62f, 0.68f, 0.74f, 0.0f));
+        FillRidge(B - H * 0.34f, H * 0.040f, H * 0.020f, 1.0f, 2.2f, t * 0.08f,
+            D2D1::ColorF(0.20f, 0.24f, 0.28f), 0.45f);
+        FillRidge(B - H * 0.24f, H * 0.050f, H * 0.024f, 1.4f, 3.0f, t * 0.12f,
+            D2D1::ColorF(0.12f, 0.15f, 0.17f), 0.72f);
+        FillTreeLine(B - H * 0.18f, W * 0.060f, H * 0.05f, H * 0.11f,
+            D2D1::ColorF(0.06f, 0.08f, 0.09f), 0.85f, t * 0.10f);
+        FillCloudBand(cx,               T + H * 0.18f, W * 0.90f, H * 0.18f, 0.85f, D2D1::ColorF(0.22f, 0.24f, 0.28f));
+        FillCloudBand(L + W * 0.28f,    T + H * 0.24f, W * 0.60f, H * 0.14f, 0.70f, D2D1::ColorF(0.30f, 0.32f, 0.36f));
+        FillCloudBand(R - W * 0.20f,    T + H * 0.22f, W * 0.46f, H * 0.13f, 0.58f, D2D1::ColorF(0.34f, 0.36f, 0.40f));
+        DrawRainCurtain((int)((isThunder ? 14 : 12) * rainStrength), (isThunder ? 1.6f : 1.2f) * (0.85f + rainStrength * 0.22f),
+            T + H * 0.30f, H * (0.48f + rainStrength * 0.12f), 0.08f, H * (0.08f + rainStrength * 0.03f), 0.65f, 0.12f + rainStrength * 0.08f, 0.010f);
+        DrawRainCurtain((int)((isThunder ? 20 : 16) * rainStrength), (isThunder ? 2.6f : 2.0f) * (0.90f + rainStrength * 0.24f),
+            T + H * 0.26f, H * (0.56f + rainStrength * 0.12f), 0.12f, H * (0.10f + rainStrength * 0.05f), 0.95f, 0.22f + rainStrength * 0.12f, 0.015f);
+        DrawRainCurtain((int)((isThunder ? 30 : 24) * rainStrength), (isThunder ? 3.8f : 2.9f) * (0.95f + rainStrength * 0.28f),
+            T + H * 0.22f, H * (0.62f + rainStrength * 0.12f), 0.16f, H * (0.13f + rainStrength * 0.06f), 1.30f, 0.34f + rainStrength * 0.16f, 0.020f);
+        FillGroundGlow(B - H * 0.06f, 0.09f, D2D1::ColorF(0.62f, 0.70f, 0.80f), 0.08f + rainStrength * 0.06f);
+        FillMistBand(B - H * 0.10f, 0.72f, 0.09f + rainStrength * 0.03f, sinf(t * 0.28f) * W * 0.03f, D2D1::ColorF(0.74f, 0.80f, 0.86f, 0.10f + rainStrength * 0.04f));
         if (isThunder) {
             float fp = fmodf(t/2.8f, 1.0f);
             if (fp < 0.10f) {
@@ -397,40 +601,67 @@ void WeatherComponent::DrawWeatherAmbientBg(float L, float T, float R, float B, 
         break;
     }
     case WeatherType::Snow: {
-        auto bg = MakeLinGrad(D2D1::ColorF(0.11f,0.15f,0.25f), D2D1::ColorF(0.19f,0.24f,0.38f));
-        if (bg) ctx->FillRectangle(D2D1::RectF(L,T,R,B), bg.Get());
-        ComPtr<ID2D1SolidColorBrush> cloudBrush;
-        ctx->CreateSolidColorBrush(D2D1::ColorF(0.60f,0.64f,0.72f), &cloudBrush);
-        DrawCloudLocal(cx+sinf(t*0.18f)*W*0.03f,        T+H*0.21f, W*0.30f, 0.72f, cloudBrush.Get());
-        DrawCloudLocal(L+W*0.20f+sinf(t*0.14f)*W*0.02f, T+H*0.17f, W*0.20f, 0.52f, cloudBrush.Get());
-        DrawCloudLocal(R-W*0.15f+sinf(t*0.21f)*W*0.02f, T+H*0.23f, W*0.18f, 0.50f, cloudBrush.Get());
-        ComPtr<ID2D1SolidColorBrush> snowBrush;
-        ctx->CreateSolidColorBrush(D2D1::ColorF(1.0f,1.0f,1.0f), &snowBrush);
-        for (int i = 0; i < 14; i++) {
-            float phase = fmodf(t*0.55f + i*0.21f, 1.0f);
-            float fx = L + fmodf(i*W*0.13f + sinf(t*0.35f+i)*W*0.06f, W);
-            float fy = T + H*0.35f + phase*H*0.68f;
-            float fs = W*0.022f + (i%3)*W*0.007f;
-            float fa = 0.45f + 0.50f*sinf(phase*3.14159f);
-            snowBrush->SetOpacity(fa * alpha);
-            float fAngle = t*1.1f + i*2.094f;
-            for (int j = 0; j < 6; j++) {
-                float a = fAngle + j*3.14159f/3.0f;
-                DrawLineLocal(fx, fy, fx+cosf(a)*fs, fy+sinf(a)*fs, snowBrush.Get(), 0.9f);
-                float mx=fx+cosf(a)*fs*0.55f, my=fy+sinf(a)*fs*0.55f;
-                float ba = a + 3.14159f*0.5f;
-                DrawLineLocal(mx-cosf(ba)*fs*0.22f, my-sinf(ba)*fs*0.22f, mx+cosf(ba)*fs*0.22f, my+sinf(ba)*fs*0.22f, snowBrush.Get(), 0.7f);
-            }
+        float snowStrength = GetPrecipitationStrength(true);
+        D2D1_COLOR_F snowTop = D2D1::ColorF(0.16f,0.22f,0.32f);
+        D2D1_COLOR_F snowBot = D2D1::ColorF(0.30f,0.36f,0.44f);
+        if (sceneTime == SceneTime::Dawn) {
+            snowTop = D2D1::ColorF(0.34f, 0.36f, 0.42f);
+            snowBot = D2D1::ColorF(0.58f, 0.56f, 0.54f);
+        } else if (sceneTime == SceneTime::Day) {
+            snowTop = D2D1::ColorF(0.40f, 0.48f, 0.60f);
+            snowBot = D2D1::ColorF(0.72f, 0.78f, 0.82f);
+        } else if (sceneTime == SceneTime::Dusk) {
+            snowTop = D2D1::ColorF(0.28f, 0.26f, 0.34f);
+            snowBot = D2D1::ColorF(0.44f, 0.40f, 0.42f);
+        } else {
+            snowTop = D2D1::ColorF(0.12f, 0.16f, 0.24f);
+            snowBot = D2D1::ColorF(0.22f, 0.28f, 0.34f);
         }
-        snowBrush->SetOpacity(alpha);
+        auto bg = MakeLinGrad(snowTop, snowBot);
+        if (bg) ctx->FillRectangle(D2D1::RectF(L,T,R,B), bg.Get());
+        FillSoftLight(cx, T + H * 0.18f, W * 0.42f, H * 0.26f,
+            D2D1::ColorF(0.86f, 0.92f, 1.0f, 0.08f * alpha),
+            D2D1::ColorF(0.86f, 0.92f, 1.0f, 0.0f));
+        FillAtmosphereLayer(T + H * 0.40f, B - H * 0.10f,
+            D2D1::ColorF(0.92f, 0.95f, 1.0f, 0.07f * alpha),
+            D2D1::ColorF(0.92f, 0.95f, 1.0f, 0.0f));
+        FillRidge(B - H * 0.36f, H * 0.032f, H * 0.014f, 1.0f, 2.0f, t * 0.05f,
+            D2D1::ColorF(0.54f, 0.60f, 0.66f), 0.52f);
+        FillRidge(B - H * 0.24f, H * 0.040f, H * 0.018f, 1.5f, 2.9f, t * 0.08f,
+            D2D1::ColorF(0.34f, 0.40f, 0.46f), 0.72f);
+        FillTreeLine(B - H * 0.18f, W * 0.065f, H * 0.04f, H * 0.09f,
+            D2D1::ColorF(0.18f, 0.22f, 0.24f), 0.72f, t * 0.08f);
+        FillCloudBand(cx,               T + H * 0.20f, W * 0.80f, H * 0.16f, 0.68f, D2D1::ColorF(0.68f, 0.72f, 0.78f));
+        FillCloudBand(L + W * 0.22f,    T + H * 0.16f, W * 0.44f, H * 0.12f, 0.54f, D2D1::ColorF(0.78f, 0.82f, 0.86f));
+        DrawSnowField((int)(16 * snowStrength), 0.18f * (0.88f + snowStrength * 0.16f),
+            T + H * 0.16f, H * (0.74f + snowStrength * 0.10f), 0.020f + snowStrength * 0.015f,
+            W * 0.005f, W * (0.008f + snowStrength * 0.004f), 0.18f + snowStrength * 0.10f);
+        DrawSnowField((int)(18 * snowStrength), 0.28f * (0.90f + snowStrength * 0.18f),
+            T + H * 0.12f, H * (0.78f + snowStrength * 0.10f), 0.035f + snowStrength * 0.020f,
+            W * 0.008f, W * (0.013f + snowStrength * 0.005f), 0.30f + snowStrength * 0.14f);
+        DrawSnowField((int)(22 * snowStrength), 0.42f * (0.92f + snowStrength * 0.20f),
+            T + H * 0.08f, H * (0.82f + snowStrength * 0.12f), 0.050f + snowStrength * 0.028f,
+            W * 0.012f, W * (0.018f + snowStrength * 0.007f), 0.48f + snowStrength * 0.18f);
+        FillGroundGlow(B - H * 0.07f, 0.11f, D2D1::ColorF(0.96f, 0.98f, 1.0f), 0.10f + snowStrength * 0.06f);
+        FillMistBand(B - H * 0.10f, 0.74f, 0.08f + snowStrength * 0.03f, sinf(t * 0.16f) * W * 0.025f, D2D1::ColorF(0.95f, 0.97f, 1.0f, 0.10f + snowStrength * 0.06f));
         break;
     }
     case WeatherType::Clear: {
-        SYSTEMTIME st; GetLocalTime(&st);
-        bool isNight = (st.wHour < 6 || st.wHour >= 18);
-        if (isNight) {
-            auto bg = MakeLinGrad(D2D1::ColorF(0.03f,0.03f,0.12f), D2D1::ColorF(0.06f,0.08f,0.20f));
+        if (sceneTime == SceneTime::Night) {
+            auto bg = MakeLinGrad(D2D1::ColorF(0.02f,0.03f,0.08f), D2D1::ColorF(0.10f,0.12f,0.18f));
             if (bg) ctx->FillRectangle(D2D1::RectF(L,T,R,B), bg.Get());
+            FillSoftLight(L + W * 0.30f, T + H * 0.08f, W * 0.30f, H * 0.16f,
+                D2D1::ColorF(0.36f, 0.46f, 0.74f, 0.08f * alpha),
+                D2D1::ColorF(0.36f, 0.46f, 0.74f, 0.0f));
+            FillAtmosphereLayer(T + H * 0.48f, B - H * 0.12f,
+                D2D1::ColorF(0.50f, 0.58f, 0.72f, 0.04f * alpha),
+                D2D1::ColorF(0.50f, 0.58f, 0.72f, 0.0f));
+            FillRidge(B - H * 0.34f, H * 0.030f, H * 0.014f, 1.1f, 2.0f, t * 0.03f,
+                D2D1::ColorF(0.08f, 0.10f, 0.14f), 0.46f);
+            FillRidge(B - H * 0.22f, H * 0.040f, H * 0.018f, 1.6f, 3.1f, t * 0.05f,
+                D2D1::ColorF(0.04f, 0.05f, 0.08f), 0.82f);
+            FillTreeLine(B - H * 0.17f, W * 0.070f, H * 0.05f, H * 0.11f,
+                D2D1::ColorF(0.02f, 0.03f, 0.04f), 0.90f, t * 0.04f);
             ComPtr<ID2D1SolidColorBrush> starBrush;
             ctx->CreateSolidColorBrush(D2D1::ColorF(1.0f,1.0f,1.0f), &starBrush);
             struct SP { float rx,ry,sz; } stars[] = {
@@ -450,14 +681,45 @@ void WeatherComponent::DrawWeatherAmbientBg(float L, float T, float R, float B, 
             ComPtr<ID2D1SolidColorBrush> holeBrush;
             ctx->CreateSolidColorBrush(D2D1::ColorF(0.04f,0.05f,0.16f,alpha), &holeBrush);
             ctx->FillEllipse(D2D1::Ellipse(D2D1::Point2F(moonX+moonR*0.48f, moonY-moonR*0.08f), moonR*0.84f, moonR*0.84f), holeBrush.Get());
+            FillMistBand(B - H * 0.12f, 0.68f, 0.08f, sinf(t * 0.12f) * W * 0.02f, D2D1::ColorF(0.50f, 0.56f, 0.70f, 0.06f));
         } else {
-            auto bg = MakeLinGrad(D2D1::ColorF(0.22f,0.52f,0.90f), D2D1::ColorF(0.52f,0.80f,1.0f));
+            D2D1_COLOR_F clearTop = D2D1::ColorF(0.28f,0.58f,0.90f);
+            D2D1_COLOR_F clearBot = D2D1::ColorF(0.88f,0.84f,0.68f);
+            if (sceneTime == SceneTime::Dawn) {
+                clearTop = D2D1::ColorF(0.46f, 0.58f, 0.78f);
+                clearBot = D2D1::ColorF(0.98f, 0.76f, 0.58f);
+            } else if (sceneTime == SceneTime::Day) {
+                clearTop = D2D1::ColorF(0.30f, 0.62f, 0.96f);
+                clearBot = D2D1::ColorF(0.90f, 0.92f, 0.78f);
+            } else if (sceneTime == SceneTime::Dusk) {
+                clearTop = D2D1::ColorF(0.28f, 0.38f, 0.66f);
+                clearBot = D2D1::ColorF(0.98f, 0.62f, 0.40f);
+            }
+            auto bg = MakeLinGrad(clearTop, clearBot);
             if (bg) ctx->FillRectangle(D2D1::RectF(L,T,R,B), bg.Get());
+            FillSoftLight(cx, B - H * 0.08f, W * 0.78f, H * 0.24f,
+                D2D1::ColorF(1.0f, 0.86f, 0.62f, 0.15f * alpha),
+                D2D1::ColorF(1.0f, 0.86f, 0.62f, 0.0f));
+            FillAtmosphereLayer(T + H * 0.44f, B - H * 0.10f,
+                D2D1::ColorF(1.0f, 0.92f, 0.78f, 0.05f * alpha),
+                D2D1::ColorF(1.0f, 0.92f, 0.78f, 0.0f));
+            FillRidge(B - H * 0.34f, H * 0.034f, H * 0.016f, 1.1f, 2.1f, t * 0.04f,
+                D2D1::ColorF(0.38f, 0.46f, 0.54f), 0.36f);
+            FillRidge(B - H * 0.23f, H * 0.046f, H * 0.020f, 1.6f, 3.0f, t * 0.06f,
+                D2D1::ColorF(0.18f, 0.26f, 0.20f), 0.76f);
+            FillTreeLine(B - H * 0.17f, W * 0.068f, H * 0.05f, H * 0.12f,
+                D2D1::ColorF(0.10f, 0.16f, 0.10f), 0.92f, t * 0.05f);
             float sunX=R-W*0.22f, sunY=T+H*0.24f, sunR=W*0.14f;
-            auto glow = MakeRadGrad(sunX,sunY,sunR*2.4f,sunR*2.4f, D2D1::ColorF(1.0f,0.92f,0.40f,0.30f*alpha), D2D1::ColorF(1.0f,0.92f,0.40f,0.0f));
+            D2D1_COLOR_F glowInner = (sceneTime == SceneTime::Dusk)
+                ? D2D1::ColorF(1.0f, 0.74f, 0.32f, 0.30f * alpha)
+                : D2D1::ColorF(1.0f, 0.92f, 0.40f, 0.30f * alpha);
+            auto glow = MakeRadGrad(sunX,sunY,sunR*2.4f,sunR*2.4f, glowInner, D2D1::ColorF(1.0f,0.92f,0.40f,0.0f));
             if (glow) ctx->FillEllipse(D2D1::Ellipse(D2D1::Point2F(sunX,sunY), sunR*2.4f, sunR*2.4f), glow.Get());
             ComPtr<ID2D1SolidColorBrush> sunBrush;
-            ctx->CreateSolidColorBrush(D2D1::ColorF(1.0f,0.93f,0.44f,alpha), &sunBrush);
+            D2D1_COLOR_F sunColor = (sceneTime == SceneTime::Dusk)
+                ? D2D1::ColorF(1.0f, 0.76f, 0.32f, alpha)
+                : D2D1::ColorF(1.0f, 0.93f, 0.44f, alpha);
+            ctx->CreateSolidColorBrush(sunColor, &sunBrush);
             ctx->FillEllipse(D2D1::Ellipse(D2D1::Point2F(sunX,sunY), sunR, sunR), sunBrush.Get());
             sunBrush->SetOpacity(0.70f*alpha);
             float rayOff=sunR*1.28f, rayLen=sunR*0.46f;
@@ -465,9 +727,9 @@ void WeatherComponent::DrawWeatherAmbientBg(float L, float T, float R, float B, 
                 float a = t*0.38f + i*3.14159f*0.25f;
                 DrawLineLocal(sunX+cosf(a)*rayOff, sunY+sinf(a)*rayOff, sunX+cosf(a)*(rayOff+rayLen), sunY+sinf(a)*(rayOff+rayLen), sunBrush.Get(), 2.0f);
             }
-            ComPtr<ID2D1SolidColorBrush> cloudBrush;
-            ctx->CreateSolidColorBrush(D2D1::ColorF(1.0f,1.0f,1.0f), &cloudBrush);
-            DrawCloudLocal(L+W*0.38f+sinf(t*0.22f)*W*0.03f, T+H*0.60f, W*0.22f, 0.60f, cloudBrush.Get());
+            FillCloudBand(L + W * 0.42f + sinf(t * 0.18f) * W * 0.02f, T + H * 0.42f, W * 0.34f, H * 0.10f, 0.34f,
+                D2D1::ColorF(1.0f, 1.0f, 1.0f));
+            FillGroundGlow(B - H * 0.08f, 0.10f, D2D1::ColorF(0.98f, 0.86f, 0.66f), sceneTime == SceneTime::Dusk ? 0.10f : 0.06f);
         }
         break;
     }
@@ -475,21 +737,38 @@ void WeatherComponent::DrawWeatherAmbientBg(float L, float T, float R, float B, 
     case WeatherType::Cloudy:
     case WeatherType::Default: {
         bool partlyCloudy = (m_weatherType == WeatherType::PartlyCloudy);
-        SYSTEMTIME st; GetLocalTime(&st);
-        bool isNight = (st.wHour < 6 || st.wHour >= 18);
         float maxCov=partlyCloudy?0.55f:0.90f, entryDur=3.0f;
         float rawT = fminf(t/entryDur, 1.0f);
         float cover = maxCov * rawT*rawT*(3.0f-2.0f*rawT);
         auto Lerp = [](float a, float b, float f) { return a+(b-a)*f; };
         float skyR,skyG,skyB,ovR,ovG,ovB;
-        if (isNight) { skyR=0.04f;skyG=0.05f;skyB=0.16f; ovR=0.10f;ovG=0.11f;ovB=0.20f; }
-        else         { skyR=0.24f;skyG=0.54f;skyB=0.92f; ovR=0.36f;ovG=0.38f;ovB=0.44f; }
+        bool isNight = (sceneTime == SceneTime::Night);
+        if (sceneTime == SceneTime::Dawn) {
+            skyR=0.48f; skyG=0.56f; skyB=0.68f; ovR=0.58f; ovG=0.52f; ovB=0.52f;
+        } else if (sceneTime == SceneTime::Day) {
+            skyR=0.30f; skyG=0.56f; skyB=0.84f; ovR=0.42f; ovG=0.44f; ovB=0.48f;
+        } else if (sceneTime == SceneTime::Dusk) {
+            skyR=0.28f; skyG=0.34f; skyB=0.54f; ovR=0.42f; ovG=0.36f; ovB=0.38f;
+        } else {
+            skyR=0.05f; skyG=0.07f; skyB=0.14f; ovR=0.11f; ovG=0.12f; ovB=0.18f;
+        }
         D2D1_COLOR_F bgTop = D2D1::ColorF(Lerp(skyR,ovR,cover), Lerp(skyG,ovG,cover), Lerp(skyB,ovB,cover));
         D2D1_COLOR_F bgBot = isNight
-            ? D2D1::ColorF(Lerp(skyR+0.02f,ovR+0.03f,cover), Lerp(skyG+0.03f,ovG+0.03f,cover), Lerp(skyB+0.08f,ovB+0.05f,cover))
-            : D2D1::ColorF(Lerp(skyR+0.12f,ovR+0.08f,cover), Lerp(skyG+0.16f,ovG+0.06f,cover), Lerp(skyB+0.06f,ovB+0.02f,cover));
+            ? D2D1::ColorF(Lerp(skyR+0.02f,ovR+0.02f,cover), Lerp(skyG+0.03f,ovG+0.02f,cover), Lerp(skyB+0.06f,ovB+0.04f,cover))
+            : D2D1::ColorF(Lerp(skyR+0.20f,ovR+0.08f,cover), Lerp(skyG+0.18f,ovG+0.06f,cover), Lerp(skyB+0.08f,ovB+0.02f,cover));
         auto bg = MakeLinGrad(bgTop, bgBot);
         if (bg) ctx->FillRectangle(D2D1::RectF(L,T,R,B), bg.Get());
+        FillAtmosphereLayer(T + H * 0.46f, B - H * 0.12f,
+            D2D1::ColorF(0.92f, 0.94f, 0.96f, isNight ? 0.03f * alpha : 0.05f * alpha),
+            D2D1::ColorF(0.92f, 0.94f, 0.96f, 0.0f));
+        FillRidge(B - H * 0.34f, H * 0.032f, H * 0.016f, 1.0f, 2.0f, t * 0.04f,
+            isNight ? D2D1::ColorF(0.12f, 0.14f, 0.18f) : D2D1::ColorF(0.42f, 0.48f, 0.52f), 0.38f);
+        FillRidge(B - H * 0.23f, H * 0.045f, H * 0.018f, 1.7f, 3.1f, t * 0.06f,
+            isNight ? D2D1::ColorF(0.06f, 0.07f, 0.10f) : D2D1::ColorF(0.24f, 0.30f, 0.26f), 0.78f);
+        FillTreeLine(B - H * 0.17f, W * 0.068f, H * 0.05f, H * 0.10f,
+            isNight ? D2D1::ColorF(0.03f, 0.04f, 0.05f) : D2D1::ColorF(0.12f, 0.16f, 0.12f), 0.88f, t * 0.05f);
+        FillMistBand(B - H * 0.12f, 0.70f, 0.09f, sinf(t * 0.18f) * W * 0.03f,
+            D2D1::ColorF(1.0f, 1.0f, 1.0f, isNight ? 0.04f : 0.07f));
         if (!isNight) {
             float sunVis = fmaxf(0.0f, 1.0f - cover/0.5f);
             if (sunVis > 0.01f) {
@@ -502,48 +781,59 @@ void WeatherComponent::DrawWeatherAmbientBg(float L, float T, float R, float B, 
                 ctx->FillEllipse(D2D1::Ellipse(D2D1::Point2F(sunX,sunY), sunR, sunR), sunBrush.Get());
             }
         }
-        struct CloudDef { float relX,relY,scale,entryDelay,driftSpd,driftAmp; };
-        CloudDef clouds[] = {
-            {0.50f,0.20f,0.36f,0.00f,0.22f,0.030f},
-            {0.18f,0.26f,0.28f,0.20f,0.17f,0.024f},
-            {0.82f,0.17f,0.26f,0.35f,0.25f,0.026f},
-            {0.40f,0.44f,0.30f,0.50f,0.14f,0.020f},
-            {0.70f,0.40f,0.24f,0.65f,0.19f,0.022f},
-        };
-        int numClouds = partlyCloudy ? 3 : 5;
-        D2D1_COLOR_F cloudCol = isNight ? D2D1::ColorF(0.32f,0.34f,0.44f) : D2D1::ColorF(0.88f,0.90f,0.95f);
-        ComPtr<ID2D1SolidColorBrush> cloudBrush;
-        ctx->CreateSolidColorBrush(cloudCol, &cloudBrush);
-        for (int i = 0; i < numClouds; i++) {
-            auto& c = clouds[i];
-            float cloudRaw = fminf(fmaxf(t/entryDur-c.entryDelay, 0.0f)/(1.0f-c.entryDelay), 1.0f);
-            float arriveT  = cloudRaw*cloudRaw*(3.0f-2.0f*cloudRaw);
-            float targetX  = L + c.relX*W;
-            float startX   = R + c.scale*W;
-            float baseX    = startX + (targetX-startX)*arriveT;
-            float windDrift = sinf(t*c.driftSpd + i*2.094f)*W*c.driftAmp;
-            float cloudX   = baseX + windDrift;
-            float cloudY   = T + c.relY*H + sinf(t*c.driftSpd*0.7f+i*1.3f)*H*0.012f;
-            float cloudOp  = (c.scale > 0.30f ? 0.92f : 0.80f) * arriveT;
-            DrawCloudLocal(cloudX, cloudY, c.scale*W, cloudOp, cloudBrush.Get());
+        D2D1_COLOR_F cloudCol = isNight ? D2D1::ColorF(0.24f,0.26f,0.32f) : D2D1::ColorF(0.78f,0.80f,0.84f);
+        float cloudDrift = sinf(t * 0.12f) * W * 0.03f;
+        FillCloudBand(cx + cloudDrift,            T + H * 0.19f, W * (partlyCloudy ? 0.62f : 0.90f), H * 0.16f, partlyCloudy ? 0.64f : 0.84f, cloudCol);
+        FillCloudBand(L + W * 0.30f + cloudDrift, T + H * 0.25f, W * (partlyCloudy ? 0.42f : 0.62f), H * 0.12f, partlyCloudy ? 0.50f : 0.68f, cloudCol);
+        if (!partlyCloudy) {
+            FillCloudBand(R - W * 0.18f + cloudDrift, T + H * 0.30f, W * 0.48f, H * 0.11f, 0.56f, cloudCol);
         }
+        FillGroundGlow(B - H * 0.09f, 0.09f, D2D1::ColorF(0.88f, 0.90f, 0.92f), isNight ? 0.02f : 0.05f);
         break;
     }
     case WeatherType::Fog: {
-        auto bg = MakeLinGrad(D2D1::ColorF(0.58f,0.59f,0.61f), D2D1::ColorF(0.70f,0.71f,0.73f));
-        if (bg) ctx->FillRectangle(D2D1::RectF(L,T,R,B), bg.Get());
-        ComPtr<ID2D1SolidColorBrush> fogBrush;
-        ctx->CreateSolidColorBrush(D2D1::ColorF(1.0f,1.0f,1.0f), &fogBrush);
-        for (int i = 0; i < 5; i++) {
-            float fy=T+H*(0.18f+i*0.16f), drift=sinf(t*0.20f+i*1.2f)*W*0.06f;
-            float fw=W*(0.88f-i*0.06f), fo=(0.30f-i*0.04f)*alpha;
-            fogBrush->SetOpacity(fo);
-            ctx->FillEllipse(D2D1::Ellipse(D2D1::Point2F(cx+drift, fy), fw*0.5f, H*0.055f), fogBrush.Get());
+        D2D1_COLOR_F fogTop = D2D1::ColorF(0.60f,0.62f,0.64f);
+        D2D1_COLOR_F fogBot = D2D1::ColorF(0.78f,0.80f,0.82f);
+        if (sceneTime == SceneTime::Dawn) {
+            fogTop = D2D1::ColorF(0.70f, 0.68f, 0.68f);
+            fogBot = D2D1::ColorF(0.86f, 0.82f, 0.78f);
+        } else if (sceneTime == SceneTime::Day) {
+            fogTop = D2D1::ColorF(0.66f, 0.68f, 0.70f);
+            fogBot = D2D1::ColorF(0.86f, 0.88f, 0.90f);
+        } else if (sceneTime == SceneTime::Dusk) {
+            fogTop = D2D1::ColorF(0.56f, 0.54f, 0.56f);
+            fogBot = D2D1::ColorF(0.70f, 0.66f, 0.64f);
+        } else {
+            fogTop = D2D1::ColorF(0.30f, 0.32f, 0.36f);
+            fogBot = D2D1::ColorF(0.48f, 0.50f, 0.54f);
         }
-        fogBrush->SetOpacity(alpha);
+        auto bg = MakeLinGrad(fogTop, fogBot);
+        if (bg) ctx->FillRectangle(D2D1::RectF(L,T,R,B), bg.Get());
+        FillSoftLight(cx, T + H * 0.24f, W * 0.48f, H * 0.18f,
+            D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.08f * alpha),
+            D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.0f));
+        FillAtmosphereLayer(T + H * 0.42f, B - H * 0.08f,
+            D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.08f * alpha),
+            D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.0f));
+        FillRidge(B - H * 0.32f, H * 0.024f, H * 0.012f, 0.9f, 1.8f, t * 0.03f,
+            D2D1::ColorF(0.54f, 0.56f, 0.58f), 0.22f);
+        FillRidge(B - H * 0.20f, H * 0.032f, H * 0.014f, 1.3f, 2.5f, t * 0.05f,
+            D2D1::ColorF(0.40f, 0.42f, 0.44f), 0.28f);
+        FillTreeLine(B - H * 0.16f, W * 0.072f, H * 0.04f, H * 0.08f,
+            D2D1::ColorF(0.26f, 0.28f, 0.30f), 0.22f, t * 0.03f);
+        FillGroundGlow(B - H * 0.08f, 0.08f, D2D1::ColorF(0.94f, 0.94f, 0.92f), 0.05f);
+        for (int i = 0; i < 6; ++i) {
+            float fy = T + H * (0.22f + i * 0.12f);
+            float drift = sinf(t * 0.16f + i * 1.13f) * W * 0.05f;
+            float widthScale = 0.86f - i * 0.06f;
+            float heightScale = 0.070f - i * 0.006f;
+            float layerAlpha = 0.18f - i * 0.02f;
+            FillMistBand(fy, widthScale, heightScale, drift, D2D1::ColorF(1.0f, 1.0f, 1.0f, layerAlpha));
+        }
         break;
     }
     }
+    DrawVignette();
 
     ctx->PopLayer();
 }
@@ -553,10 +843,12 @@ void WeatherComponent::DrawWeatherAmbientBg(float L, float T, float R, float B, 
 void WeatherComponent::DrawWeatherDaily(const D2D1_RECT_F& rect, float contentAlpha, ULONGLONG currentTime) {
     if (!m_res) return;
     auto* ctx = m_res->d2dContext;
-    float left=rect.left, top=rect.top, right=rect.right, bottom=rect.bottom;
+    float left = std::round(rect.left), top = std::round(rect.top), right = std::round(rect.right), bottom = std::round(rect.bottom);
     float islandWidth = right - left, islandHeight = bottom - top;
     float padding = 15.0f;
-    float cardTop = top + padding, cardBottom = bottom - padding;
+    float cardTop = std::round(top + padding), cardBottom = std::round(bottom - padding);
+    auto oldTextAA = ctx->GetTextAntialiasMode();
+    ctx->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
 
     ComPtr<ID2D1SolidColorBrush> glassBrush;
     ctx->CreateSolidColorBrush(D2D1::ColorF(0.15f,0.15f,0.15f,0.4f*contentAlpha), &glassBrush);
@@ -575,7 +867,8 @@ void WeatherComponent::DrawWeatherDaily(const D2D1_RECT_F& rect, float contentAl
         m_res->grayBrush->SetOpacity(contentAlpha);
         auto emptyLayout = GetOrCreateTextLayout(emptyText, m_res->subFormat, islandWidth, L"df_empty");
         emptyLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-        ctx->DrawTextLayout(D2D1::Point2F(left+padding, cardTop+(cardBottom-cardTop)/2.0f-8.0f), emptyLayout.Get(), m_res->grayBrush);
+        ctx->DrawTextLayout(D2D1::Point2F(std::round(left + padding), std::round(cardTop + (cardBottom - cardTop) / 2.0f - 8.0f)), emptyLayout.Get(), m_res->grayBrush);
+        ctx->SetTextAntialiasMode(oldTextAA);
         return;
     }
 
@@ -592,12 +885,12 @@ void WeatherComponent::DrawWeatherDaily(const D2D1_RECT_F& rect, float contentAl
 
     for (size_t i = 0; i < count; ++i) {
         const auto& df = m_daily[i];
-        float cellX = left + padding + 10.0f + i * cellW;
+        float cellX = std::round(left + padding + 10.0f + i * cellW);
 
         m_res->grayBrush->SetOpacity(contentAlpha * 0.8f);
         auto dateLayout = GetOrCreateTextLayout(df.date, m_res->subFormat, cellW, L"df_date_" + df.date + std::to_wstring(i));
         dateLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-        ctx->DrawTextLayout(D2D1::Point2F(cellX, dataTop), dateLayout.Get(), m_res->grayBrush);
+        ctx->DrawTextLayout(D2D1::Point2F(cellX, std::round(dataTop)), dateLayout.Get(), m_res->grayBrush);
 
         float iconSize = 22.0f;
         float iconX = cellX + (cellW - iconSize) / 2.0f;
@@ -611,13 +904,13 @@ void WeatherComponent::DrawWeatherDaily(const D2D1_RECT_F& rect, float contentAl
         m_res->whiteBrush->SetOpacity(contentAlpha);
         auto maxLayout = GetOrCreateTextLayout(maxText, m_res->titleFormat, cellW, L"df_max_" + maxText + std::to_wstring(i));
         maxLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-        ctx->DrawTextLayout(D2D1::Point2F(cellX, dataTop+42.0f), maxLayout.Get(), m_res->whiteBrush);
+        ctx->DrawTextLayout(D2D1::Point2F(cellX, std::round(dataTop + 42.0f)), maxLayout.Get(), m_res->whiteBrush);
 
         std::wstring minText = std::to_wstring((int)df.tempMin) + L"\u00B0";
         m_res->grayBrush->SetOpacity(contentAlpha * 0.7f);
         auto minLayout = GetOrCreateTextLayout(minText, m_res->subFormat, cellW, L"df_min_" + minText + std::to_wstring(i));
         minLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-        ctx->DrawTextLayout(D2D1::Point2F(cellX, dataTop+60.0f), minLayout.Get(), m_res->grayBrush);
+        ctx->DrawTextLayout(D2D1::Point2F(cellX, std::round(dataTop + 60.0f)), minLayout.Get(), m_res->grayBrush);
     }
 
     std::wstring hint = L"↑ 逐小时";
@@ -626,6 +919,7 @@ void WeatherComponent::DrawWeatherDaily(const D2D1_RECT_F& rect, float contentAl
     m_res->dwriteFactory->CreateTextFormat(L"Microsoft YaHei", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 9.0f, L"zh-cn", &hintFmt);
     ctx->DrawTextW(hint.c_str(), (UINT32)hint.size(), hintFmt.Get(),
         D2D1::RectF(right-padding-60.0f, cardBottom-14.0f, right-padding, cardBottom), m_res->grayBrush);
+    ctx->SetTextAntialiasMode(oldTextAA);
 }
 
 // ── DrawWeatherExpanded ────────────────────────────────────────────────────
@@ -634,13 +928,17 @@ void WeatherComponent::DrawWeatherExpanded(const D2D1_RECT_F& rect, float conten
     if (!m_res) return;
     auto* ctx = m_res->d2dContext;
     auto* fac = m_res->d2dFactory;
-    float left=rect.left, top=rect.top, right=rect.right, bottom=rect.bottom;
+    float left = std::round(rect.left);
+    float top = std::round(rect.top);
+    float right = std::round(rect.right);
+    float bottom = std::round(rect.bottom);
     float islandWidth = right - left;
     float padding = 15.0f;
-    float cardTop=top+padding, cardBottom=bottom-padding;
-    float cardWidth = (islandWidth - padding*3) / 2.0f;
-    float leftCardLeft  = left + padding;
-    float rightCardLeft = leftCardLeft + cardWidth + padding;
+    float cardTop = std::round(top + padding);
+    float cardBottom = std::round(bottom - padding);
+    float cardWidth = std::round((islandWidth - padding * 3) / 2.0f);
+    float leftCardLeft = std::round(left + padding);
+    float rightCardLeft = std::round(leftCardLeft + cardWidth + padding);
 
     // 右侧玻璃底板
     ComPtr<ID2D1SolidColorBrush> glassBrush;
@@ -676,24 +974,56 @@ void WeatherComponent::DrawWeatherExpanded(const D2D1_RECT_F& rect, float conten
         }
     }
 
-    // 左侧温度大字
     std::wstring tempText = std::to_wstring((int)m_temp) + L"\u00B0";
     ComPtr<IDWriteTextFormat> hugeTempFormat;
     m_res->dwriteFactory->CreateTextFormat(L"Microsoft YaHei", nullptr, DWRITE_FONT_WEIGHT_BOLD,
         DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 34.0f, L"zh-cn", &hugeTempFormat);
     hugeTempFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-    m_res->whiteBrush->SetOpacity(contentAlpha);
-    ctx->DrawTextW(tempText.c_str(), (UINT32)tempText.length(), hugeTempFormat.Get(),
-        D2D1::RectF(leftCardLeft, cardBottom-62.0f, leftCardLeft+cardWidth, cardBottom-22.0f), m_res->whiteBrush);
+    hugeTempFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
 
-    // 左侧天气描述
     ComPtr<IDWriteTextFormat> descFmt;
     m_res->dwriteFactory->CreateTextFormat(L"Microsoft YaHei", nullptr, DWRITE_FONT_WEIGHT_NORMAL,
         DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 10.0f, L"zh-cn", &descFmt);
     descFmt->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+    descFmt->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
+
+    ComPtr<IDWriteTextLayout> tempLayout;
+    ComPtr<IDWriteTextLayout> descLayout;
+    m_res->dwriteFactory->CreateTextLayout(tempText.c_str(), (UINT32)tempText.length(), hugeTempFormat.Get(), cardWidth, 80.0f, &tempLayout);
+    m_res->dwriteFactory->CreateTextLayout(m_desc.c_str(), (UINT32)m_desc.length(), descFmt.Get(), cardWidth, 30.0f, &descLayout);
+
+    DWRITE_TEXT_METRICS tempMetrics{};
+    DWRITE_TEXT_METRICS descMetrics{};
+    if (tempLayout) {
+        tempLayout->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+        tempLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        tempLayout->GetMetrics(&tempMetrics);
+    }
+    if (descLayout) {
+        descLayout->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+        descLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        descLayout->GetMetrics(&descMetrics);
+    }
+
+    const float bottomPadding = 10.0f;
+    const float textGap = 3.0f;
+    float descY = std::round(cardBottom - bottomPadding - descMetrics.height);
+    float tempY = std::round(descY - textGap - tempMetrics.height);
+    float tempX = std::round(leftCardLeft);
+    float descX = std::round(leftCardLeft);
+
+    auto oldTextAA = ctx->GetTextAntialiasMode();
+    ctx->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
+    m_res->whiteBrush->SetOpacity(contentAlpha);
+    ctx->DrawTextW(tempText.c_str(), (UINT32)tempText.length(), hugeTempFormat.Get(),
+        D2D1::RectF(leftCardLeft, tempY, leftCardLeft + cardWidth, tempY + std::round(tempMetrics.height + 6.0f)),
+        m_res->whiteBrush);
+
     m_res->grayBrush->SetOpacity(contentAlpha * 0.60f);
     ctx->DrawTextW(m_desc.c_str(), (UINT32)m_desc.length(), descFmt.Get(),
-        D2D1::RectF(leftCardLeft, cardBottom-20.0f, leftCardLeft+cardWidth, cardBottom-4.0f), m_res->grayBrush);
+        D2D1::RectF(leftCardLeft, descY, leftCardLeft + cardWidth, descY + std::round(descMetrics.height + 4.0f)),
+        m_res->grayBrush);
+    ctx->SetTextAntialiasMode(oldTextAA);
 
     // 右侧 2×3 逐小时网格
     if (!m_hourly.empty()) {
@@ -702,13 +1032,13 @@ void WeatherComponent::DrawWeatherExpanded(const D2D1_RECT_F& rect, float conten
         float cellHeight = (cardBottom - cardTop) / rows;
         for (size_t i = 0; i < m_hourly.size() && i < 6; ++i) {
             int row = (int)(i / cols), col = (int)(i % cols);
-            float cellX = rightCardLeft + col * cellWidth;
-            float cellY = cardTop + row * cellHeight;
+            float cellX = std::round(rightCardLeft + col * cellWidth);
+            float cellY = std::round(cardTop + row * cellHeight);
 
             m_res->grayBrush->SetOpacity(contentAlpha * 0.75f);
             auto timeLayout = GetOrCreateTextLayout(m_hourly[i].time, m_res->subFormat, cellWidth, L"hf_time_" + m_hourly[i].time);
             timeLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-            ctx->DrawTextLayout(D2D1::Point2F(cellX, cellY+6.0f), timeLayout.Get(), m_res->grayBrush);
+            ctx->DrawTextLayout(D2D1::Point2F(cellX, std::round(cellY + 6.0f)), timeLayout.Get(), m_res->grayBrush);
 
             float iconSize=18.0f;
             float iconX = cellX + (cellWidth-iconSize)*0.5f;
@@ -722,14 +1052,14 @@ void WeatherComponent::DrawWeatherExpanded(const D2D1_RECT_F& rect, float conten
             m_res->whiteBrush->SetOpacity(contentAlpha);
             auto tempLayout = GetOrCreateTextLayout(hTempText, m_res->titleFormat, cellWidth, L"hf_temp_" + hTempText);
             tempLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-            ctx->DrawTextLayout(D2D1::Point2F(cellX, cellY+44.0f), tempLayout.Get(), m_res->whiteBrush);
+            ctx->DrawTextLayout(D2D1::Point2F(cellX, std::round(cellY + 44.0f)), tempLayout.Get(), m_res->whiteBrush);
         }
     } else {
         std::wstring emptyText = L"暂无预报数据";
         m_res->grayBrush->SetOpacity(contentAlpha);
         auto emptyLayout = GetOrCreateTextLayout(emptyText, m_res->subFormat, cardWidth, L"hf_empty");
         emptyLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-        ctx->DrawTextLayout(D2D1::Point2F(rightCardLeft, cardTop+(cardBottom-cardTop)/2.0f-10.0f), emptyLayout.Get(), m_res->grayBrush);
+        ctx->DrawTextLayout(D2D1::Point2F(rightCardLeft, std::round(cardTop + (cardBottom - cardTop) / 2.0f - 10.0f)), emptyLayout.Get(), m_res->grayBrush);
     }
 
     // 底部提示
@@ -738,5 +1068,5 @@ void WeatherComponent::DrawWeatherExpanded(const D2D1_RECT_F& rect, float conten
     ComPtr<IDWriteTextFormat> hintFmt;
     m_res->dwriteFactory->CreateTextFormat(L"Microsoft YaHei", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 9.0f, L"zh-cn", &hintFmt);
     ctx->DrawTextW(hint.c_str(), (UINT32)hint.size(), hintFmt.Get(),
-        D2D1::RectF(right-padding-70.0f, bottom-padding-14.0f, right-padding, bottom-padding), m_res->grayBrush);
+        D2D1::RectF(std::round(right-padding-70.0f), std::round(bottom-padding-14.0f), std::round(right-padding), std::round(bottom-padding)), m_res->grayBrush);
 }
