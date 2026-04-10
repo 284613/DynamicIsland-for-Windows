@@ -31,6 +31,11 @@
 | `FilePanelComponent` | `FilePanelComponent.cpp` | 文件拖放/暂存 |
 | `ClockComponent` | `ClockComponent.cpp` | 紧凑态时钟居中 |
 
+本轮新增/确认的解耦点：
+- 文件暂存已迁入副岛体系，主岛不再因暂存文件切换到文件模式
+- `MediaMonitor` 已改成 SMTC 事件唤醒优先，轮询只做兜底同步与封面重试
+- 文件存储语义由独立的 `FileStashStore` 负责，支持真实移动和最多 5 个文件上限
+
 `RenderContext` 已瘦身为纯布局上下文，仅包含：
 - `islandWidth`
 - `islandHeight`
@@ -47,6 +52,7 @@
 |------|------|
 | `src/DynamicIsland.cpp` | 主窗口逻辑、状态机、优先级调度 |
 | `src/RenderEngine.cpp` | Direct2D 生命周期、共享资源、主/副岛壳体、组件调度 |
+| `include/FileStashStore.h` | 文件暂存存储层（真实移动 / 预览 / 打开 / 拖出） |
 | `src/WeatherPlugin.cpp` | 和风天气 API（Now/Hourly/Daily/Indices）|
 | `src/LayoutController.cpp` | 弹簧布局，坐标计算含 `m_dpiScale` |
 | `include/IslandState.h` | `RenderContext` · `IslandDisplayMode` 定义 |
@@ -97,6 +103,9 @@ enum class WeatherViewMode { Hourly, Daily };
 - 渲染入口 `RenderEngine::DrawCapsule` → 按 `RenderContext.mode` 分发
 - `DynamicIsland` 负责同步组件业务状态；`RenderEngine` 不再承载业务字段
 - 副岛背景统一由 `RenderEngine` 绘制，副岛内容只在 `VolumeComponent::DrawSecondary()` 中处理
+- 媒体状态变化优先走 `MediaMonitor` 的 SMTC 事件监听，不要重新退回“纯轮询驱动 UI”
+- 文件副岛与音量副岛共用 secondary 容器；音量调节期间音量副岛临时抢占，结束后文件副岛恢复
+- 文件暂存的拖入/拖出语义按真实移动实现，临时存储位置在 `%LOCALAPPDATA%\\DynamicIsland\\FileStash\\`
 
 ## Build
 
@@ -129,4 +138,4 @@ x64\Release\DynamicIsland.exe
 - 组件通过 `OnAttach(SharedResources*)` 获取 D2D 资源
 - 滚动/动画状态在 `Update(float dt)` 中推进，在 `Draw()` 中渲染
 - 副岛（secondary island）由 `RenderEngine` 画壳、`VolumeComponent::DrawSecondary()` 画内容，仅在音量调节激活时显示
-- 当前已修复的收尾交互问题包括：mini 态误绘制、天气展开态点击穿透、天气收缩直接跳 mini、副岛 Region 不刷新、首次专辑图不同步
+- 当前已修复的收尾交互问题包括：mini 态误绘制、天气展开态点击穿透、天气收缩直接跳 mini、副岛 Region 不刷新、首次专辑图不同步、文件副岛可点击区域接入 `WM_NCHITTEST`
