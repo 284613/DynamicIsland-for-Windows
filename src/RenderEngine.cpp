@@ -1,6 +1,63 @@
 #include "RenderEngine.h"
 #include "Constants.h"
+#include <algorithm>
 #include <cmath>
+
+namespace {
+Microsoft::WRL::ComPtr<ID2D1PathGeometry> CreateNotchGeometry(
+    ID2D1Factory1* factory,
+    const D2D1_RECT_F& rect,
+    float bottomRadius)
+{
+    Microsoft::WRL::ComPtr<ID2D1PathGeometry> geometry;
+    if (!factory) {
+        return geometry;
+    }
+
+    const float radius = (std::max)(0.0f, (std::min)(bottomRadius, (rect.bottom - rect.top) / 2.0f));
+    if (FAILED(factory->CreatePathGeometry(&geometry))) {
+        geometry.Reset();
+        return geometry;
+    }
+
+    Microsoft::WRL::ComPtr<ID2D1GeometrySink> sink;
+    if (FAILED(geometry->Open(&sink))) {
+        geometry.Reset();
+        return geometry;
+    }
+
+    sink->SetFillMode(D2D1_FILL_MODE_WINDING);
+    sink->BeginFigure(D2D1::Point2F(rect.left, rect.top), D2D1_FIGURE_BEGIN_FILLED);
+    sink->AddLine(D2D1::Point2F(rect.right, rect.top));
+
+    if (radius > 0.01f) {
+        sink->AddLine(D2D1::Point2F(rect.right, rect.bottom - radius));
+        sink->AddArc(D2D1::ArcSegment(
+            D2D1::Point2F(rect.right - radius, rect.bottom),
+            D2D1::SizeF(radius, radius),
+            0.0f,
+            D2D1_SWEEP_DIRECTION_CLOCKWISE,
+            D2D1_ARC_SIZE_SMALL));
+        sink->AddLine(D2D1::Point2F(rect.left + radius, rect.bottom));
+        sink->AddArc(D2D1::ArcSegment(
+            D2D1::Point2F(rect.left, rect.bottom - radius),
+            D2D1::SizeF(radius, radius),
+            0.0f,
+            D2D1_SWEEP_DIRECTION_CLOCKWISE,
+            D2D1_ARC_SIZE_SMALL));
+    } else {
+        sink->AddLine(D2D1::Point2F(rect.right, rect.bottom));
+        sink->AddLine(D2D1::Point2F(rect.left, rect.bottom));
+    }
+
+    sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+    if (FAILED(sink->Close())) {
+        geometry.Reset();
+    }
+
+    return geometry;
+}
+}
 
 RenderEngine::RenderEngine() = default;
 RenderEngine::~RenderEngine() = default;
@@ -423,33 +480,48 @@ void RenderEngine::DrawCapsule(const RenderContext& ctx) {
     m_d2dContext->SetTransform(D2D1::Matrix3x2F::Translation(static_cast<float>(offset.x) / dpiScale, static_cast<float>(offset.y) / dpiScale));
 
     float left = (ctx.canvasWidth - ctx.islandWidth) / 2.0f;
-    float top = 10.0f;
+    float top = Constants::UI::TOP_MARGIN;
     float right = left + ctx.islandWidth;
     float bottom = top + ctx.islandHeight;
+    float radius = (std::min)(Constants::UI::NOTCH_BOTTOM_RADIUS, ctx.islandHeight / 2.0f);
+    D2D1_RECT_F notchRect = D2D1::RectF(left, top, right, bottom);
+    D2D1_ROUNDED_RECT fallbackRect = D2D1::RoundedRect(notchRect, radius, radius);
+    ComPtr<ID2D1PathGeometry> notchGeometry = CreateNotchGeometry(m_d2dFactory.Get(), notchRect, radius);
 
-    m_targetRadius = (ctx.islandHeight < 60.0f) ? (ctx.islandHeight / 2.0f) : 20.0f;
-    m_currentRadius += (m_targetRadius - m_currentRadius) * 0.4f;
-    float radius = m_currentRadius;
-
-    D2D1_ROUNDED_RECT capsuleRect = D2D1::RoundedRect(D2D1::RectF(left, top, right, bottom), radius, radius);
     m_blackBrush->SetOpacity(1.0f);
-    m_d2dContext->FillRoundedRectangle(&capsuleRect, m_blackBrush.Get());
+    if (notchGeometry) {
+        m_d2dContext->FillGeometry(notchGeometry.Get(), m_blackBrush.Get());
+    } else {
+        m_d2dContext->FillRoundedRectangle(&fallbackRect, m_blackBrush.Get());
+    }
 
     if (ctx.contentAlpha > 0.01f) {
-        ComPtr<ID2D1RoundedRectangleGeometry> clipGeometry;
-        m_d2dFactory->CreateRoundedRectangleGeometry(&capsuleRect, &clipGeometry);
+        ComPtr<ID2D1Geometry> clipGeometry;
+        if (notchGeometry) {
+            clipGeometry = notchGeometry;
+        } else {
+            ComPtr<ID2D1RoundedRectangleGeometry> fallbackGeometry;
+            if (SUCCEEDED(m_d2dFactory->CreateRoundedRectangleGeometry(&fallbackRect, &fallbackGeometry))) {
+                clipGeometry = fallbackGeometry;
+            }
+        }
+
         ComPtr<ID2D1Layer> layer;
-        m_d2dContext->CreateLayer(&layer);
-        m_d2dContext->PushLayer(D2D1::LayerParameters(
-            D2D1::InfiniteRect(), clipGeometry.Get(), D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
-            D2D1::IdentityMatrix(), 1.0f, nullptr, D2D1_LAYER_OPTIONS_NONE), layer.Get());
+        if (clipGeometry && SUCCEEDED(m_d2dContext->CreateLayer(&layer))) {
+            m_d2dContext->PushLayer(D2D1::LayerParameters(
+                D2D1::InfiniteRect(), clipGeometry.Get(), D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
+                D2D1::IdentityMatrix(), 1.0f, nullptr, D2D1_LAYER_OPTIONS_NONE), layer.Get());
+        }
 
         m_whiteBrush->SetOpacity(ctx.contentAlpha);
         m_grayBrush->SetOpacity(ctx.contentAlpha);
         m_themeBrush->SetOpacity(ctx.contentAlpha);
 
-        DrawPrimaryContent(D2D1::RectF(left, top, right, bottom), ctx);
-        m_d2dContext->PopLayer();
+        DrawPrimaryContent(notchRect, ctx);
+
+        if (layer) {
+            m_d2dContext->PopLayer();
+        }
     }
 
     DrawSecondaryIsland(ctx, top, bottom);

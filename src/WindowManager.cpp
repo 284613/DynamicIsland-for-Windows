@@ -34,7 +34,7 @@ bool WindowManager::Create(HINSTANCE hInstance, int width, int height, IMessageH
     // 屏幕居中顶部计算
     int screenWidth = GetSystemMetrics(SM_CXSCREEN);
     int posX = (screenWidth - width) / 2;
-    int posY = 10;
+    int posY = 0;
 
     DWORD dwExStyle = WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOREDIRECTIONBITMAP;
     DWORD dwStyle = WS_POPUP;

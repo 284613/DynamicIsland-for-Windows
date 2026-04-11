@@ -2,6 +2,7 @@
 
 #include "DynamicIsland.h"
 
+#include <algorithm>
 #include "EventBus.h"
 
 #include <windowsx.h>
@@ -247,7 +248,7 @@ D2D1_RECT_F DynamicIsland::GetSecondaryRectLogical() const {
 		break;
 	}
 	float left = (CANVAS_WIDTH - GetCurrentWidth()) / 2.0f;
-	float top = 10.0f;
+	float top = Constants::UI::TOP_MARGIN;
 	float bottom = top + GetCurrentHeight();
 	float secLeft = (CANVAS_WIDTH - secWidth) / 2.0f;
 	float secTop = bottom + 12.0f;
@@ -771,7 +772,7 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 		float left = (CANVAS_WIDTH - GetCurrentWidth()) / 2.0f;
 		float right = left + GetCurrentWidth();
-		float top = 10.0f;
+		float top = Constants::UI::TOP_MARGIN;
 		float bottom = top + GetCurrentHeight();
 		if (pt.x >= left && pt.x <= right && pt.y >= top && pt.y <= bottom) {
 			return HTCLIENT;
@@ -812,7 +813,7 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 		float hoverRight = hoverLeft + GetCurrentWidth();
 
-		float hoverTop = 10.0f;
+		float hoverTop = Constants::UI::TOP_MARGIN;
 
 		float hoverBottom = hoverTop + GetCurrentHeight();
 
@@ -864,7 +865,7 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 		if (m_state == IslandState::Collapsed && !m_mediaMonitor.IsPlaying() && !m_isWeatherExpanded) {
 			float left = (CANVAS_WIDTH - GetCurrentWidth()) / 2.0f;
 			float right = left + GetCurrentWidth();
-			float top = 10.0f;
+			float top = Constants::UI::TOP_MARGIN;
 			float islandHeight = GetCurrentHeight();
 			float iconSize = islandHeight * 0.4f;
 			float iconX = right - iconSize - 15.0f;
@@ -1069,7 +1070,7 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 		if (m_state == IslandState::Collapsed && !m_mediaMonitor.IsPlaying() && !m_isWeatherExpanded) {
 			float left = (CANVAS_WIDTH - GetCurrentWidth()) / 2.0f;
 			float right = left + GetCurrentWidth();
-			float top = 10.0f;
+			float top = Constants::UI::TOP_MARGIN;
 			float islandHeight = GetCurrentHeight();
 			float iconSize = islandHeight * 0.4f;
 			float iconX = right - iconSize - 15.0f;
@@ -1710,19 +1711,30 @@ void DynamicIsland::RemoveTrayIcon() {
 
 void DynamicIsland::UpdateWindowRegion() {
 	// 计算主岛区域
+	auto toPhysical = [this](float logical) {
+		return static_cast<int>(std::round(logical * m_dpiScale));
+	};
+
 	float left = (CANVAS_WIDTH - GetCurrentWidth()) / 2.0f;
-	float top = 10.0f;
+	float top = Constants::UI::TOP_MARGIN;
 	float right = left + GetCurrentWidth();
 	float bottom = top + GetCurrentHeight();
-	float radius = (GetCurrentHeight() < 60.0f) ? (GetCurrentHeight() / 2.0f) : 20.0f;
+	float radius = (std::min)(Constants::UI::NOTCH_BOTTOM_RADIUS, GetCurrentHeight() / 2.0f);
 
-	int ileft = (int)(left * m_dpiScale + 0.5f);
-	int itop = (int)(top * m_dpiScale + 0.5f);
-	int iright = (int)(right * m_dpiScale + 0.5f);
-	int ibottom = (int)(bottom * m_dpiScale + 0.5f);
-	int iradius = (int)(radius * m_dpiScale + 0.5f);
+	int ileft = toPhysical(left);
+	int itop = toPhysical(top);
+	int iright = toPhysical(right);
+	int ibottom = toPhysical(bottom);
+	int iradius = (std::max)(1, toPhysical(radius * 2.0f));
 
 	HRGN hMainRgn = CreateRoundRectRgn(ileft, itop, iright, ibottom, iradius, iradius);
+	if (hMainRgn) {
+		HRGN hTopRectRgn = CreateRectRgn(ileft, itop, iright, toPhysical(bottom - radius));
+		if (hTopRectRgn) {
+			CombineRgn(hMainRgn, hMainRgn, hTopRectRgn, RGN_OR);
+			DeleteObject(hTopRectRgn);
+		}
+	}
 
 	// 使用动画高度更新副岛区域
 	float secHeight = m_layoutController.GetSecondaryHeight();
@@ -1744,11 +1756,11 @@ void DynamicIsland::UpdateWindowRegion() {
 		float secBottom = secTop + secHeight;
 		float secRadius = (secHeight < 60.0f) ? (secHeight / 2.0f) : 20.0f;
 
-		int sileft = (int)(secLeft * m_dpiScale + 0.5f);
-		int sitop = (int)(secTop * m_dpiScale + 0.5f);
-		int siright = (int)(secRight * m_dpiScale + 0.5f);
-		int sibottom = (int)(secBottom * m_dpiScale + 0.5f);
-		int siradius = (int)(secRadius * m_dpiScale + 0.5f);
+		int sileft = toPhysical(secLeft);
+		int sitop = toPhysical(secTop);
+		int siright = toPhysical(secRight);
+		int sibottom = toPhysical(secBottom);
+		int siradius = toPhysical(secRadius);
 
 		HRGN hSecRgn = CreateRoundRectRgn(sileft, sitop, siright, sibottom, siradius, siradius);
 		if (hSecRgn) {

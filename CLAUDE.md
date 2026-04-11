@@ -26,6 +26,8 @@
 
 - 组件化重构已完成，`RenderEngine.cpp` 已瘦身为壳体 + 调度。
 - `DynamicIsland.cpp` 已做一轮 slim，当前约 `1831` 行。
+- 主岛已改为 macOS 风格刘海，顶部贴顶，仅底部圆角。
+- mini / collapsed 默认尺寸已调整为更扁的 `96x24`。
 - 文件副岛输入已拆到 `src/FileSecondaryInput.cpp`。
 - 文件暂存已迁入副岛体系，不再劫持主岛模式。
 - `MediaMonitor` 已是 SMTC 事件优先，轮询只做兜底同步。
@@ -56,6 +58,7 @@
 ## 重要运行约束
 
 - 新功能优先放进对应组件，不要继续把业务逻辑堆进 `RenderEngine`。
+- 主岛壳体当前是 notch 几何，副岛仍是胶囊；不要把副岛一起改成贴顶形态。
 - 所有布局坐标、命中测试、鼠标输入都要考虑 `m_dpiScale`。
 - 保留 `std::round` 的 DPI 坐标换算语义，不要改成截断。
 - 天气请求必须异步，UI 线程不能阻塞网络。

@@ -118,8 +118,6 @@ private:
     ComPtr<IWICImagingFactory> m_wicFactory;
 
     float m_dpi = 96.0f;
-    float m_currentRadius = 14.0f;
-    float m_targetRadius = 14.0f;
     ULONGLONG m_lastFrameTime = 0;
 
     IslandDisplayMode m_lastMode = IslandDisplayMode::Idle;

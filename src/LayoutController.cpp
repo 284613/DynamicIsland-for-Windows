@@ -78,7 +78,7 @@ int LayoutController::HitTestPlaybackButtons(POINT pt, bool isExpanded, bool has
     if (!isExpanded || !hasSession) return -1;
 
     float left = (canvasWidth - currentWidth) / 2.0f;
-    float top = 10.0f;
+    float top = Constants::UI::TOP_MARGIN;
     float right = left + currentWidth;
     float artSize = 60.0f;
     float artLeft = left + 20.0f;
@@ -113,7 +113,7 @@ int LayoutController::HitTestProgressBar(POINT pt, bool isExpanded, bool hasSess
     if (!isExpanded || !hasSession) return -1;
 
     float left = (canvasWidth - currentWidth) / 2.0f;
-    float top = 10.0f;
+    float top = Constants::UI::TOP_MARGIN;
     float right = left + currentWidth;
     float artSize = 60.0f;
     float artLeft = left + 20.0f;

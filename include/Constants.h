@@ -11,8 +11,8 @@ namespace Constants {
 // ============================================
 namespace Size {
     // Mini 尺寸（无任务时显示时间）
-    constexpr float MINI_WIDTH = 80.0f;
-    constexpr float MINI_HEIGHT = 28.0f;
+    constexpr float MINI_WIDTH = 96.0f;
+    constexpr float MINI_HEIGHT = 24.0f;
     
     // Collapsed 尺寸
     constexpr float COLLAPSED_WIDTH = MINI_WIDTH;
@@ -58,7 +58,8 @@ namespace Size {
 // UI 尺寸常量
 // ============================================
 namespace UI {
-    constexpr float TOP_MARGIN = 10.0f;           // 顶部边距
+    constexpr float TOP_MARGIN = 0.0f;            // 主岛贴顶
+    constexpr float NOTCH_BOTTOM_RADIUS = 12.0f;  // 刘海底部圆角
     constexpr float LEFT_MARGIN = 15.0f;          // 左边距
     constexpr float RIGHT_MARGIN = 20.0f;         // 右边距
     constexpr float BOTTOM_MARGIN = 10.0f;        // 底部边距
