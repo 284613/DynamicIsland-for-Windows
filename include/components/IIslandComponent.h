@@ -76,4 +76,15 @@ public:
     virtual bool OnMouseWheel(float x, float y, int delta) { return false; }
     virtual bool OnMouseMove(float x, float y)             { return false; }
     virtual bool OnMouseClick(float x, float y)            { return false; }
+    virtual bool OnChar(wchar_t ch)                        { return false; }
+    virtual bool OnKeyDown(WPARAM key)                     { return false; }
+    virtual bool OnImeComposition(HWND hwnd, LPARAM lParam){ return false; }
+    virtual bool OnImeSetContext(HWND hwnd, WPARAM wParam, LPARAM lParam, LRESULT& result) {
+        (void)hwnd;
+        (void)wParam;
+        (void)lParam;
+        (void)result;
+        return false;
+    }
+    virtual D2D1_RECT_F GetImeAnchorRect() const           { return D2D1::RectF(0, 0, 0, 0); }
 };

@@ -206,6 +206,8 @@ void DynamicIsland::OpenPomodoroPanel() {
         return;
     }
 
+    m_todoInputActive = false;
+    m_todoExpanded = false;
     m_isWeatherExpanded = false;
     m_pomodoroExpanded = true;
     pomodoro->SetExpanded(true);
@@ -240,14 +242,114 @@ void DynamicIsland::HandlePomodoroFinished() {
     Invalidate(Dirty_Alert | Dirty_Region | Dirty_Time);
 }
 
+void DynamicIsland::OpenTodoInputCompact() {
+    m_todoExpanded = false;
+    m_todoInputActive = true;
+    m_isWeatherExpanded = false;
+    m_state = IslandState::Collapsed;
+    KillTimer(m_window.GetHWND(), m_displayTimerId);
+    const bool alreadyCompactSize =
+        std::abs(GetTargetWidth() - Constants::Size::COMPACT_WIDTH) < 0.5f &&
+        std::abs(GetTargetHeight() - Constants::Size::COMPACT_HEIGHT) < 0.5f &&
+        std::abs(GetCurrentWidth() - Constants::Size::COMPACT_WIDTH) < 0.5f &&
+        std::abs(GetCurrentHeight() - Constants::Size::COMPACT_HEIGHT) < 0.5f;
+    if (!alreadyCompactSize) {
+        TransitionTo(IslandDisplayMode::TodoInputCompact);
+    } else {
+        Invalidate(Dirty_Time | Dirty_Region | Dirty_Hover);
+    }
+    if (auto* todo = m_renderer.GetTodoComponent()) {
+        todo->SetDisplayMode(IslandDisplayMode::TodoInputCompact);
+        todo->BeginCompactInputFocus();
+    }
+    SetForegroundWindow(m_window.GetHWND());
+    SetActiveWindow(m_window.GetHWND());
+    SetFocus(m_window.GetHWND());
+    PositionActiveImeWindow();
+}
+
+void DynamicIsland::CloseTodoInputCompact() {
+    m_todoInputActive = false;
+    m_state = IslandState::Collapsed;
+    TransitionTo(DetermineDisplayMode());
+}
+
+void DynamicIsland::OpenTodoPanel() {
+    m_todoInputActive = false;
+    m_todoExpanded = true;
+    m_isWeatherExpanded = false;
+    m_state = IslandState::Expanded;
+    KillTimer(m_window.GetHWND(), m_displayTimerId);
+    TransitionTo(IslandDisplayMode::TodoExpanded);
+    SetForegroundWindow(m_window.GetHWND());
+    SetActiveWindow(m_window.GetHWND());
+    SetFocus(m_window.GetHWND());
+    PositionActiveImeWindow();
+}
+
+void DynamicIsland::CloseTodoPanel() {
+    m_todoExpanded = false;
+    m_state = IslandState::Collapsed;
+    TransitionTo(DetermineDisplayMode());
+}
+
+void DynamicIsland::PositionActiveImeWindow() {
+    D2D1_RECT_F anchor = D2D1::RectF(0, 0, 0, 0);
+    if (auto* todo = m_renderer.GetTodoComponent(); todo && IsTodoTextMode(DetermineDisplayMode())) {
+        anchor = todo->GetImeAnchorRect();
+    } else {
+        anchor = m_renderer.GetImeAnchorRect();
+    }
+    if (anchor.right <= anchor.left || anchor.bottom <= anchor.top) {
+        return;
+    }
+
+    HIMC himc = ImmGetContext(m_window.GetHWND());
+    if (!himc) {
+        return;
+    }
+
+    COMPOSITIONFORM cf{};
+    cf.dwStyle = CFS_FORCE_POSITION;
+    cf.ptCurrentPos.x = static_cast<LONG>(std::round(anchor.left * m_dpiScale));
+    cf.ptCurrentPos.y = static_cast<LONG>(std::round(anchor.bottom * m_dpiScale));
+    ImmSetCompositionWindow(himc, &cf);
+    ImmReleaseContext(m_window.GetHWND(), himc);
+}
+
+bool DynamicIsland::IsTodoTextMode(IslandDisplayMode mode) const {
+    return mode == IslandDisplayMode::TodoInputCompact || mode == IslandDisplayMode::TodoExpanded;
+}
+
+bool DynamicIsland::ShouldKeepCompactOverride() const {
+    return m_hasCompactOverride &&
+        IsCompactSwitchableMode(m_compactOverrideMode) &&
+        CollectAvailableCompactModes().size() > 1;
+}
+
 void DynamicIsland::TransitionTo(IslandDisplayMode mode) {
 
 	switch (mode) {
 
 		case IslandDisplayMode::Idle:
+			if (m_state == IslandState::Collapsed &&
+				m_hasCompactOverride &&
+				m_compactOverrideMode == IslandDisplayMode::Idle &&
+				CollectAvailableCompactModes().size() > 1) {
+				SetTargetSize(Constants::Size::COMPACT_WIDTH, Constants::Size::COMPACT_HEIGHT);
+			} else {
+				SetTargetSize(Constants::Size::COLLAPSED_WIDTH, Constants::Size::COLLAPSED_HEIGHT);
+			}
 
-			SetTargetSize(Constants::Size::COLLAPSED_WIDTH, Constants::Size::COLLAPSED_HEIGHT);
+			break;
 
+		case IslandDisplayMode::TodoInputCompact:
+		case IslandDisplayMode::TodoListCompact:
+			SetTargetSize(Constants::Size::COMPACT_WIDTH, Constants::Size::COMPACT_HEIGHT);
+			break;
+
+		case IslandDisplayMode::TodoExpanded:
+			SetTargetSize(Constants::Size::TODO_EXPANDED_WIDTH, Constants::Size::TODO_EXPANDED_HEIGHT);
 			break;
 
 		case IslandDisplayMode::PomodoroCompact:
@@ -304,14 +406,62 @@ void DynamicIsland::SetTargetSize(float width, float height) {
 
 }
 
-IslandDisplayMode DynamicIsland::DetermineDisplayMode() const {
-	// PR6: Use priority table for configurable scheduling
+IslandDisplayMode DynamicIsland::DetermineBaseDisplayMode() const {
 	for (const auto& entry : m_priorityTable) {
 		if (entry.condition()) {
 			return entry.mode;
 		}
 	}
 	return IslandDisplayMode::Idle;
+}
+
+IslandDisplayMode DynamicIsland::DetermineDisplayMode() {
+	const IslandDisplayMode baseMode = DetermineBaseDisplayMode();
+	if (m_state != IslandState::Collapsed || !IsCompactSwitchableMode(baseMode)) {
+		return baseMode;
+	}
+
+	if (!m_hasCompactOverride) {
+		return baseMode;
+	}
+
+	if (!IsCompactSwitchableMode(m_compactOverrideMode)) {
+		ClearCompactOverride();
+		return baseMode;
+	}
+
+	const auto availableModes = CollectAvailableCompactModes();
+	if (std::find(availableModes.begin(), availableModes.end(), m_compactOverrideMode) == availableModes.end()) {
+		ClearCompactOverride();
+		return baseMode;
+	}
+
+	return m_compactOverrideMode;
+}
+
+std::vector<IslandDisplayMode> DynamicIsland::CollectAvailableCompactModes() const {
+	std::vector<IslandDisplayMode> modes;
+	if (m_mediaMonitor.IsPlaying()) {
+		modes.push_back(IslandDisplayMode::MusicCompact);
+	}
+	if (auto* pomodoro = m_renderer.GetPomodoroComponent(); pomodoro && pomodoro->HasActiveSession()) {
+		modes.push_back(IslandDisplayMode::PomodoroCompact);
+	}
+	modes.push_back(IslandDisplayMode::TodoListCompact);
+	modes.push_back(IslandDisplayMode::Idle);
+	return modes;
+}
+
+void DynamicIsland::ClearCompactOverride() {
+	m_hasCompactOverride = false;
+	m_compactOverrideMode = IslandDisplayMode::Idle;
+}
+
+bool DynamicIsland::IsCompactSwitchableMode(IslandDisplayMode mode) {
+	return mode == IslandDisplayMode::Idle ||
+		mode == IslandDisplayMode::TodoListCompact ||
+		mode == IslandDisplayMode::MusicCompact ||
+		mode == IslandDisplayMode::PomodoroCompact;
 }
 
 SecondaryContentKind DynamicIsland::DetermineSecondaryContent() const {
@@ -360,6 +510,7 @@ void DynamicIsland::LoadConfig() {
 
 	CANVAS_WIDTH = (float)getInt(L"Settings", L"CanvasWidth", (int)Constants::Size::CANVAS_WIDTH);
 	CANVAS_HEIGHT = (float)getInt(L"Settings", L"CanvasHeight", (int)Constants::Size::CANVAS_HEIGHT);
+	CANVAS_WIDTH = (std::max)(CANVAS_WIDTH, Constants::Size::TODO_EXPANDED_WIDTH + 80.0f);
 	if (CANVAS_HEIGHT < Constants::Size::CANVAS_HEIGHT) {
 		CANVAS_HEIGHT = Constants::Size::CANVAS_HEIGHT;
 	}
@@ -410,6 +561,8 @@ bool DynamicIsland::Initialize(HINSTANCE hInstance) {
 	// PR6: 初始化显示模式优先级调度表
 	m_priorityTable = {
 		{ IslandDisplayMode::Alert,          100, [this]() { return m_isAlertActive; } },
+		{ IslandDisplayMode::TodoExpanded,    95, [this]() { return m_todoExpanded; } },
+		{ IslandDisplayMode::TodoInputCompact, 92, [this]() { return m_todoInputActive; } },
 		{ IslandDisplayMode::WeatherExpanded,  90, [this]() { return m_isWeatherExpanded; } },
 		{ IslandDisplayMode::PomodoroExpanded, 80, [this]() { return m_pomodoroExpanded; } },
 		{ IslandDisplayMode::MusicExpanded,    70, [this]() { return m_state == IslandState::Expanded && m_mediaMonitor.HasSession(); } },
@@ -450,6 +603,13 @@ bool DynamicIsland::Initialize(HINSTANCE hInstance) {
 
 	m_renderer.SetDpi((float)m_currentDpi);
 	m_renderer.SetClockClickCallback([this]() { OpenPomodoroPanel(); });
+	m_todoStore.Load();
+	m_renderer.SetTodoStore(&m_todoStore);
+	if (auto* todo = m_renderer.GetTodoComponent()) {
+		todo->SetOnRequestCloseInput([this]() { CloseTodoInputCompact(); });
+		todo->SetOnRequestCloseExpanded([this]() { CloseTodoPanel(); });
+		todo->SetOnLaunchComplete([this]() { OpenTodoInputCompact(); });
+	}
 	if (auto* pomodoro = m_renderer.GetPomodoroComponent()) {
 		pomodoro->SetOnFinished([this]() { HandlePomodoroFinished(); });
 	}
@@ -703,9 +863,10 @@ void DynamicIsland::UpdatePhysics() {
 	std::wstring realTitle = m_cachedTitle;
 	std::wstring realArtist = m_cachedArtist;
 
-	// 检查是否显示时间：收缩状态 + 无通知 + 不在播放（暂停就显示时间）
+	const IslandDisplayMode mode = DetermineDisplayMode();
 
-	bool showTime = (m_state == IslandState::Collapsed && !m_isAlertActive && !isPlaying);
+	// 仅当前台页就是 Idle 且主岛处于收缩态时显示时间天气页内容
+	bool showTime = (m_state == IslandState::Collapsed && mode == IslandDisplayMode::Idle);
 
 	// 节流：每1000ms更新一次时间字符串，避免频繁重绘导致抖动
 
@@ -824,7 +985,6 @@ void DynamicIsland::UpdatePhysics() {
 	m_renderer.SetWeatherState(m_weatherLocationText, m_weatherDesc, m_weatherTemp, weatherIconId,
 		hourlyForecasts, dailyForecasts, m_isWeatherExpanded, m_weatherViewMode);
 
-	IslandDisplayMode mode = DetermineDisplayMode();
 	RenderContext ctx;
 	ctx.islandWidth = GetCurrentWidth();
 	ctx.islandHeight = GetCurrentHeight();
@@ -953,7 +1113,13 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 		}
 
 		IslandDisplayMode currentMode = DetermineDisplayMode();
-		if ((currentMode == IslandDisplayMode::PomodoroExpanded || currentMode == IslandDisplayMode::PomodoroCompact) &&
+		const bool todoBadgeHoverChanged =
+			(currentMode == IslandDisplayMode::Idle) ? m_renderer.HandleIdleTodoMouseMove((float)pt.x, (float)pt.y) : false;
+		if ((currentMode == IslandDisplayMode::PomodoroExpanded ||
+			currentMode == IslandDisplayMode::PomodoroCompact ||
+			currentMode == IslandDisplayMode::TodoInputCompact ||
+			currentMode == IslandDisplayMode::TodoListCompact ||
+			currentMode == IslandDisplayMode::TodoExpanded) &&
 			m_renderer.OnMouseMove((float)pt.x, (float)pt.y)) {
 			Invalidate(Dirty_Hover | Dirty_Time);
 			return 0;
@@ -987,6 +1153,8 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 			if (auto* pomodoro = m_renderer.GetPomodoroComponent()) {
 				suppressHoverResize = suppressHoverResize || pomodoro->HasActiveSession();
 			}
+			suppressHoverResize = suppressHoverResize || m_todoInputActive;
+			const bool keepCompactOverride = ShouldKeepCompactOverride();
 
 			
 
@@ -1000,7 +1168,7 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 				}
 
-			} else if (!suppressHoverResize && !m_isHovering && m_state == IslandState::Collapsed) {
+			} else if (!suppressHoverResize && !keepCompactOverride && !m_isHovering && m_state == IslandState::Collapsed) {
 
 				// 鼠标离开时：如果是compact大小，启动5秒定时器后缩小到mini
 
@@ -1017,7 +1185,7 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 		}
 
 		// Weather icon hover detection: trigger animation on first hover
-		if (m_state == IslandState::Collapsed && !m_mediaMonitor.IsPlaying() && !m_isWeatherExpanded) {
+		if (m_state == IslandState::Collapsed && currentMode == IslandDisplayMode::Idle && !m_isWeatherExpanded) {
 			float left = (CANVAS_WIDTH - GetCurrentWidth()) / 2.0f;
 			float right = left + GetCurrentWidth();
 			float top = Constants::UI::TOP_MARGIN;
@@ -1032,6 +1200,20 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 			if (isOverWeather) {
 				EnsureRenderLoopRunning();
 			}
+		}
+
+		if (currentMode == IslandDisplayMode::TodoInputCompact ||
+			currentMode == IslandDisplayMode::TodoListCompact ||
+			currentMode == IslandDisplayMode::TodoExpanded) {
+			TRACKMOUSEEVENT tmeTodo{};
+			tmeTodo.cbSize = sizeof(TRACKMOUSEEVENT);
+			tmeTodo.dwFlags = TME_LEAVE;
+			tmeTodo.hwndTrack = hwnd;
+			TrackMouseEvent(&tmeTodo);
+			if (todoBadgeHoverChanged) {
+				Invalidate(Dirty_Hover | Dirty_Region);
+			}
+			return 0;
 		}
 
 // 进度条拖动
@@ -1085,6 +1267,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 		tme.hwndTrack = hwnd;
 
 		TrackMouseEvent(&tme);
+		if (todoBadgeHoverChanged) {
+			Invalidate(Dirty_Hover | Dirty_Region);
+		}
 
 		return 0;
 
@@ -1116,19 +1301,29 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 			if (auto* pomodoro = m_renderer.GetPomodoroComponent()) {
 				keepCompact = pomodoro->HasActiveSession();
 			}
+			keepCompact = keepCompact || ShouldKeepCompactOverride() || m_todoInputActive;
 			if (m_state == IslandState::Collapsed &&
 			    GetTargetHeight() >= Constants::Size::COMPACT_MIN_HEIGHT &&
 			    !keepCompact) {
 			    SetTimer(hwnd, m_displayTimerId, 5000, nullptr);
-			}}
+			}
+		}
 
 		if (m_fileHoveredIndex != -1) {
 			m_fileHoveredIndex = -1;
 		}
+		m_renderer.HandleIdleTodoMouseMove(-1.0f, -1.0f);
 		Invalidate(Dirty_Hover | Dirty_FileDrop);
 		return 0;
 
 	}
+
+	case WM_KILLFOCUS:
+		if (m_todoInputActive) {
+			CloseTodoInputCompact();
+			Invalidate(Dirty_Time | Dirty_Region);
+		}
+		return 0;
 
 	// 鼠标点击胶囊体
 
@@ -1147,12 +1342,35 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 		}
 
 		IslandDisplayMode currentMode = DetermineDisplayMode();
+		if (currentMode == IslandDisplayMode::Idle) {
+			if (auto* todo = m_renderer.GetTodoComponent(); todo && todo->IsLaunchAnimating()) {
+				return 0;
+			}
+		}
+		if (currentMode == IslandDisplayMode::Idle &&
+			m_renderer.IdleTodoBadgeContains((float)pt.x, (float)pt.y)) {
+			if (auto* todo = m_renderer.GetTodoComponent()) {
+				todo->BeginIdleOpenAnimation();
+			}
+			Invalidate(Dirty_Hover | Dirty_Time | Dirty_Region);
+			return 0;
+		}
 		if ((currentMode == IslandDisplayMode::Idle ||
 			currentMode == IslandDisplayMode::PomodoroExpanded ||
-			currentMode == IslandDisplayMode::PomodoroCompact) &&
+			currentMode == IslandDisplayMode::PomodoroCompact ||
+			currentMode == IslandDisplayMode::TodoInputCompact ||
+			currentMode == IslandDisplayMode::TodoListCompact ||
+			currentMode == IslandDisplayMode::TodoExpanded) &&
 			m_renderer.OnMouseClick((float)pt.x, (float)pt.y)) {
 			if (currentMode != IslandDisplayMode::Idle) {
-				SyncPomodoroMode();
+				if (currentMode == IslandDisplayMode::PomodoroExpanded || currentMode == IslandDisplayMode::PomodoroCompact) {
+					SyncPomodoroMode();
+				} else if (currentMode == IslandDisplayMode::TodoListCompact) {
+					OpenTodoPanel();
+				}
+			}
+			if (IsTodoTextMode(DetermineDisplayMode())) {
+				PositionActiveImeWindow();
 			}
 			Invalidate(Dirty_Hover | Dirty_Time | Dirty_Region);
 			return 0;
@@ -1191,7 +1409,7 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 		}
 
 		// --- 检查是否点中了天气图标 ---
-		if (m_state == IslandState::Collapsed && !m_mediaMonitor.IsPlaying() && !m_isWeatherExpanded) {
+		if (m_state == IslandState::Collapsed && currentMode == IslandDisplayMode::Idle && !m_isWeatherExpanded) {
 			float left = (CANVAS_WIDTH - GetCurrentWidth()) / 2.0f;
 			float right = left + GetCurrentWidth();
 			float top = Constants::UI::TOP_MARGIN;
@@ -1214,7 +1432,7 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 		if (m_state == IslandState::Collapsed) {
 			// 仅在当前确实处于音乐紧凑态时，点击主岛才展开到音乐面板
-			if (DetermineDisplayMode() == IslandDisplayMode::MusicCompact) {
+			if (currentMode == IslandDisplayMode::MusicCompact) {
 				m_state = IslandState::Expanded;
 				TransitionTo(IslandDisplayMode::MusicExpanded);
 				m_mediaMonitor.SetExpandedState(true);
@@ -1507,6 +1725,7 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 			if (auto* pomodoro = m_renderer.GetPomodoroComponent()) {
 				keepCompact = keepCompact || pomodoro->HasActiveSession() || pomodoro->IsExpanded();
 			}
+			keepCompact = keepCompact || ShouldKeepCompactOverride() || m_todoInputActive || m_todoExpanded;
 
 			if (keepCompact) {
 
@@ -1626,10 +1845,58 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 	case WM_MOUSEWHEEL: {
 		IslandDisplayMode currentMode = DetermineDisplayMode();
 		const int delta = GET_WHEEL_DELTA_WPARAM(wParam);
+		if (currentMode == IslandDisplayMode::Idle) {
+			if (auto* todo = m_renderer.GetTodoComponent(); todo && todo->IsLaunchAnimating()) {
+				return 0;
+			}
+		}
+		POINT physicalPt{ GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+		ScreenToClient(hwnd, &physicalPt);
+		const POINT pt = LogicalFromPhysical(physicalPt);
+		const bool isCompactHeight = GetCurrentHeight() >= Constants::Size::COMPACT_MIN_HEIGHT;
+
+		if (m_state == IslandState::Collapsed &&
+			isCompactHeight &&
+			IsCompactSwitchableMode(currentMode)) {
+			const auto availableModes = CollectAvailableCompactModes();
+			if (availableModes.size() > 1 && delta != 0) {
+				size_t currentIndex = 0;
+				auto it = std::find(availableModes.begin(), availableModes.end(), currentMode);
+				if (it != availableModes.end()) {
+					currentIndex = static_cast<size_t>(std::distance(availableModes.begin(), it));
+				}
+
+				size_t nextIndex = currentIndex;
+				if (delta > 0) {
+					nextIndex = (currentIndex + availableModes.size() - 1) % availableModes.size();
+				} else {
+					nextIndex = (currentIndex + 1) % availableModes.size();
+				}
+
+				m_hasCompactOverride = true;
+				m_compactOverrideMode = availableModes[nextIndex];
+				KillTimer(hwnd, m_displayTimerId);
+
+				if (m_compactOverrideMode == IslandDisplayMode::Idle) {
+					SetTargetSize(Constants::Size::COMPACT_WIDTH, Constants::Size::COMPACT_HEIGHT);
+					StartAnimation();
+				} else {
+					TransitionTo(m_compactOverrideMode);
+				}
+
+				Invalidate(Dirty_Time | Dirty_MediaState | Dirty_Region);
+			}
+			return 0;
+		}
+
+		if (currentMode == IslandDisplayMode::TodoExpanded && m_renderer.OnMouseWheel((float)pt.x, (float)pt.y, delta)) {
+			Invalidate(Dirty_Hover | Dirty_Region);
+			return 0;
+		}
 
 		// 天气展开模式：滚轮切换 逐小时 ↔ 逐日
 		if (currentMode == IslandDisplayMode::WeatherExpanded) {
-			m_renderer.OnMouseWheel(0.0f, 0.0f, delta);
+			m_renderer.OnMouseWheel((float)pt.x, (float)pt.y, delta);
 			m_weatherViewMode = (delta > 0) ? WeatherViewMode::Hourly : WeatherViewMode::Daily;
 			EnsureRenderLoopRunning();
 			return 0;
@@ -1685,6 +1952,52 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 		return 0;
 
 	}
+
+	case WM_IME_CHAR:
+		if (IsTodoTextMode(DetermineDisplayMode())) {
+			return 0;
+		}
+		break;
+
+	case WM_IME_COMPOSITION:
+		if (IsTodoTextMode(DetermineDisplayMode()) &&
+			m_renderer.GetTodoComponent() &&
+			m_renderer.GetTodoComponent()->OnImeComposition(hwnd, lParam)) {
+			PositionActiveImeWindow();
+			Invalidate(Dirty_Time | Dirty_Region);
+			return 0;
+		}
+		break;
+
+	case WM_IME_SETCONTEXT: {
+		LRESULT imeResult = 0;
+		if (IsTodoTextMode(DetermineDisplayMode()) &&
+			m_renderer.GetTodoComponent() &&
+			m_renderer.GetTodoComponent()->OnImeSetContext(hwnd, wParam, lParam, imeResult)) {
+			return imeResult;
+		}
+		break;
+	}
+
+	case WM_CHAR:
+		if (IsTodoTextMode(DetermineDisplayMode()) &&
+			m_renderer.GetTodoComponent() &&
+			m_renderer.GetTodoComponent()->OnChar((wchar_t)wParam)) {
+			PositionActiveImeWindow();
+			Invalidate(Dirty_Time | Dirty_Region);
+			return 0;
+		}
+		break;
+
+	case WM_KEYDOWN:
+		if (IsTodoTextMode(DetermineDisplayMode()) &&
+			m_renderer.GetTodoComponent() &&
+			m_renderer.GetTodoComponent()->OnKeyDown(wParam)) {
+			PositionActiveImeWindow();
+			Invalidate(Dirty_Time | Dirty_Region);
+			return 0;
+		}
+		break;
 
 	case WM_UPDATE_ALBUM_ART:
 

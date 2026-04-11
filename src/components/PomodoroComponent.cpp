@@ -27,6 +27,11 @@ PomodoroComponent::PomodoroComponent() = default;
 
 void PomodoroComponent::OnAttach(SharedResources* res) {
     m_res = res;
+    if (m_res && m_res->d2dContext) {
+        m_res->d2dContext->CreateSolidColorBrush(
+            D2D1::ColorF(kTomatoR, kTomatoG, kTomatoB, 1.0f),
+            &m_pulseBrush);
+    }
     m_timer.SetDuration(m_selectedMinutes);
     m_timer.SetOnFinishCallback([this]() {
         m_state = State::Finished;
@@ -260,9 +265,9 @@ void PomodoroComponent::DrawCompact(const D2D1_RECT_F& rect, float alpha, ULONGL
 
     if (m_state == State::Running) {
         float pulse = 0.55f + 0.45f * std::sinf((float)(now % 1200) / 1200.0f * 6.2831853f);
-        if (m_res->themeBrush) {
-            m_res->themeBrush->SetColor(D2D1::ColorF(kTomatoR, kTomatoG, kTomatoB, alpha * pulse));
-            ctx->FillEllipse(D2D1::Ellipse(D2D1::Point2F(dotX, dotY), dotRadius, dotRadius), m_res->themeBrush);
+        if (m_pulseBrush) {
+            m_pulseBrush->SetOpacity(alpha * pulse);
+            ctx->FillEllipse(D2D1::Ellipse(D2D1::Point2F(dotX, dotY), dotRadius, dotRadius), m_pulseBrush.Get());
         }
     }
 

@@ -197,6 +197,9 @@ void RenderEngine::RegisterComponents() {
 
     m_pomodoroComponent = std::make_unique<PomodoroComponent>();
     m_pomodoroComponent->OnAttach(&m_sharedRes);
+
+    m_todoComponent = std::make_unique<TodoComponent>();
+    m_todoComponent->OnAttach(&m_sharedRes);
 }
 
 void RenderEngine::SetDpi(float dpi) {
@@ -221,7 +224,7 @@ void RenderEngine::Resize(int width, int height) {
         static_cast<IIslandComponent*>(m_waveformComponent.get()), static_cast<IIslandComponent*>(m_alertComponent.get()),
         static_cast<IIslandComponent*>(m_volumeComponent.get()), static_cast<IIslandComponent*>(m_musicComponent.get()),
         static_cast<IIslandComponent*>(m_fileStorageComponent.get()), static_cast<IIslandComponent*>(m_clockComponent.get()),
-        static_cast<IIslandComponent*>(m_pomodoroComponent.get()) }) {
+        static_cast<IIslandComponent*>(m_pomodoroComponent.get()), static_cast<IIslandComponent*>(m_todoComponent.get()) }) {
         if (component) {
             component->OnResize(m_dpi, width, height);
         }
@@ -309,6 +312,12 @@ void RenderEngine::SetAlertState(bool active, const AlertInfo& info) {
     }
 }
 
+void RenderEngine::SetTodoStore(TodoStore* store) {
+    if (m_todoComponent) {
+        m_todoComponent->SetStore(store);
+    }
+}
+
 void RenderEngine::SetTheme(bool darkMode, float primaryOpacity, float secondaryOpacity) {
     m_darkMode = darkMode;
     m_primaryShellOpacity = (std::max)(0.3f, (std::min)(1.0f, primaryOpacity));
@@ -335,6 +344,7 @@ void RenderEngine::SetTheme(bool darkMode, float primaryOpacity, float secondary
     if (m_progressBgBrush) m_progressBgBrush->SetColor(darkMode ? D2D1::ColorF(0.8f, 0.8f, 0.8f, 0.5f) : D2D1::ColorF(0.18f, 0.18f, 0.22f, 0.24f));
     if (m_progressFgBrush) m_progressFgBrush->SetColor(textColor);
     if (m_buttonHoverBrush) m_buttonHoverBrush->SetColor(darkMode ? D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f) : D2D1::ColorF(0.12f, 0.12f, 0.16f, 1.0f));
+    if (m_todoComponent) m_todoComponent->SetDarkMode(darkMode);
 }
 
 void RenderEngine::SetClockClickCallback(std::function<void()> callback) {
@@ -372,12 +382,20 @@ void RenderEngine::UpdateComponents(float deltaTime, const RenderContext& ctx) {
     if (m_fileStorageComponent) m_fileStorageComponent->Update(deltaTime);
     if (m_clockComponent) m_clockComponent->Update(deltaTime);
     if (m_pomodoroComponent) m_pomodoroComponent->Update(deltaTime);
+    if (m_todoComponent) {
+        m_todoComponent->SetDisplayMode(ctx.mode);
+        m_todoComponent->Update(deltaTime);
+    }
 }
 
 IIslandComponent* RenderEngine::ResolvePrimaryComponent(IslandDisplayMode mode) {
     switch (mode) {
     case IslandDisplayMode::Alert:
         return m_alertComponent.get();
+    case IslandDisplayMode::TodoInputCompact:
+    case IslandDisplayMode::TodoListCompact:
+    case IslandDisplayMode::TodoExpanded:
+        return m_todoComponent.get();
     case IslandDisplayMode::PomodoroExpanded:
     case IslandDisplayMode::PomodoroCompact:
         return m_pomodoroComponent.get();
@@ -428,6 +446,13 @@ void RenderEngine::DrawPrimaryContent(const D2D1_RECT_F& contentRect, const Rend
             m_activePrimaryComponent->Draw(contentRect, ctx.contentAlpha, ctx.currentTimeMs);
         }
         break;
+    case IslandDisplayMode::TodoInputCompact:
+    case IslandDisplayMode::TodoListCompact:
+    case IslandDisplayMode::TodoExpanded:
+        if (m_activePrimaryComponent) {
+            m_activePrimaryComponent->Draw(contentRect, ctx.contentAlpha, ctx.currentTimeMs);
+        }
+        break;
     case IslandDisplayMode::MusicCompact:
         if (m_waveformComponent) m_waveformComponent->Draw(contentRect, ctx.contentAlpha, ctx.currentTimeMs);
         if (m_musicComponent) m_musicComponent->Draw(contentRect, ctx.contentAlpha, ctx.currentTimeMs);
@@ -446,14 +471,37 @@ void RenderEngine::DrawPrimaryContent(const D2D1_RECT_F& contentRect, const Rend
     case IslandDisplayMode::Idle:
     default:
         if (ctx.islandHeight < 35.0f) {
+            if (m_todoComponent) {
+                m_todoComponent->DrawIdleBadge(D2D1::RectF(0, 0, 0, 0), 0.0f, ctx.currentTimeMs);
+            }
             break;
         }
-        if (m_clockComponent) m_clockComponent->Draw(contentRect, ctx.contentAlpha, ctx.currentTimeMs);
+        const D2D1_RECT_F badgeRect = D2D1::RectF(contentRect.left + 8.0f, contentRect.top + 6.0f, contentRect.left + 36.0f, contentRect.bottom - 6.0f);
+        const bool todoInputPresentation =
+            m_todoComponent && m_todoComponent->GetDisplayMode() == IslandDisplayMode::TodoInputCompact;
+        if (todoInputPresentation) {
+            m_activePrimaryComponent = m_todoComponent.get();
+            m_todoComponent->Draw(contentRect, ctx.contentAlpha, ctx.currentTimeMs);
+            break;
+        }
+        if (m_todoComponent) {
+            if (!m_todoComponent->IsLaunchAnimating()) {
+                m_todoComponent->DrawIdleBadge(badgeRect, ctx.contentAlpha, ctx.currentTimeMs);
+            }
+        }
+        if (m_clockComponent) {
+            const float weatherReserve = 54.0f;
+            const D2D1_RECT_F clockRect = D2D1::RectF(contentRect.left + 42.0f, contentRect.top, contentRect.right - weatherReserve, contentRect.bottom);
+            m_clockComponent->Draw(clockRect, ctx.contentAlpha, ctx.currentTimeMs);
+        }
         if (m_weatherComponent) {
             float iconSize = (contentRect.bottom - contentRect.top) * 0.4f;
             float iconX = contentRect.right - iconSize - 15.0f;
             float iconY = contentRect.top + ((contentRect.bottom - contentRect.top) - iconSize) / 2.0f;
             m_weatherComponent->DrawCompact(iconX, iconY, iconSize, ctx.contentAlpha, ctx.currentTimeMs);
+        }
+        if (m_todoComponent && m_todoComponent->IsLaunchAnimating()) {
+            m_todoComponent->DrawIdleLaunchOverlay(contentRect, badgeRect, ctx.contentAlpha, ctx.currentTimeMs);
         }
         break;
     }
@@ -603,6 +651,38 @@ bool RenderEngine::OnMouseClick(float x, float y) {
     return m_activePrimaryComponent ? m_activePrimaryComponent->OnMouseClick(x, y) : false;
 }
 
+bool RenderEngine::OnChar(wchar_t ch) {
+    return m_activePrimaryComponent ? m_activePrimaryComponent->OnChar(ch) : false;
+}
+
+bool RenderEngine::OnKeyDown(WPARAM key) {
+    return m_activePrimaryComponent ? m_activePrimaryComponent->OnKeyDown(key) : false;
+}
+
+bool RenderEngine::OnImeComposition(HWND hwnd, LPARAM lParam) {
+    return m_activePrimaryComponent ? m_activePrimaryComponent->OnImeComposition(hwnd, lParam) : false;
+}
+
+bool RenderEngine::OnImeSetContext(HWND hwnd, WPARAM wParam, LPARAM lParam, LRESULT& result) {
+    return m_activePrimaryComponent ? m_activePrimaryComponent->OnImeSetContext(hwnd, wParam, lParam, result) : false;
+}
+
+D2D1_RECT_F RenderEngine::GetImeAnchorRect() const {
+    return m_activePrimaryComponent ? m_activePrimaryComponent->GetImeAnchorRect() : D2D1::RectF(0, 0, 0, 0);
+}
+
+bool RenderEngine::HandleIdleTodoMouseMove(float x, float y) {
+    return (m_lastMode == IslandDisplayMode::Idle && m_todoComponent)
+        ? m_todoComponent->OnIdleBadgeMouseMove(x, y)
+        : false;
+}
+
+bool RenderEngine::IdleTodoBadgeContains(float x, float y) const {
+    return (m_lastMode == IslandDisplayMode::Idle && m_todoComponent)
+        ? m_todoComponent->IdleBadgeContains(x, y)
+        : false;
+}
+
 bool RenderEngine::SecondaryContainsPoint(float x, float y) const {
     return x >= m_lastSecondaryRect.left && x <= m_lastSecondaryRect.right &&
         y >= m_lastSecondaryRect.top && y <= m_lastSecondaryRect.bottom;
@@ -618,6 +698,7 @@ bool RenderEngine::HasActiveAnimations() const {
         (m_lyricsComponent && m_lyricsComponent->NeedsRender()) ||
         (m_waveformComponent && m_waveformComponent->NeedsRender()) ||
         (m_weatherComponent && m_weatherComponent->NeedsRender()) ||
-        (m_pomodoroComponent && m_pomodoroComponent->NeedsRender());
+        (m_pomodoroComponent && m_pomodoroComponent->NeedsRender()) ||
+        (m_todoComponent && m_todoComponent->NeedsRender());
 }
 
