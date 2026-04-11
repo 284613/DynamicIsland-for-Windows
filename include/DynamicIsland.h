@@ -1,4 +1,4 @@
-﻿// DynamicIsland.h
+// DynamicIsland.h
 #pragma once
 #include "ConnectionMonitor.h"
 #include <queue>
@@ -16,6 +16,7 @@
 #include "LayoutController.h"
 #include "Spring.h"
 #include "Constants.h"
+#include "SettingsWindow.h"
 #include <d2d1_1.h>
 #pragma comment(lib, "shell32.lib")
 
@@ -78,7 +79,7 @@ private:
     IslandDisplayMode DetermineDisplayMode() const;
     SecondaryContentKind DetermineSecondaryContent() const;
     D2D1_RECT_F GetSecondaryRectLogical() const;
-    bool HandleFileSecondaryMouseDown(HWND hwnd, POINT pt);
+    bool HandleFileSecondaryMouseDown(POINT pt);
     bool HandleFileSecondaryMouseMove(HWND hwnd, POINT pt, WPARAM keyState);
     bool HandleFileSecondaryMouseUp(POINT pt);
     void ResetFileSecondaryInteraction();
@@ -102,6 +103,7 @@ private:
 private:
     WindowManager m_window;
     FilePanelWindow m_filePanel;
+    SettingsWindow m_settingsWindow;
     RenderEngine m_renderer;
     MediaMonitor m_mediaMonitor;
 
@@ -189,6 +191,7 @@ private:
     ULONGLONG m_fileLastClickTime = 0;
     POINT m_filePressPoint{};
     bool m_fileDragStarted = false;
+    bool m_fileSelfDropDetected = false;
 
     bool m_isFullscreen = false; // 全屏检测标志
 
@@ -198,5 +201,7 @@ private:
     WeatherViewMode m_weatherViewMode = WeatherViewMode::Hourly;
     bool IsFullscreen(); // 全屏检测
 };
+
+
 
 

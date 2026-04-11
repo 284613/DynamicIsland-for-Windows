@@ -27,6 +27,7 @@ Dynamic Island for Windows 是一款基于 C++/Win32 API 和 Direct2D 构建的 
 | **系统监控** | 实时电量、网络连接、全屏应用检测自动隐藏 |
 | **天气插件** | 和风天气数据源，API Key 从 `config.ini` 读取。展开面板左卡已重构为**场景式动态天气背景**：以天空、地平线、山体、森林边线和天气介质层为主，按清晨/白天/傍晚/夜晚切换色调；雨雪会根据天气强度动态调整粒子数量、尺寸和速度。右卡显示逐小时预报（时间 + 矢量图标 + 温度），鼠标滚轮可在**逐小时 ↔ 逐日（7天）**预报视图之间切换。 |
 | **文件中转站** | 已重构为**文件副岛**：文件存在时常驻 mini 副岛，不影响主岛当前模式；点击可展开，支持系统图标/缩略图、单击预览、双击打开，以及真实移动语义的拖入/拖出暂存 |
+| **macOS 风格设置窗口** | 设置窗口已从 GDI/子控件切换到 **Direct2D 全自绘**：左侧导航、右侧卡片、Toggle、Slider、TextInput、底部操作按钮均为自定义控件；支持类别切换过渡、滚动、右上角 macOS 风格红色圆形关闭按钮、恢复默认、保存/应用，并将设置写入与主程序共用的 `config.ini`。 |
 
 ---
 
@@ -47,9 +48,12 @@ DynamicIsland/
 │   ├── RenderEngine.cpp        # D2D 渲染引擎（~354 行，壳体 + 调度）
 │   ├── DynamicIsland.cpp       # 主窗口逻辑与状态机
 │   ├── LayoutController.cpp    # 弹簧布局控制器
+│   ├── SettingsWindow.cpp      # macOS 风格设置窗口完整实现（D2D 自绘 + 渲染 + 输入 + WndProc）
 │   └── ...
 │
 ├── include/
+│   ├── settings/
+│   │   └── SettingsControls.h  # 设置窗口控件模型（Toggle/Slider/Button/TextInput）
 │   ├── components/
 │   │   ├── IIslandComponent.h  # 统一组件接口 + SharedResources
 │   │   └── *.h                  # 各组件头文件
@@ -98,6 +102,8 @@ DynamicIsland/
 - 音量副岛由引擎画壳体、`VolumeComponent` 只画内容
 - 文件暂存已迁入副岛体系：mini 常驻、expanded 展开、drop target 拖入提示，不再劫持主岛模式
 - `MediaMonitor` 已接入 SMTC 事件监听（会话、播放状态、媒体属性、时间线），轮询只负责兜底同步
+- 设置窗口已改为 D2D 自绘，不再依赖 `STATIC` / `BUTTON` / `TRACKBAR` 等 Win32 子控件
+- 设置写入 exe 同目录 `config.ini`，`保存并应用` 会通过 `WM_SETTINGS_APPLY` 触发主程序重新读取通知白名单、天气配置和高级参数
 
 ---
 

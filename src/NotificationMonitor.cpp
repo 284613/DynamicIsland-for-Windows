@@ -28,9 +28,14 @@ NotificationMonitor::~NotificationMonitor() {
 
 void NotificationMonitor::Initialize(HWND hwnd, const std::vector<std::wstring>& allowedApps) {
 	m_hwnd = hwnd;
-	m_allowedApps = allowedApps;
+	UpdateAllowedApps(allowedApps);
 	m_running = true;
 	m_thread = std::thread(&NotificationMonitor::Worker, this);
+}
+
+void NotificationMonitor::UpdateAllowedApps(const std::vector<std::wstring>& allowedApps) {
+	std::lock_guard<std::mutex> lock(m_allowedAppsMutex);
+	m_allowedApps = allowedApps;
 }
 
 void NotificationMonitor::Worker() {
@@ -55,8 +60,14 @@ void NotificationMonitor::Worker() {
 
 						std::wstring appName = appInfo.DisplayInfo().DisplayName().c_str();
 
+						std::vector<std::wstring> allowedApps;
+						{
+							std::lock_guard<std::mutex> lock(m_allowedAppsMutex);
+							allowedApps = m_allowedApps;
+						}
+
 						bool isAllowed = false;
-						for (const auto& allowed : m_allowedApps) {
+						for (const auto& allowed : allowedApps) {
 							if (!allowed.empty() && appName.find(allowed) != std::wstring::npos) {
 								isAllowed = true;
 								break;

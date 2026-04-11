@@ -378,7 +378,7 @@ void RenderEngine::DrawSecondaryIsland(const RenderContext& ctx, float top, floa
     float secRadius = (ctx.secondaryHeight < 60.0f) ? (ctx.secondaryHeight / 2.0f) : 20.0f;
 
     D2D1_ROUNDED_RECT secRect = D2D1::RoundedRect(D2D1::RectF(secLeft, secTop, secRight, secBottom), secRadius, secRadius);
-    float shellAlpha = (ctx.secondaryContent == SecondaryContentKind::Volume) ? ctx.secondaryAlpha : 1.0f;
+    float shellAlpha = (ctx.secondaryContent == SecondaryContentKind::Volume) ? ctx.secondaryAlpha : (0.35f + 0.65f * ctx.secondaryAlpha);
     m_blackBrush->SetOpacity(shellAlpha);
     m_d2dContext->FillRoundedRectangle(&secRect, m_blackBrush.Get());
     m_activeSecondaryComponent = ResolveSecondaryComponent(ctx.secondaryContent);
@@ -497,3 +497,4 @@ bool RenderEngine::HasActiveAnimations() const {
         (m_waveformComponent && m_waveformComponent->NeedsRender()) ||
         (m_weatherComponent && m_weatherComponent->NeedsRender());
 }
+

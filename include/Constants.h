@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include <windows.h>
 
 // ============================================
@@ -42,8 +42,8 @@ namespace Size {
     constexpr float SECONDARY_HEIGHT = 36.0f;
     constexpr float FILE_SECONDARY_EXPANDED_WIDTH = 340.0f;
     constexpr float FILE_SECONDARY_DROPTARGET_WIDTH = 260.0f;
-    constexpr float FILE_SECONDARY_EXPANDED_HEIGHT = 176.0f;
-    constexpr float FILE_SECONDARY_DROPTARGET_HEIGHT = 56.0f;
+    constexpr float FILE_SECONDARY_EXPANDED_HEIGHT = 200.0f;
+    constexpr float FILE_SECONDARY_DROPTARGET_HEIGHT = 64.0f;
     
     // 画布尺寸
     constexpr float CANVAS_WIDTH = 400.0f;
@@ -217,5 +217,7 @@ namespace System {
 }
 
 } // namespace Constants
+
+
 
 

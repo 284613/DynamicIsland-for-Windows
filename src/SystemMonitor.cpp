@@ -75,8 +75,8 @@ void SystemMonitor::OnPowerEvent(WPARAM wParam, LPARAM lParam) {
                 }
 
                 // 3. 低电量检查
-                if (sps.ACLineStatus == 0 && sps.BatteryLifePercent <= 20 && !m_lowBatteryAlerted) {
-                    AlertInfo info{ 5, L"电量不足 20%", L"请连接电源", L"", {} };
+                if (sps.ACLineStatus == 0 && sps.BatteryLifePercent <= m_lowBatteryThreshold && !m_lowBatteryAlerted) {
+                    AlertInfo info{ 5, L"电量不足 " + std::to_wstring(m_lowBatteryThreshold) + L"%", L"请连接电源", L"", {} };
                     EventBus::GetInstance().PublishNotificationArrived(info);
                     m_lowBatteryAlerted = true;
                 }

@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include <windows.h>
 #include <oleidl.h>
 #include <shellapi.h>
@@ -57,12 +57,13 @@ public:
         if (SUCCEEDED(pDataObj->GetData(&fmt, &stg))) {
             // 直接把 hDrop 传给主线程，不要在这里解锁，让主线程处理完再调用 DragFinish
             HDROP hDrop = (HDROP)stg.hGlobal;
-            PostMessage(m_hwnd, WM_DROP_FILE, (WPARAM)hDrop, 0);
+            SendMessage(m_hwnd, WM_DROP_FILE, (WPARAM)hDrop, 0);
             // 注意：这里不要调用 GlobalUnlock 和 ReleaseStgMedium，主线程会处理
         }
-        PostMessage(m_hwnd, WM_DRAG_LEAVE, 0, 0); // 重置 UI 状态
+        SendMessage(m_hwnd, WM_DRAG_LEAVE, 0, 0); // 重置 UI 状态
         return S_OK;
     }
 };
+
 
 

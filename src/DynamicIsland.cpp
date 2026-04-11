@@ -61,6 +61,10 @@ void AppendInputDebugLog(const std::wstring& message) {
     }
 }
 
+bool PathsEqualIgnoreCase(const std::wstring& lhs, const std::wstring& rhs) {
+    return CompareStringOrdinal(lhs.c_str(), -1, rhs.c_str(), -1, TRUE) == CSTR_EQUAL;
+}
+
 const wchar_t* SecondaryKindToString(SecondaryContentKind kind) {
     switch (kind) {
     case SecondaryContentKind::None: return L"None";
@@ -76,6 +80,8 @@ const wchar_t* FileHitKindToString(FilePanelComponent::HitResult::Kind kind) {
     switch (kind) {
     case FilePanelComponent::HitResult::Kind::None: return L"None";
     case FilePanelComponent::HitResult::Kind::MiniBody: return L"MiniBody";
+    case FilePanelComponent::HitResult::Kind::PreviewPane: return L"PreviewPane";
+    case FilePanelComponent::HitResult::Kind::CollapseButton: return L"CollapseButton";
     case FilePanelComponent::HitResult::Kind::ExpandedBackground: return L"ExpandedBackground";
     case FilePanelComponent::HitResult::Kind::FileItem: return L"FileItem";
     default: return L"Unknown";
@@ -309,13 +315,13 @@ void DynamicIsland::RemoveFileStashIndex(int index) {
 	if (!m_fileStash.HasItems()) {
 		m_fileSecondaryExpanded = false;
 		m_fileSelectedIndex = -1;
-		m_fileHoveredIndex = -1;
+		ResetFileSecondaryInteraction();
 	} else if (m_fileSelectedIndex >= (int)m_fileStash.Count()) {
 		m_fileSelectedIndex = (int)m_fileStash.Count() - 1;
 	}
 }
 
-bool DynamicIsland::HandleFileSecondaryMouseDown(HWND hwnd, POINT pt) {
+bool DynamicIsland::HandleFileSecondaryMouseDown(POINT pt) {
 	SecondaryContentKind secondary = DetermineSecondaryContent();
 	D2D1_RECT_F secondaryRect = GetSecondaryRectLogical();
 	{
@@ -354,19 +360,27 @@ bool DynamicIsland::HandleFileSecondaryMouseDown(HWND hwnd, POINT pt) {
 		return true;
 	}
 
-	if (hit.kind == FilePanelComponent::HitResult::Kind::ExpandedBackground) {
+	if (hit.kind == FilePanelComponent::HitResult::Kind::CollapseButton ||
+		hit.kind == FilePanelComponent::HitResult::Kind::ExpandedBackground) {
 		m_fileSecondaryExpanded = false;
-		m_fileHoveredIndex = -1;
+		ResetFileSecondaryInteraction();
 		StartAnimation();
 		AppendInputDebugLog(L"MouseDown action: collapse file secondary");
 		Invalidate(Dirty_FileDrop | Dirty_Region);
 		return true;
 	}
 
+	if (hit.kind == FilePanelComponent::HitResult::Kind::PreviewPane) {
+		AppendInputDebugLog(L"MouseDown action: consume preview pane");
+		return true;
+	}
+
 	if (hit.kind == FilePanelComponent::HitResult::Kind::FileItem) {
+		m_fileSelectedIndex = hit.index;
 		m_filePressedIndex = hit.index;
 		m_filePressPoint = pt;
 		m_fileDragStarted = false;
+		Invalidate(Dirty_FileDrop);
 		AppendInputDebugLog(L"MouseDown action: press file item");
 		return true;
 	}
@@ -408,12 +422,19 @@ bool DynamicIsland::HandleFileSecondaryMouseMove(HWND hwnd, POINT pt, WPARAM key
 		if (std::abs(dx) >= GetSystemMetrics(SM_CXDRAG) || std::abs(dy) >= GetSystemMetrics(SM_CYDRAG)) {
 			bool moved = false;
 			m_fileDragStarted = true;
+			m_fileSelfDropDetected = false;
 			AppendInputDebugLog(L"MouseMove action: begin file drag");
 			m_fileStash.BeginMoveDrag(hwnd, (size_t)m_filePressedIndex, moved);
 			if (moved) {
-				AppendInputDebugLog(L"MouseMove action: drag completed with move effect");
-				RemoveFileStashIndex(m_filePressedIndex);
+				if (m_fileSelfDropDetected) {
+					AppendInputDebugLog(L"MouseMove action: ignore self-drop back into stash");
+				}
+				else {
+					AppendInputDebugLog(L"MouseMove action: drag completed with move effect");
+					RemoveFileStashIndex(m_filePressedIndex);
+				}
 			}
+			m_fileSelfDropDetected = false;
 			m_filePressedIndex = -1;
 			Invalidate(Dirty_FileDrop | Dirty_Region);
 			return true;
@@ -524,6 +545,8 @@ void DynamicIsland::LoadConfig() {
 
 	std::wstring configPath = pathStr.substr(0, pos) + L"\\config.ini";
 
+	m_allowedApps.clear();
+
 
 
 
@@ -589,7 +612,10 @@ void DynamicIsland::LoadConfig() {
 
 
 
-	GetPrivateProfileStringW(L"Settings", L"AllowedApps", L"微信,QQ", allowedAppsBuf, 512, configPath.c_str());
+	GetPrivateProfileStringW(L"Notifications", L"AllowedApps", L"", allowedAppsBuf, 512, configPath.c_str());
+	if (allowedAppsBuf[0] == L'\0') {
+		GetPrivateProfileStringW(L"Settings", L"AllowedApps", L"微信,QQ", allowedAppsBuf, 512, configPath.c_str());
+	}
 
 
 
@@ -761,7 +787,9 @@ bool DynamicIsland::Initialize(HINSTANCE hInstance) {
 
 
 
-	// 初始化文件面板窗口`r`nm_mediaMonitor.SetTargetWindow(m_window.GetHWND());
+    // 初始化文件面板窗口
+    m_mediaMonitor.SetTargetWindow(m_window.GetHWND());
+    m_settingsWindow.Create(hInstance, m_window.GetHWND());
 
 
 
@@ -1533,6 +1561,24 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 		EnsureRenderLoopRunning();
 		return 0;
 
+	case WM_SETTINGS_APPLY:
+		LoadConfig();
+		m_notificationMonitor.UpdateAllowedApps(m_allowedApps);
+		m_systemMonitor.SetLowBatteryThreshold(
+			GetPrivateProfileIntW(L"Advanced", L"LowBatteryThreshold", 20,
+				(std::wstring([] {
+					wchar_t exePath[MAX_PATH] = {};
+					GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+					std::wstring pathStr(exePath);
+					size_t pos = pathStr.find_last_of(L"\\/");
+					return pathStr.substr(0, pos) + L"\\config.ini";
+				}())).c_str()));
+		m_systemMonitor.UpdateWeather();
+		m_weatherDesc = m_systemMonitor.GetWeatherDescription();
+		m_weatherTemp = m_systemMonitor.GetWeatherTemperature();
+		Invalidate(Dirty_Weather | Dirty_MediaState | Dirty_Region);
+		return 0;
+
 
 
 
@@ -1621,6 +1667,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 		pt.y = (LONG)std::round(physicalPt.y / m_dpiScale);
+
+		if (HandleFileSecondaryMouseMove(hwnd, pt, wParam)) {
+			return 0;
+		}
+
 
 
 
@@ -2313,30 +2364,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 		pt.y = (LONG)std::round(physicalPt.y / m_dpiScale);
 
-		if (HandleFileSecondaryMouseDown(hwnd, pt)) {
+		if (HandleFileSecondaryMouseDown(pt)) {
 			return 0;
 		}
-
-		SecondaryContentKind secondary = DetermineSecondaryContent();
-		IslandDisplayMode primaryMode = DetermineDisplayMode();
-		float islandLeft = (CANVAS_WIDTH - GetCurrentWidth()) / 2.0f;
-		float islandRight = islandLeft + GetCurrentWidth();
-		float islandTop = 10.0f;
-		float islandBottom = islandTop + GetCurrentHeight();
-		bool isOverPrimaryIsland = pt.x >= islandLeft && pt.x <= islandRight && pt.y >= islandTop && pt.y <= islandBottom;
-		if (secondary == SecondaryContentKind::FileMini && primaryMode == IslandDisplayMode::Idle && isOverPrimaryIsland) {
-			m_fileSecondaryExpanded = true;
-			StartAnimation();
-			Invalidate(Dirty_FileDrop | Dirty_Region);
-			AppendInputDebugLog(L"MouseDown fallback: expand file secondary from primary island click");
-			return 0;
-		}
-
-		// --- 检查是否点中了按钮 ---
-
-
-
-
 
 		int hit = m_layoutController.HitTestPlaybackButtons(pt, m_state == IslandState::Expanded, m_mediaMonitor.HasSession(), CANVAS_WIDTH, GetCurrentWidth(), GetCurrentHeight(), m_dpiScale);
 
@@ -2891,14 +2921,33 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 		DragFinish(hDrop);
 
 		m_isDragHovering = false;
+		m_fileHoveredIndex = -1;
+
+		std::vector<std::wstring> incomingPaths;
+		for (const auto& droppedPath : droppedPaths) {
+			bool isSelfDrop = false;
+			for (const auto& item : m_fileStash.Items()) {
+				if (PathsEqualIgnoreCase(item.stagedPath, droppedPath)) {
+					isSelfDrop = true;
+					break;
+				}
+			}
+			if (isSelfDrop) {
+				m_fileSelfDropDetected = true;
+			}
+			else {
+				incomingPaths.push_back(droppedPath);
+			}
+		}
+
 		std::wstring errorMessage;
-		if (!m_fileStash.AddPaths(droppedPaths, &errorMessage) && !errorMessage.empty()) {
+		if (!incomingPaths.empty() && !m_fileStash.AddPaths(incomingPaths, &errorMessage) && !errorMessage.empty()) {
 			ShowFileStashLimitAlert();
 		}
 		if (m_fileStash.HasItems() && m_fileSelectedIndex < 0) {
 			m_fileSelectedIndex = 0;
 		}
-		Invalidate(Dirty_FileDrop);
+		Invalidate(Dirty_FileDrop | Dirty_Region);
 		return 0;
 	}
 
@@ -3752,103 +3801,34 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 
 
+
 	case WM_TRAYICON:
-
-
-
-
-
 	{
-
-
-
-
-
-		if (lParam == WM_RBUTTONUP) // 右键点击弹出菜单
-
-
-
-
-
-		{
-
-
-
-
-
+		if (lParam == WM_RBUTTONUP) {
 			HMENU hMenu = CreatePopupMenu();
-
-
-
-
-
-			AppendMenu(hMenu, MF_STRING, 1, L"退出");
-
-
-
-
+			AppendMenu(hMenu, MF_STRING, 1, L"设置...");
+			AppendMenu(hMenu, MF_SEPARATOR, 0, nullptr);
+			AppendMenu(hMenu, MF_STRING, 2, L"退出");
 
 			POINT pt;
-
-
-
-
-
 			GetCursorPos(&pt);
-
-
-
-
-
-			SetForegroundWindow(hwnd); // 重要，让菜单正确显示
-
-
-
-
+			SetForegroundWindow(hwnd);
 
 			int cmd = TrackPopupMenu(hMenu, TPM_RETURNCMD | TPM_NONOTIFY, pt.x, pt.y, 0, hwnd, nullptr);
-
-
-
-
-
 			DestroyMenu(hMenu);
 
-
-
-
-
 			if (cmd == 1) {
-
-
-
-
-
+				m_settingsWindow.Toggle();
+			} else if (cmd == 2) {
 				PostMessage(hwnd, WM_CLOSE, 0, 0);
-
-
-
-
-
 			}
-
-
-
-
-
 		}
-
-
-
-
-
 		return 0;
-
-
-
-
-
 	}
+
+
+
+
 
 
 
@@ -4228,3 +4208,4 @@ std::wstring DynamicIsland::GetCurrentTimeString() {
 
 
 }
+

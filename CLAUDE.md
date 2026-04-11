@@ -2,140 +2,124 @@
 
 ## 项目概览
 
-将 iPhone 14 Pro 灵动岛移植到 Windows 10/11 的桌面应用。屏幕顶部胶囊形悬浮窗，集中展示音乐、天气、通知、音量等系统状态。
+将 iPhone 14 Pro 灵动岛体验移植到 Windows 10/11 桌面。
 
-**技术栈**：C++17 / Win32 API / Direct2D 1.1 + DirectComposition + D3D11 / MSBuild VS2022
+- 技术栈：C++17 / Win32 API / Direct2D 1.1 + DirectComposition + D3D11 / MSBuild VS2022
+- 核心机制：EventBus、弹簧物理、DirtyFlags 按需渲染、Win32 Region 多岛合并
 
-## 架构（三层）
+## 架构
 
-```
+```text
 输入层  MediaMonitor / NotificationMonitor / WeatherPlugin / SystemMonitor
-处理层  TaskDetector → LayoutController（弹簧物理）→ DynamicIsland（主控）
-渲染层  RenderEngine（Direct2D）+ src/components/（各功能组件）
+处理层  TaskDetector -> LayoutController -> DynamicIsland
+渲染层  RenderEngine + src/components/
 ```
 
-**核心机制**：EventBus 事件总线 · 弹簧物理动画 · DirtyFlags 按需渲染（空闲 0% CPU）· Win32 Region 多岛合并
-
-## 组件化状态
-
-所有 UI 功能已委托给独立组件（`src/components/`），本轮收尾后 `RenderEngine.cpp` 从 **5684 行缩减至 354 行**，只保留初始化、共享资源注入、主/副岛壳体绘制、组件调度和输入分发。
-
-| 组件 | 文件 | 职责 |
-|------|------|------|
-| `WeatherComponent` | `WeatherComponent.cpp` | 意境背景动画（8种天气）、展开面板、紧凑小图标 |
-| `MusicPlayerComponent` | `MusicPlayerComponent.cpp` | 专辑封面、歌名滚动、进度条、播放按钮 |
-| `LyricsComponent` | `LyricsComponent.cpp` | 歌词弹簧物理滚动 |
-| `WaveformComponent` | `WaveformComponent.cpp` | 三柱音频波形动画 |
-| `AlertComponent` | `AlertComponent.cpp` | WiFi/蓝牙/充电/低电/通知卡片 |
-| `VolumeComponent` | `VolumeComponent.cpp` | 主岛音量条 + 副岛音量 |
-| `FilePanelComponent` | `FilePanelComponent.cpp` | 文件拖放/暂存 |
-| `ClockComponent` | `ClockComponent.cpp` | 紧凑态时钟居中 |
-
-本轮新增/确认的解耦点：
-- 文件暂存已迁入副岛体系，主岛不再因暂存文件切换到文件模式
-- `MediaMonitor` 已改成 SMTC 事件唤醒优先，轮询只做兜底同步与封面重试
-- 文件存储语义由独立的 `FileStashStore` 负责，支持真实移动和最多 5 个文件上限
-
-`RenderContext` 已瘦身为纯布局上下文，仅包含：
-- `islandWidth`
-- `islandHeight`
-- `canvasWidth`
-- `contentAlpha`
-- `secondaryHeight`
-- `secondaryAlpha`
-- `mode`
-- `currentTimeMs`
+说明：
+- `DynamicIsland` 负责状态机、输入、调度、配置回流。
+- `RenderEngine` 只负责 D2D 生命周期、主/副岛壳体、组件调度。
+- 业务 UI 在 `src/components/`，不要把业务状态重新塞回 `RenderEngine`。
 
 ## 关键文件
 
 | 文件 | 作用 |
 |------|------|
-| `src/DynamicIsland.cpp` | 主窗口逻辑、状态机、优先级调度 |
-| `src/RenderEngine.cpp` | Direct2D 生命周期、共享资源、主/副岛壳体、组件调度 |
-| `include/FileStashStore.h` | 文件暂存存储层（真实移动 / 预览 / 打开 / 拖出） |
-| `src/WeatherPlugin.cpp` | 和风天气 API（Now/Hourly/Daily/Indices）|
-| `src/LayoutController.cpp` | 弹簧布局，坐标计算含 `m_dpiScale` |
-| `include/IslandState.h` | `RenderContext` · `IslandDisplayMode` 定义 |
-| `include/PluginManager.h` | `HourlyForecast` · `IWeatherPlugin` 接口 |
-| `include/EventBus.h` | 线程安全发布/订阅 |
+| `src/DynamicIsland.cpp` | 主窗口逻辑、消息处理、配置加载、托盘菜单 |
+| `src/RenderEngine.cpp` | D2D/DComp 初始化与组件调度 |
+| `src/SettingsWindow.cpp` | 设置窗口完整实现：资源、页面构建、配置读写、渲染、输入、WndProc |
+| `include/settings/SettingsControls.h` | 设置窗口控件模型 |
+| `include/FileStashStore.h` | 文件暂存存储层 |
+| `src/WeatherPlugin.cpp` | 和风天气 API |
+| `src/LayoutController.cpp` | 布局弹簧与尺寸插值 |
 
-## 天气模块现状
+## 当前实现状态
 
-**API**：和风天气企业版，Host `n94ewu37fy.re.qweatherapi.com`，Key 从 `x64/Release/config.ini` `[Weather] APIKey` 读取。
+### 主岛 / 组件
 
-**已实现**：
-- `/v7/weather/now` → 实时天气（`now.temp` / `now.icon` / `now.text`）
-- `/v7/weather/24h` → 逐小时预报（`hourly[].fxTime` / `.temp` / `.icon` / `.text`）
-- `/v7/weather/7d` → 逐日预报（`daily[].fxDate` / `.tempMax` / `.tempMin` / `.iconDay` / `.textDay`）
-- `/v7/indices/1d` → 生活指数建议
-- 天气展开面板（400×180）：
-  - **左卡**：意境动态背景（`DrawWeatherAmbientBg`）+ 底部温度居中 + 天气描述
-  - **右卡**：2×3 逐小时网格（时间 / 矢量小图标 / 温度）
-  - **滚轮切换**：`WeatherViewMode::Hourly ↔ Daily`（`DrawWeatherDaily` 7列逐日网格）
-- `ShouldKeepRendering()` 在 `m_isWeatherExpanded` 时持续渲染
-- 天气展开态点击与滚轮输入已和音乐控件完全隔离
+- 组件化已完成，`RenderEngine.cpp` 已瘦身到只保留壳体与调度。
+- 文件暂存已迁入副岛体系，不再劫持主岛模式。
+- `MediaMonitor` 已改成 SMTC 事件优先，轮询只做兜底。
 
-**意境背景天气类型**（`DrawWeatherAmbientBg`）：
+### 设置窗口
 
-| 天气 | 动画 |
-|------|------|
-| 雨天 | 深蓝渐变 + 云聚顶 + 斜向雨滴循环 |
-| 雷雨 | 同上 + 周期闪电爆闪 |
-| 雪天 | 冷蓝夜空 + 云 + 旋转六角雪花飘落 |
-| 晴（白天）| 蓝天 + 右上角太阳光晕 + 旋转光芒 |
-| 晴（夜晚）| 深靛蓝 + 新月 + 12颗闪烁星 |
-| 多云/阴 | 晴空一次性入场 → 云朵停住 + 风吹漂移 |
-| 晴间多云 | 同多云，3朵云，太阳随遮盖淡出 |
-| 雾/霾 | 浅灰 + 5层横向雾气正弦波动 |
+- 已从 GDI 改为 Direct2D / DirectWrite 全自绘。
+- 不再依赖 `STATIC` / `BUTTON` / `TRACKBAR` 子控件。
+- 当前类别：
+  - `General`
+  - `Appearance`
+  - `MainUI`
+  - `FilePanel`
+  - `Weather`
+  - `Notifications`
+  - `Advanced`
+  - `About`
+- 当前能力：
+  - 页面切换过渡
+  - 内容区滚动
+  - Toggle / Slider / TextInput / 自绘按钮
+  - 右上角 macOS 风格红色圆形关闭按钮
+  - `恢复默认 / 保存 / 保存并应用`
 
-**关键结构体**（`PluginManager.h` / `IslandState.h`）：
-```cpp
-struct HourlyForecast { std::wstring time, icon, text; float temp; };
-struct DailyForecast  { std::wstring date, iconDay, textDay; float tempMax, tempMin; };
-enum class WeatherViewMode { Hourly, Daily };
+## 配置
+
+统一写入 exe 同目录 `config.ini`。
+
+主要键：
+
+```ini
+[Settings]
+DarkMode=0
+FollowSystemTheme=1
+AutoStart=0
+
+[MainUI]
+Width=400
+Height=420
+Transparency=100
+
+[FilePanel]
+Width=340
+Height=200
+Transparency=90
+
+[Weather]
+City=北京
+APIKey=
+LocationId=101010100
+
+[Notifications]
+AllowedApps=微信,QQ
+
+[Advanced]
+SpringStiffness=100
+SpringDamping=10
+LowBatteryThreshold=20
+FileStashMaxItems=5
+MediaPollIntervalMs=1000
 ```
 
-## 开发规范
+`ApplySettings()` 通过 `WM_SETTINGS_APPLY` 回流到 `DynamicIsland`，当前会刷新：
+- 通知白名单
+- 天气配置
+- 低电量阈值
 
-- UI 线程禁止阻塞网络请求，天气 API 必须在独立线程（`std::thread::detach`）
-- 新组件放 `src/components/`，实现 `IIslandComponent`
-- 布局坐标乘 `m_dpiScale`
-- 渲染入口 `RenderEngine::DrawCapsule` → 按 `RenderContext.mode` 分发
-- `DynamicIsland` 负责同步组件业务状态；`RenderEngine` 不再承载业务字段
-- 副岛背景统一由 `RenderEngine` 绘制，副岛内容只在 `VolumeComponent::DrawSecondary()` 中处理
-- 媒体状态变化优先走 `MediaMonitor` 的 SMTC 事件监听，不要重新退回“纯轮询驱动 UI”
-- 文件副岛与音量副岛共用 secondary 容器；音量调节期间音量副岛临时抢占，结束后文件副岛恢复
-- 文件暂存的拖入/拖出语义按真实移动实现，临时存储位置在 `%LOCALAPPDATA%\\DynamicIsland\\FileStash\\`
+## 开发规则
+
+- 新功能优先放到对应组件，不要让 `RenderEngine` 再背业务状态。
+- 布局坐标和输入命中要考虑 `m_dpiScale`。
+- 天气请求必须异步，UI 线程不要阻塞网络。
+- 文件暂存语义保持真实移动，目录在 `%LOCALAPPDATA%\\DynamicIsland\\FileStash\\`。
+- 设置窗口继续保持自绘模型，不要重新引入 Win32 子控件。
 
 ## Build
 
-```
+```powershell
 msbuild DynamicIsland.sln /p:Configuration=Release /p:Platform=x64
 x64\Release\DynamicIsland.exe
 ```
 
----
+## 后续建议
 
-## 📋 下一步规划
-
-### 功能优化
-- 天气展开面板切换动画（`contentAlpha` 淡出 → 切换视图 → 淡入）
-- 逐日视图中矢量图标按 `iconDay` ID 精确映射（当前用 `textDay` 推断）
-- 意境背景雨滴/雪花数量随天气强度（小雨/大雨/暴雨）动态调整
-
-### 🔧 组件化重构（已完成 ✅）
-
-**6 个 PR 全部完成**，详见 `REFACTOR_PLAN.md`。
-
-**实际结果：**
-- `RenderEngine.cpp` 5684 行 → `354` 行
-- `RenderEngine.h` 194 行 → `105` 行
-- `IslandState.h` 100 行 → `40` 行
-
-### 组件化要点（开发规范）
-
-- 新增/修改功能只改对应组件文件，不触碰 `RenderEngine.cpp`
-- 组件通过 `OnAttach(SharedResources*)` 获取 D2D 资源
-- 滚动/动画状态在 `Update(float dt)` 中推进，在 `Draw()` 中渲染
-- 副岛（secondary island）由 `RenderEngine` 画壳、`VolumeComponent::DrawSecondary()` 画内容，仅在音量调节激活时显示
-- 当前已修复的收尾交互问题包括：mini 态误绘制、天气展开态点击穿透、天气收缩直接跳 mini、副岛 Region 不刷新、首次专辑图不同步、文件副岛可点击区域接入 `WM_NCHITTEST`
+- 继续保持 `src/SettingsWindow.cpp` 的单文件收拢状态，并在需要时再做局部 helper 拆分
+- 继续压缩设置窗口拖动/切页时的无效重绘
+- 补齐外观页主题色、字体缩放等 UI
