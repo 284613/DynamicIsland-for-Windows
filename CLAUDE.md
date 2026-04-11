@@ -35,6 +35,7 @@
 - `WM_SETTINGS_APPLY` 已扩展为热回流主题、透明度、弹簧、媒体轮询等主要设置。
 - 天气设置页已支持全国城市搜索、地区联动筛选与自动定位当前位置。
 - 番茄时钟已接入主岛模式系统，组件入口为 `PomodoroComponent`。
+- TODO 功能已接入主岛模式系统，组件入口为 `TodoComponent`，数据层为 `TodoStore`。
 
 ## 关键文件
 
@@ -46,6 +47,8 @@
 | `src/LayoutController.cpp` | 弹簧布局、尺寸插值、命中测试 |
 | `src/SettingsWindow.cpp` | 设置窗口完整实现（D2D 自绘） |
 | `src/components/PomodoroComponent.cpp` | 番茄时钟展开 / 紧凑态 UI 与交互 |
+| `src/components/TodoComponent.cpp` | TODO 紧凑态入口 / 输入 / 列表 / 展开面板 |
+| `src/TodoStore.cpp` | TODO 数据持久化、排序与本地存储 |
 | `include/settings/SettingsControls.h` | 设置窗口控件模型 |
 | `include/FileStashStore.h` | 文件暂存存储层 |
 | `src/WeatherPlugin.cpp` | 和风天气 API |
@@ -69,6 +72,7 @@
 - 文件副岛：mini / expanded / drop target
 - 设置窗口：导航、Toggle、Slider、TextInput、保存/应用
 - 番茄时钟：预设时长、自定义增减、开始/暂停/终止、紧凑倒计时
+- TODO：Idle 左侧入口、紧凑态快速输入、滚轮切换到 TODO 列表、展开管理面板
 
 ## 重要运行约束
 
@@ -82,6 +86,7 @@
 - 设置窗口保持自绘模型，不要重新引入 Win32 子控件。
 - 文件副岛相关输入优先看 `src/FileSecondaryInput.cpp`，不要再把这段塞回主消息函数。
 - 番茄时钟交互优先放在 `PomodoroComponent`，不要把其私有 UI 状态回塞进 `RenderEngine`。
+- TODO 交互优先放在 `TodoComponent` 和 `TodoStore`，不要把 TODO 私有编辑状态回塞进 `RenderEngine`。
 
 ## 配置
 
@@ -116,6 +121,13 @@
 - 改设置页：直接看 `SettingsWindow.cpp`
 - 改通知/媒体数据流：优先看 EventBus 和 monitor 层
 - 改番茄时钟：优先看 `PomodoroComponent` 和 `PomodoroTimer`
+- 改 TODO：优先看 `TodoComponent`、`TodoStore` 和 `DynamicIsland` 的 TODO 模式切换
+
+## GitHub 提交约束
+
+- 如果用户要求“提交到 GitHub / 推到远端”，默认直接提交到仓库主分支。
+- 当前仓库默认主分支是 `master`；除非用户明确要求分支 / PR 工作流，否则不要默认走功能分支。
+- 更新 GitHub 相关文档或自动化说明时，也继续使用“主分支 = `master`”作为当前仓库事实来源。
 
 ## 构建
 
