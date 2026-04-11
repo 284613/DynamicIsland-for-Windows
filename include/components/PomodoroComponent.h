@@ -69,6 +69,7 @@ private:
     std::wstring GetCompactText() const;
 
     SharedResources* m_res = nullptr;
+    ComPtr<ID2D1SolidColorBrush> m_pulseBrush;
     PomodoroTimer m_timer;
     State m_state = State::Idle;
     bool m_expanded = false;

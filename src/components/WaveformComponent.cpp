@@ -1,6 +1,15 @@
 #include "components/WaveformComponent.h"
 #include <cstdlib>
 
+void WaveformComponent::OnAttach(SharedResources* res) {
+    m_res = res;
+    if (m_res && m_res->d2dContext) {
+        m_res->d2dContext->CreateSolidColorBrush(
+            D2D1::ColorF(1.0f, 0.2f, 0.4f, 1.0f),
+            &m_waveBrush);
+    }
+}
+
 void WaveformComponent::Update(float deltaTime) {
     (void)deltaTime;
     float minH = 5.0f;
@@ -19,11 +28,10 @@ void WaveformComponent::Update(float deltaTime) {
 }
 
 void WaveformComponent::Draw(const D2D1_RECT_F& rect, float contentAlpha, ULONGLONG) {
-    if (!m_res || m_audioLevel <= 0.0f) return;
+    if (!m_res || !m_waveBrush || m_audioLevel <= 0.0f) return;
 
     auto* ctx = m_res->d2dContext;
-    auto* tb = m_res->themeBrush;
-    tb->SetOpacity(contentAlpha);
+    m_waveBrush->SetOpacity(contentAlpha);
 
     float height = rect.bottom - rect.top;
     float baseBottom = (height >= 60.0f) ? (rect.top + 75.0f) : (rect.bottom - 10.0f);
@@ -32,7 +40,7 @@ void WaveformComponent::Draw(const D2D1_RECT_F& rect, float contentAlpha, ULONGL
     float h2 = m_currentHeight[1] * 0.5f;
     float h3 = m_currentHeight[2] * 0.5f;
 
-    ctx->FillRectangle(D2D1::RectF(right - 20.0f, baseBottom - h1, right - 16.0f, baseBottom), tb);
-    ctx->FillRectangle(D2D1::RectF(right - 12.0f, baseBottom - h2, right - 8.0f, baseBottom), tb);
-    ctx->FillRectangle(D2D1::RectF(right - 4.0f, baseBottom - h3, right, baseBottom), tb);
+    ctx->FillRectangle(D2D1::RectF(right - 20.0f, baseBottom - h1, right - 16.0f, baseBottom), m_waveBrush.Get());
+    ctx->FillRectangle(D2D1::RectF(right - 12.0f, baseBottom - h2, right - 8.0f, baseBottom), m_waveBrush.Get());
+    ctx->FillRectangle(D2D1::RectF(right - 4.0f, baseBottom - h3, right, baseBottom), m_waveBrush.Get());
 }
