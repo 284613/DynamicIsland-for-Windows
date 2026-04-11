@@ -1,10 +1,14 @@
 #pragma once
 #include "WeatherPlugin.h"
+#include "Messages.h"
 #include <string>
 #include <windows.h>
 #include <winhttp.h>
 #include <thread>
 #include <atomic>
+#include <mutex>
+#include <fstream>
+#include <sstream>
 #include <cstdio>
 #include <cctype>
 #include <zlib.h>
@@ -16,12 +20,61 @@
 static const char* QWEATHER_HOST = "n94ewu37fy.re.qweatherapi.com";  // GeoAPI 与天气 API 共用自定义域名
 
 static std::string g_apiKey;   // 从 config.ini 动态加载
+static std::string g_cityQueryUtf8 = "北京";
+static std::mutex g_weatherConfigMutex;
+static char g_locationId[32] = "101250109";   // LocationID
+static char g_locationLon[16] = "112.93";      // 经度
+static char g_locationLat[16] = "27.87";       // 纬度
+static wchar_t g_configCityName[64] = L"北京";  // 设置页保存的城市名
+static wchar_t g_districtName[64] = L"岳麓区"; // 显示用区县名
+static std::atomic<bool> g_locationFetched{ false };
+
+static std::wstring Utf8ToWide(const std::string& utf8) {
+    if (utf8.empty()) return {};
+    int len = MultiByteToWideChar(CP_UTF8, 0, utf8.data(), (int)utf8.size(), nullptr, 0);
+    if (len <= 0) return {};
+    std::wstring wide(len, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, utf8.data(), (int)utf8.size(), wide.data(), len);
+    return wide;
+}
+
+static std::wstring TrimLineEndings(std::wstring line) {
+    while (!line.empty() && (line.back() == L'\r' || line.back() == L'\n')) {
+        line.pop_back();
+    }
+    return line;
+}
+
+static bool StartsWithKey(const std::wstring& line, const std::wstring& key) {
+    return line.size() > key.size() && line.compare(0, key.size(), key) == 0 && line[key.size()] == L'=';
+}
+
+static std::wstring ReadUtf8IniValue(const std::wstring& path, const std::wstring& section, const std::wstring& key, const std::wstring& fallback) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in.is_open()) return fallback;
+    std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    std::wstring text = Utf8ToWide(bytes);
+    if (text.empty()) return fallback;
+
+    std::wistringstream stream(text);
+    std::wstring line;
+    std::wstring currentSection;
+    const std::wstring targetSection = L"[" + section + L"]";
+    while (std::getline(stream, line)) {
+        line = TrimLineEndings(line);
+        if (line.empty()) continue;
+        if (line.front() == L'[' && line.back() == L']') {
+            currentSection = line;
+            continue;
+        }
+        if (currentSection == targetSection && StartsWithKey(line, key)) {
+            return line.substr(key.size() + 1);
+        }
+    }
+    return fallback;
+}
 
 static void LoadConfig() {
-    static std::atomic<bool> s_loaded{ false };
-    if (s_loaded.load()) return;
-    s_loaded.store(true);
-
     // 获取 exe 所在目录
     wchar_t exePath[MAX_PATH] = {};
     GetModuleFileNameW(nullptr, exePath, MAX_PATH);
@@ -35,6 +88,13 @@ static void LoadConfig() {
 
     wchar_t keyBuf[128] = {};
     GetPrivateProfileStringW(L"Weather", L"APIKey", L"", keyBuf, 128, iniPath);
+    wchar_t locationBuf[32] = {};
+    GetPrivateProfileStringW(L"Weather", L"LocationId", L"", locationBuf, 32, iniPath);
+    wchar_t cityBuf[64] = {};
+    const std::wstring cityValue = ReadUtf8IniValue(iniPath, L"Weather", L"City", L"北京");
+    wcsncpy_s(cityBuf, _countof(cityBuf), cityValue.c_str(), _TRUNCATE);
+
+    std::lock_guard<std::mutex> lock(g_weatherConfigMutex);
 
     if (keyBuf[0] != L'\0') {
         int len = WideCharToMultiByte(CP_UTF8, 0, keyBuf, -1, nullptr, 0, nullptr, nullptr);
@@ -48,15 +108,21 @@ static void LoadConfig() {
         g_apiKey = "bf25bfa431394152adb2f4ed57ac092e";
         OutputDebugStringA("[Weather] config.ini not found or empty, using fallback key\n");
     }
-}
 
-// ==================== 动态位置数据（GeoAPI获取）====================
-static char g_locationId[32] = "101250109";   // 岳麓区 LocationID
-static char g_locationLon[16] = "112.93";      // 经度
-static char g_locationLat[16] = "27.87";       // 纬度
-static wchar_t g_cityName[64] = L"长沙";       // 显示用城市名
-static wchar_t g_districtName[64] = L"岳麓区"; // 显示用区县名
-static std::atomic<bool> g_locationFetched{ false };
+    int cityLen = WideCharToMultiByte(CP_UTF8, 0, cityBuf, -1, nullptr, 0, nullptr, nullptr);
+    if (cityLen > 0) {
+        g_cityQueryUtf8.resize(cityLen - 1);
+        WideCharToMultiByte(CP_UTF8, 0, cityBuf, -1, &g_cityQueryUtf8[0], cityLen, nullptr, nullptr);
+        wcscpy_s(g_configCityName, _countof(g_configCityName), cityBuf);
+    }
+
+    if (locationBuf[0] != L'\0') {
+        WideCharToMultiByte(CP_UTF8, 0, locationBuf, -1, g_locationId, (int)sizeof(g_locationId), nullptr, nullptr);
+        g_locationFetched.store(true);
+    } else {
+        g_locationFetched.store(false);
+    }
+}
 
 // ==================== 辅助函数：GBK 转 UTF-8 ====================
 static std::string GbkToUtf8(const std::string& gbkStr) {
@@ -264,14 +330,23 @@ static std::string ExtractJsonArrayField(const std::string& json, const char* ar
 // 通过城市名查 LocationID 和坐标（使用 GeoAPI v2）
 static void FetchLocation() {
     if (g_locationFetched.load()) return;
+    LoadConfig();
 
     OutputDebugStringA("[Weather] Fetching location via GeoAPI...\n");
 
-    std::string encodedLocation = UrlEncode("岳麓区");
+    std::string cityQuery;
+    std::string apiKey;
+    {
+        std::lock_guard<std::mutex> lock(g_weatherConfigMutex);
+        cityQuery = g_cityQueryUtf8.empty() ? "北京" : g_cityQueryUtf8;
+        apiKey = g_apiKey;
+    }
+
+    std::string encodedLocation = UrlEncode(cityQuery);
     char path[512];
     snprintf(path, sizeof(path),
         "/geo/v2/city/lookup?location=%s&range=cn&number=1&key=%s",
-        encodedLocation.c_str(), g_apiKey.c_str());
+        encodedLocation.c_str(), apiKey.c_str());
 
     std::string resp = HttpGetGzip(QWEATHER_HOST, path, true);
 
@@ -301,11 +376,10 @@ static void FetchLocation() {
     }
 
     if (!adm2Val.empty() && !nameVal.empty()) {
-        std::string cityDistrict = adm2Val + " " + nameVal;
-        int wlen = MultiByteToWideChar(CP_UTF8, 0, cityDistrict.c_str(), -1, NULL, 0);
+        int wlen = MultiByteToWideChar(CP_UTF8, 0, adm2Val.c_str(), -1, NULL, 0);
         if (wlen > 0 && wlen < 64) {
-            MultiByteToWideChar(CP_UTF8, 0, cityDistrict.c_str(), -1, g_cityName, wlen);
-            g_cityName[wlen - 1] = L'\0';
+            MultiByteToWideChar(CP_UTF8, 0, adm2Val.c_str(), -1, g_districtName, wlen);
+            g_districtName[wlen - 1] = L'\0';
         }
     }
 
@@ -336,6 +410,7 @@ static const char* WeatherCodeToText(int code) {
 
 // ==================== WeatherPlugin 实现====================
 WeatherPlugin::WeatherPlugin() {
+    m_locationText = L"北京";
     m_description = L"晴";
     m_temperature = 25.0f;
     m_lastUpdateTime = 0;
@@ -353,6 +428,7 @@ PluginInfo WeatherPlugin::GetInfo() const {
 
 bool WeatherPlugin::Initialize() {
     // 初始化时获取一次位置
+    LoadConfig();
     FetchLocation();
     FetchWeather();
     return true;
@@ -372,6 +448,11 @@ void WeatherPlugin::Update(float deltaTime) {
 void WeatherPlugin::FetchWeather() {
     LoadConfig();  // 确保 APIKey 已从 config.ini 加载
 
+    {
+        std::lock_guard<std::mutex> lock(g_weatherConfigMutex);
+        m_locationText = g_configCityName[0] ? std::wstring(g_configCityName) : L"北京";
+    }
+
     static std::atomic<bool> isFetching{ false };
     if (isFetching) return;
     isFetching = true;
@@ -381,6 +462,15 @@ void WeatherPlugin::FetchWeather() {
     std::thread([this]() {
         // 确保位置已获取
         FetchLocation();
+        std::string apiKey;
+        std::string locationId;
+        std::wstring configuredCity;
+        {
+            std::lock_guard<std::mutex> lock(g_weatherConfigMutex);
+            apiKey = g_apiKey;
+            locationId = g_locationId;
+            configuredCity = g_configCityName;
+        }
 
         OutputDebugStringA("[Weather] Fetching weather...\n");
 
@@ -388,7 +478,7 @@ void WeatherPlugin::FetchWeather() {
         char path[512];
         snprintf(path, sizeof(path),
             "/v7/weather/now?location=%s&key=%s",
-            g_locationId, g_apiKey.c_str());
+            locationId.c_str(), apiKey.c_str());
 
         std::string resp = HttpGetGzip(QWEATHER_HOST, path, true);
 
@@ -435,12 +525,8 @@ void WeatherPlugin::FetchWeather() {
             }
         }
 
-        // 城市名 + 天气描述
-        if (!desc.empty()) {
-            m_description = std::wstring(g_cityName) + L" " + desc;
-        } else {
-            m_description = std::wstring(g_cityName) + L" 未知";
-        }
+        m_locationText = configuredCity.empty() ? L"北京" : configuredCity;
+        m_description = desc.empty() ? L"未知" : desc;
 
         // 温度
         if (!temp.empty()) {
@@ -450,7 +536,7 @@ void WeatherPlugin::FetchWeather() {
         // ------------------ 获取逐小时预报 ------------------
         snprintf(path, sizeof(path),
             "/v7/weather/24h?location=%s&key=%s",
-            g_locationId, g_apiKey.c_str());
+            locationId.c_str(), apiKey.c_str());
         std::string respHourly = HttpGetGzip(QWEATHER_HOST, path, true);
         if (respHourly.empty()) {
             OutputDebugStringA("[Weather] Hourly API returned empty response\n");
@@ -510,7 +596,7 @@ void WeatherPlugin::FetchWeather() {
         // ------------------ 获取生活指数 (建议) ------------------
         snprintf(path, sizeof(path),
             "/v7/indices/1d?location=%s&key=%s&type=1,3,9",
-            g_locationId, g_apiKey.c_str());
+            locationId.c_str(), apiKey.c_str());
         std::string respIndex = HttpGetGzip(QWEATHER_HOST, path, true);
         if (!respIndex.empty() && ExtractJsonField(respIndex, "code") == "200") {
             // 尝试找 type=9 (感冒指数) 或第一个
@@ -527,7 +613,7 @@ void WeatherPlugin::FetchWeather() {
         // ------------------ 获取逐日预报 (7天) ------------------
         snprintf(path, sizeof(path),
             "/v7/weather/7d?location=%s&key=%s",
-            g_locationId, g_apiKey.c_str());
+            locationId.c_str(), apiKey.c_str());
         std::string respDaily = HttpGetGzip(QWEATHER_HOST, path, true);
         if (!respDaily.empty() && ExtractJsonField(respDaily, "code") == "200") {
             std::vector<DailyForecast> dailyForecasts;
@@ -568,12 +654,12 @@ void WeatherPlugin::FetchWeather() {
 
         // 调试输出
         wchar_t dbg[512];
-        swprintf_s(dbg, L"[Weather] %ls | %hsC | hourly count: %zu | daily count: %zu\n",
-            m_description.c_str(), temp.c_str(), m_hourlyForecasts.size(), m_dailyForecasts.size());
+        swprintf_s(dbg, L"[Weather] %ls | %ls | %hsC | hourly count: %zu | daily count: %zu\n",
+            m_locationText.c_str(), m_description.c_str(), temp.c_str(), m_hourlyForecasts.size(), m_dailyForecasts.size());
         OutputDebugStringW(dbg);
 
         isFetching = false;
+        // 通知主窗口刷新天气显示
+        if (m_notifyHwnd) PostMessage(m_notifyHwnd, WM_WEATHER_UPDATED, 0, 0);
     }).detach();
 }
-
-

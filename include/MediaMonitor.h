@@ -57,11 +57,13 @@ public:
     void SetVolume(float volume);    // 【新增】设置当前音量 (0.0 ~ 1.0)
     void SetExpandedState(bool expanded); // 【OPT-02】设置岛屿展开状态，动态调整轮询频率
     void RequestAlbumArtRefresh();
+    void SetPollIntervalMs(int intervalMs);
 private:
     void RequestImmediateRefresh(bool refreshAlbumArt);
     void SyncCurrentSession();
     void AttachSessionHandlers(const GlobalSystemMediaTransportControlsSession& session);
     void DetachSessionHandlers();
+    int ComputePollIntervalMs() const;
     void BackgroundMediaWorker(); // 后台拉取媒体信息的线程
     std::vector<uint8_t>* ReadThumbnailToMemory(const IRandomAccessStreamReference& thumbnail);
     void ClearAlbumArt();
@@ -104,6 +106,8 @@ private:
     GlobalSystemMediaTransportControlsSessionManager m_manager{ nullptr };
     GlobalSystemMediaTransportControlsSession m_currentSession{ nullptr };
     int m_pollIntervalMs = 1000; // 【OPT-02】当前轮询间隔（毫秒）
+    int m_basePollIntervalMs = 1000;
+    bool m_isExpanded = false;
     std::atomic<bool> m_eventWakeRequested{ false };
     std::mutex m_waitMutex;
     std::condition_variable m_waitCv;

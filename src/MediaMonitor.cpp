@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <chrono>
 #include <fstream>
+#include <algorithm>
 
 #pragma comment(lib, "windowsapp.lib") // 链接 WinRT 库
 #pragma comment(lib, "shlwapi.lib")
@@ -121,6 +122,22 @@ void MediaMonitor::AttachSessionHandlers(const GlobalSystemMediaTransportControl
 	m_timelinePropertiesChangedToken = m_currentSession.TimelinePropertiesChanged([this](auto const&, auto const&) {
 		RequestImmediateRefresh(false);
 	});
+}
+
+int MediaMonitor::ComputePollIntervalMs() const {
+    if (m_isExpanded && m_hasSession) {
+        return (std::max)(250, m_basePollIntervalMs / (m_isPlaying ? 2 : 1));
+    }
+
+    if (m_isPlaying) {
+        return (std::max)(250, m_basePollIntervalMs / 2);
+    }
+
+    if (m_hasSession) {
+        return (std::max)(500, m_basePollIntervalMs);
+    }
+
+    return (std::max)(1500, m_basePollIntervalMs * 4);
 }
 
 void MediaMonitor::SyncCurrentSession() {
@@ -233,9 +250,7 @@ void MediaMonitor::SyncCurrentSession() {
 		EventBus::GetInstance().PublishMediaSessionChanged(m_hasSession.load());
 	}
 
-	if (m_isPlaying) m_pollIntervalMs = 500;
-	else if (m_hasSession) m_pollIntervalMs = 1500;
-	else m_pollIntervalMs = 4000;
+	m_pollIntervalMs = ComputePollIntervalMs();
 }
 
 // 运行在独立的后台线程中，使用事件唤醒 + 轮询兜底
@@ -311,17 +326,19 @@ bool MediaMonitor::IsPlaying() const {
 }
 
 void MediaMonitor::SetExpandedState(bool expanded) {
-	// 【OPT-02】岛屿展开时缩短轮询间隔，确保进度条流畅更新
-	if (expanded && m_isPlaying) {
-		m_pollIntervalMs = 1000; // 展开+播放：1秒轮询
-	} else if (expanded && !m_isPlaying && m_hasSession) {
-		m_pollIntervalMs = 2000; // 展开+暂停：2秒轮询
-	}
-	// 收起状态由智能休眠逻辑自动调整
+	m_isExpanded = expanded;
+	m_pollIntervalMs = ComputePollIntervalMs();
+	RequestImmediateRefresh(false);
 }
 
 void MediaMonitor::RequestAlbumArtRefresh() {
 	m_needAlbumArtUpdate = true;
+}
+
+void MediaMonitor::SetPollIntervalMs(int intervalMs) {
+	m_basePollIntervalMs = (std::max)(250, intervalMs);
+	m_pollIntervalMs = ComputePollIntervalMs();
+	RequestImmediateRefresh(false);
 }
 
 std::wstring MediaMonitor::GetAlbumArt()

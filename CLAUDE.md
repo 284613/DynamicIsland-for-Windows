@@ -120,6 +120,8 @@
 ## 构建
 
 统一使用 `msbuild` 进行构建，不要假设使用其他构建入口。
+统一编译到默认正式输出目录 `x64\Release\DynamicIsland.exe`，不要改用其他输出文件夹。
+如果 `x64\Release\DynamicIsland.exe` 被占用，先关闭正在运行的 `DynamicIsland.exe`，再重新执行默认 `msbuild` 编译。
 
 ```powershell
 msbuild DynamicIsland.sln /p:Configuration=Release /p:Platform=x64

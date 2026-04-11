@@ -23,6 +23,7 @@ public:
     void SetTargetSize(float w, float h);
     void SetTargetAlpha(float a);
     void SetSecondaryTarget(float h, float a); // [新增] 设置副岛目标状态
+    void SetSpringParams(float stiffness, float damping);
     void StartAnimation();
     void UpdatePhysics();
 

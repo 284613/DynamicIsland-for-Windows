@@ -1,5 +1,6 @@
 #include "LayoutController.h"
 #include "Constants.h"
+#include <algorithm>
 
 LayoutController::LayoutController()
     : m_currentWidth(Constants::Size::COLLAPSED_WIDTH)
@@ -44,6 +45,23 @@ void LayoutController::SetSecondaryTarget(float h, float a) {
     m_targetSecAlpha = a;
     m_secHeightSpring.SetTarget(h);
     m_secAlphaSpring.SetTarget(a);
+}
+
+void LayoutController::SetSpringParams(float stiffness, float damping) {
+    stiffness = (std::max)(10.0f, stiffness);
+    damping = (std::max)(1.0f, damping);
+
+    m_widthSpring.SetStiffness(stiffness);
+    m_widthSpring.SetDamping(damping);
+    m_heightSpring.SetStiffness(stiffness);
+    m_heightSpring.SetDamping(damping);
+
+    m_alphaSpring.SetStiffness(stiffness * 0.5f);
+    m_alphaSpring.SetDamping((std::max)(1.0f, damping * 0.5f));
+    m_secHeightSpring.SetStiffness(stiffness * 0.45f);
+    m_secHeightSpring.SetDamping((std::max)(1.0f, damping * 0.6f));
+    m_secAlphaSpring.SetStiffness(stiffness * 0.375f);
+    m_secAlphaSpring.SetDamping((std::max)(1.0f, damping * 0.5f));
 }
 
 void LayoutController::StartAnimation() {

@@ -15,12 +15,15 @@ public:
     void SetLowBatteryThreshold(int threshold) { m_lowBatteryThreshold = threshold; }
 
     // 天气相关
+    std::wstring GetWeatherLocationText() const { return m_weatherLocationText; }
     std::wstring GetWeatherDescription() const { return m_weatherDesc; }
     float GetWeatherTemperature() const { return m_weatherTemp; }
     WeatherPlugin* GetWeatherPlugin() const { return m_weatherPlugin; }
     void UpdateWeather() {
+        if (m_weatherPlugin) m_weatherPlugin->RequestRefresh();
         if (m_weatherPlugin) m_weatherPlugin->Update(0.0f);
         if (m_weatherPlugin) {
+            m_weatherLocationText = m_weatherPlugin->GetLocationText();
             m_weatherDesc = m_weatherPlugin->GetWeatherDescription();
             m_weatherTemp = m_weatherPlugin->GetTemperature();
         }
@@ -37,6 +40,7 @@ private:
 
     // 天气插件
     WeatherPlugin* m_weatherPlugin = nullptr;
+    std::wstring m_weatherLocationText = L"北京";
     std::wstring m_weatherDesc = L"Sunny";
     float m_weatherTemp = 25.0f;
 };

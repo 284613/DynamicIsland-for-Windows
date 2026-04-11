@@ -154,6 +154,92 @@ float DynamicIsland::ClampProgress(float progress) {
     return progress < 0.0f ? 0.0f : (progress > 1.0f ? 1.0f : progress);
 }
 
+bool DynamicIsland::GetSystemDarkMode() const {
+    HKEY hKey;
+    DWORD val = 0;
+    DWORD sz = sizeof(val);
+    if (RegOpenKeyExW(HKEY_CURRENT_USER,
+        L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+        0, KEY_READ, &hKey) == ERROR_SUCCESS) {
+        RegQueryValueExW(hKey, L"AppsUseLightTheme", nullptr, nullptr, reinterpret_cast<LPBYTE>(&val), &sz);
+        RegCloseKey(hKey);
+        return val == 0;
+    }
+    return true;
+}
+
+void DynamicIsland::UpdateAutoStart(bool enabled) {
+    HKEY hKey = nullptr;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER,
+        L"Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+        0, nullptr, 0, KEY_SET_VALUE, nullptr, &hKey, nullptr) != ERROR_SUCCESS) {
+        return;
+    }
+
+    if (enabled) {
+        wchar_t exePath[MAX_PATH] = {};
+        if (GetModuleFileNameW(nullptr, exePath, MAX_PATH)) {
+            const std::wstring value = L"\"" + std::wstring(exePath) + L"\"";
+            RegSetValueExW(hKey, L"DynamicIsland", 0, REG_SZ,
+                reinterpret_cast<const BYTE*>(value.c_str()),
+                DWORD((value.size() + 1) * sizeof(wchar_t)));
+        }
+    } else {
+        RegDeleteValueW(hKey, L"DynamicIsland");
+    }
+
+    RegCloseKey(hKey);
+}
+
+void DynamicIsland::ApplyRuntimeSettings() {
+    m_darkMode = m_followSystemTheme ? GetSystemDarkMode() : m_darkMode;
+    m_layoutController.SetSpringParams(m_springStiffness, m_springDamping);
+    m_fileStash.SetMaxItems((size_t)(std::max)(1, m_fileStashMaxItems));
+    m_mediaMonitor.SetPollIntervalMs(m_mediaPollIntervalMs);
+    m_renderer.SetTheme(m_darkMode, m_mainUITransparency, m_filePanelTransparency);
+    UpdateAutoStart(m_autoStart);
+}
+
+void DynamicIsland::OpenPomodoroPanel() {
+    auto* pomodoro = m_renderer.GetPomodoroComponent();
+    if (!pomodoro) {
+        return;
+    }
+
+    m_isWeatherExpanded = false;
+    m_pomodoroExpanded = true;
+    pomodoro->SetExpanded(true);
+    m_state = IslandState::Expanded;
+    KillTimer(m_window.GetHWND(), m_displayTimerId);
+    TransitionTo(IslandDisplayMode::PomodoroExpanded);
+}
+
+void DynamicIsland::SyncPomodoroMode() {
+    auto* pomodoro = m_renderer.GetPomodoroComponent();
+    if (!pomodoro) {
+        return;
+    }
+
+    m_pomodoroExpanded = pomodoro->IsExpanded();
+    if (m_pomodoroExpanded) {
+        m_state = IslandState::Expanded;
+        KillTimer(m_window.GetHWND(), m_displayTimerId);
+        TransitionTo(IslandDisplayMode::PomodoroExpanded);
+        return;
+    }
+
+    m_state = IslandState::Collapsed;
+    TransitionTo(DetermineDisplayMode());
+}
+
+void DynamicIsland::HandlePomodoroFinished() {
+    m_pomodoroExpanded = false;
+    m_state = IslandState::Collapsed;
+    AlertInfo info{ 3, L"番茄时钟", L"本轮专注已完成", L"", {} };
+    EventBus::GetInstance().PublishNotificationArrived(info);
+    Invalidate(Dirty_Alert | Dirty_Region | Dirty_Time);
+}
+
 void DynamicIsland::TransitionTo(IslandDisplayMode mode) {
 
 	switch (mode) {
@@ -164,6 +250,14 @@ void DynamicIsland::TransitionTo(IslandDisplayMode mode) {
 
 			break;
 
+		case IslandDisplayMode::PomodoroCompact:
+			SetTargetSize(Constants::Size::POMODORO_COMPACT_WIDTH, Constants::Size::POMODORO_COMPACT_HEIGHT);
+			break;
+
+		case IslandDisplayMode::PomodoroExpanded:
+			SetTargetSize(Constants::Size::POMODORO_EXPANDED_WIDTH, Constants::Size::POMODORO_EXPANDED_HEIGHT);
+			break;
+
 		case IslandDisplayMode::MusicCompact:
 
 			SetTargetSize(Constants::Size::COMPACT_WIDTH, Constants::Size::COMPACT_HEIGHT);
@@ -172,7 +266,7 @@ void DynamicIsland::TransitionTo(IslandDisplayMode mode) {
 
 		case IslandDisplayMode::MusicExpanded:
 
-			SetTargetSize(Constants::Size::EXPANDED_WIDTH, m_mediaMonitor.HasSession() ? Constants::Size::MUSIC_EXPANDED_HEIGHT : Constants::Size::EXPANDED_HEIGHT);
+			SetTargetSize(EXPANDED_WIDTH, m_mediaMonitor.HasSession() ? MUSIC_EXPANDED_HEIGHT : EXPANDED_HEIGHT);
 
 			break;
 
@@ -194,7 +288,7 @@ void DynamicIsland::TransitionTo(IslandDisplayMode mode) {
 
 		case IslandDisplayMode::FileDrop:
 
-			SetTargetSize(Constants::Size::EXPANDED_WIDTH, Constants::Size::EXPANDED_HEIGHT);
+			SetTargetSize(EXPANDED_WIDTH, EXPANDED_HEIGHT);
 
 			break;
 
@@ -260,14 +354,28 @@ void DynamicIsland::LoadConfig() {
 
 	m_allowedApps.clear();
 
-	// 读取 INI 文件（如果文件不存在则使用后面的默认值）
+	auto getInt = [&](const wchar_t* section, const wchar_t* key, int fallback) {
+		return GetPrivateProfileIntW(section, key, fallback, configPath.c_str());
+	};
 
-	CANVAS_WIDTH = (float)GetPrivateProfileIntW(L"Settings", L"CanvasWidth", (int)Constants::Size::CANVAS_WIDTH, configPath.c_str());
-
-	CANVAS_HEIGHT = (float)GetPrivateProfileIntW(L"Settings", L"CanvasHeight", (int)Constants::Size::CANVAS_HEIGHT, configPath.c_str());
+	CANVAS_WIDTH = (float)getInt(L"Settings", L"CanvasWidth", (int)Constants::Size::CANVAS_WIDTH);
+	CANVAS_HEIGHT = (float)getInt(L"Settings", L"CanvasHeight", (int)Constants::Size::CANVAS_HEIGHT);
 	if (CANVAS_HEIGHT < Constants::Size::CANVAS_HEIGHT) {
 		CANVAS_HEIGHT = Constants::Size::CANVAS_HEIGHT;
 	}
+
+	EXPANDED_WIDTH = (float)getInt(L"MainUI", L"Width", (int)Constants::Size::EXPANDED_WIDTH);
+	EXPANDED_HEIGHT = (float)getInt(L"MainUI", L"Height", (int)Constants::Size::EXPANDED_HEIGHT);
+	MUSIC_EXPANDED_HEIGHT = EXPANDED_HEIGHT;
+	m_mainUITransparency = getInt(L"MainUI", L"Transparency", 100) / 100.0f;
+	m_filePanelTransparency = getInt(L"FilePanel", L"Transparency", 90) / 100.0f;
+	m_springStiffness = (float)getInt(L"Advanced", L"SpringStiffness", 400);
+	m_springDamping = (float)getInt(L"Advanced", L"SpringDamping", 30);
+	m_fileStashMaxItems = getInt(L"Advanced", L"FileStashMaxItems", 5);
+	m_mediaPollIntervalMs = getInt(L"Advanced", L"MediaPollIntervalMs", 1000);
+	m_autoStart = getInt(L"Settings", L"AutoStart", 0) != 0;
+	m_darkMode = getInt(L"Settings", L"DarkMode", 1) != 0;
+	m_followSystemTheme = getInt(L"Settings", L"FollowSystemTheme", 1) != 0;
 
 	wchar_t allowedAppsBuf[512] = { 0 };
 
@@ -290,8 +398,7 @@ void DynamicIsland::LoadConfig() {
 
 	m_allowedApps.push_back(appsStr.substr(start));
 
-	// 初始状态设定为折叠
-
+	ApplyRuntimeSettings();
 	m_layoutController.SetTargetSize(Constants::Size::COLLAPSED_WIDTH, Constants::Size::COLLAPSED_HEIGHT);
 
 }
@@ -304,9 +411,14 @@ bool DynamicIsland::Initialize(HINSTANCE hInstance) {
 	m_priorityTable = {
 		{ IslandDisplayMode::Alert,          100, [this]() { return m_isAlertActive; } },
 		{ IslandDisplayMode::WeatherExpanded,  90, [this]() { return m_isWeatherExpanded; } },
+		{ IslandDisplayMode::PomodoroExpanded, 80, [this]() { return m_pomodoroExpanded; } },
 		{ IslandDisplayMode::MusicExpanded,    70, [this]() { return m_state == IslandState::Expanded && m_mediaMonitor.HasSession(); } },
 		{ IslandDisplayMode::Volume,           60, [this]() { return m_isVolumeControlActive; } },
 		{ IslandDisplayMode::MusicCompact,     50, [this]() { return m_state == IslandState::Collapsed && m_mediaMonitor.IsPlaying(); } },
+		{ IslandDisplayMode::PomodoroCompact,  45, [this]() {
+			auto* pomodoro = m_renderer.GetPomodoroComponent();
+			return pomodoro && pomodoro->HasActiveSession() && !m_pomodoroExpanded;
+		} },
 		{ IslandDisplayMode::Idle,             10, [this]() { return true; } },
 	};
 
@@ -337,6 +449,11 @@ bool DynamicIsland::Initialize(HINSTANCE hInstance) {
 	if (!m_renderer.Initialize(m_window.GetHWND(), physCanvasW, physCanvasH)) return false;
 
 	m_renderer.SetDpi((float)m_currentDpi);
+	m_renderer.SetClockClickCallback([this]() { OpenPomodoroPanel(); });
+	if (auto* pomodoro = m_renderer.GetPomodoroComponent()) {
+		pomodoro->SetOnFinished([this]() { HandlePomodoroFinished(); });
+	}
+	m_renderer.SetTheme(m_darkMode, m_mainUITransparency, m_filePanelTransparency);
 
     // 初始化文件面板窗口
     m_mediaMonitor.SetTargetWindow(m_window.GetHWND());
@@ -352,10 +469,14 @@ bool DynamicIsland::Initialize(HINSTANCE hInstance) {
 
 	m_systemMonitor.Initialize(m_window.GetHWND()); // 【新增】启动电量监控
 
-	// 【新增】立即获取天气（不等10分钟定时器）
+	// 注册 WeatherPlugin 的 fetch 完成通知
+	if (m_systemMonitor.GetWeatherPlugin())
+		m_systemMonitor.GetWeatherPlugin()->SetNotifyHwnd(m_window.GetHWND());
 
+	// 【新增】立即获取天气（不等10分钟定时器）
 	m_systemMonitor.UpdateWeather();
 
+	m_weatherLocationText = m_systemMonitor.GetWeatherLocationText();
 	m_weatherDesc = m_systemMonitor.GetWeatherDescription();
 
 	m_weatherTemp = m_systemMonitor.GetWeatherTemperature();
@@ -382,7 +503,7 @@ RegisterHotKey(m_window.GetHWND(), HOTKEY_ID, MOD_CONTROL | MOD_ALT, 'I');
 	m_renderer.SetTimeData(false, L"");
 	m_renderer.SetVolumeState(false, 0.0f);
 	m_renderer.SetFileState(SecondaryContentKind::None, m_fileStash.Items(), -1, -1);
-	m_renderer.SetWeatherState(m_weatherDesc, m_weatherTemp, L"", {}, {}, false, m_weatherViewMode);
+	m_renderer.SetWeatherState(m_weatherLocationText, m_weatherDesc, m_weatherTemp, L"", {}, {}, false, m_weatherViewMode);
 	m_renderer.SetAlertState(false, AlertInfo{});
 
 	m_renderer.DrawCapsule(initCtx);
@@ -493,6 +614,7 @@ bool DynamicIsland::ShouldKeepRendering() const {
     if (m_isDraggingProgress) return true;                  // 拖动进度条
     if (m_isDragHovering) return true;                      // 文件拖拽悬停
     if (m_isWeatherExpanded) return true;                   // 天气展开面板动画持续运行
+    if (auto* pomodoro = m_renderer.GetPomodoroComponent(); pomodoro && pomodoro->HasActiveSession()) return true;
     return false;
 }
 
@@ -692,13 +814,14 @@ void DynamicIsland::UpdatePhysics() {
 	std::vector<DailyForecast> dailyForecasts;
 	std::wstring weatherIconId = L"100";
 	if (m_systemMonitor.GetWeatherPlugin()) {
+		m_weatherLocationText = m_systemMonitor.GetWeatherPlugin()->GetLocationText();
 		m_weatherDesc = m_systemMonitor.GetWeatherPlugin()->GetWeatherDescription();
 		m_weatherTemp = m_systemMonitor.GetWeatherPlugin()->GetTemperature();
 		weatherIconId = m_systemMonitor.GetWeatherPlugin()->GetIconId();
 		hourlyForecasts = m_systemMonitor.GetWeatherPlugin()->GetHourlyForecast();
 		dailyForecasts = m_systemMonitor.GetWeatherPlugin()->GetDailyForecast();
 	}
-	m_renderer.SetWeatherState(m_weatherDesc, m_weatherTemp, weatherIconId,
+	m_renderer.SetWeatherState(m_weatherLocationText, m_weatherDesc, m_weatherTemp, weatherIconId,
 		hourlyForecasts, dailyForecasts, m_isWeatherExpanded, m_weatherViewMode);
 
 	IslandDisplayMode mode = DetermineDisplayMode();
@@ -756,11 +879,33 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 		m_notificationMonitor.UpdateAllowedApps(m_allowedApps);
 		m_systemMonitor.SetLowBatteryThreshold(
 			GetPrivateProfileIntW(L"Advanced", L"LowBatteryThreshold", 20, GetConfigPath().c_str()));
-		m_systemMonitor.UpdateWeather();
+		ApplyRuntimeSettings();
+		m_systemMonitor.UpdateWeather();  // 异步 fetch，完成后会发 WM_WEATHER_UPDATED
+		m_weatherLocationText = m_systemMonitor.GetWeatherLocationText();
 		m_weatherDesc = m_systemMonitor.GetWeatherDescription();
 		m_weatherTemp = m_systemMonitor.GetWeatherTemperature();
+		if (m_pomodoroExpanded) {
+			SyncPomodoroMode();
+		} else {
+			TransitionTo(DetermineDisplayMode());
+		}
 		Invalidate(Dirty_Weather | Dirty_MediaState | Dirty_Region);
 		return 0;
+
+	case WM_WEATHER_UPDATED: {
+		// WeatherPlugin 异步 fetch 完成，刷新岛屿显示
+		m_weatherLocationText = m_systemMonitor.GetWeatherLocationText();
+		m_weatherDesc = m_systemMonitor.GetWeatherDescription();
+		m_weatherTemp = m_systemMonitor.GetWeatherTemperature();
+		if (m_systemMonitor.GetWeatherPlugin()) {
+			auto* wp = m_systemMonitor.GetWeatherPlugin();
+			m_renderer.SetWeatherState(m_weatherLocationText, m_weatherDesc, m_weatherTemp, wp->GetIconId(),
+				wp->GetHourlyForecast(), wp->GetDailyForecast(),
+				m_isWeatherExpanded, m_weatherViewMode);
+		}
+		Invalidate(Dirty_Weather | Dirty_Region);
+		return 0;
+	}
 
 	case WM_NCHITTEST: {
 		POINT physicalPt;
@@ -807,6 +952,13 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 			return 0;
 		}
 
+		IslandDisplayMode currentMode = DetermineDisplayMode();
+		if ((currentMode == IslandDisplayMode::PomodoroExpanded || currentMode == IslandDisplayMode::PomodoroCompact) &&
+			m_renderer.OnMouseMove((float)pt.x, (float)pt.y)) {
+			Invalidate(Dirty_Hover | Dirty_Time);
+			return 0;
+		}
+
 		// 鼠标悬停检测
 
 		float hoverLeft = (CANVAS_WIDTH - GetCurrentWidth()) / 2.0f;
@@ -832,6 +984,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 			}
 
 			bool suppressHoverResize = m_fileStash.HasItems();
+			if (auto* pomodoro = m_renderer.GetPomodoroComponent()) {
+				suppressHoverResize = suppressHoverResize || pomodoro->HasActiveSession();
+			}
 
 			
 
@@ -894,57 +1049,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 		}
 
 		if (m_dragging) {
-
-			POINT current;
-
-			GetCursorPos(&current);
-
-			int dx = current.x - m_dragStart.x;
-
-			int dy = current.y - m_dragStart.y;
-
-			// 计算新窗口位置
-
-			int newLeft = m_windowStart.x + dx;
-
-			int newTop = m_windowStart.y + dy;
-
-			// 获取当前窗口所在显示器的工作区
-
-			HMONITOR hMonitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
-
-			MONITORINFO mi = { sizeof(MONITORINFO) };
-
-			if (GetMonitorInfo(hMonitor, &mi)) {
-
-				RECT workArea = mi.rcWork; // 工作区（排除任务栏）
-
-				// 获取窗口大小
-
-				RECT windowRect;
-
-				GetWindowRect(hwnd, &windowRect);
-
-				int width = windowRect.right - windowRect.left;
-
-				int height = windowRect.bottom - windowRect.top;
-
-				// 限制新位置不超出工作区
-
-				if (newLeft < workArea.left) newLeft = workArea.left;
-
-				if (newTop < workArea.top) newTop = workArea.top;
-
-				if (newLeft + width > workArea.right) newLeft = workArea.right - width;
-
-				if (newTop + height > workArea.bottom) newTop = workArea.bottom - height;
-
-			}
-
-			SetWindowPos(hwnd, nullptr, newLeft, newTop, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOREDRAW);
-
+			m_dragging = false;
+			ReleaseCapture();
 			return 0;
-
 		}
 
 		int hit = m_layoutController.HitTestPlaybackButtons(pt, m_state == IslandState::Expanded, m_mediaMonitor.HasSession(), CANVAS_WIDTH, GetCurrentWidth(), GetCurrentHeight(), m_dpiScale);
@@ -1005,8 +1112,13 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 		
 			// Auto-collapse from COMPACT to MINI when mouse leaves island
+			bool keepCompact = false;
+			if (auto* pomodoro = m_renderer.GetPomodoroComponent()) {
+				keepCompact = pomodoro->HasActiveSession();
+			}
 			if (m_state == IslandState::Collapsed &&
-			    GetTargetHeight() >= Constants::Size::COMPACT_MIN_HEIGHT) {
+			    GetTargetHeight() >= Constants::Size::COMPACT_MIN_HEIGHT &&
+			    !keepCompact) {
 			    SetTimer(hwnd, m_displayTimerId, 5000, nullptr);
 			}}
 
@@ -1031,6 +1143,18 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 		const POINT pt = LogicalFromPhysical(physicalPt);
 
 		if (HandleFileSecondaryMouseDown(pt)) {
+			return 0;
+		}
+
+		IslandDisplayMode currentMode = DetermineDisplayMode();
+		if ((currentMode == IslandDisplayMode::Idle ||
+			currentMode == IslandDisplayMode::PomodoroExpanded ||
+			currentMode == IslandDisplayMode::PomodoroCompact) &&
+			m_renderer.OnMouseClick((float)pt.x, (float)pt.y)) {
+			if (currentMode != IslandDisplayMode::Idle) {
+				SyncPomodoroMode();
+			}
+			Invalidate(Dirty_Hover | Dirty_Time | Dirty_Region);
 			return 0;
 		}
 
@@ -1087,22 +1211,6 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 				return 0;
 			}
 		}
-
-		// 如果没点中按钮，执行原有的拖动和折叠逻辑
-
-		m_dragging = true;
-
-		GetCursorPos(&m_dragStart);
-
-		RECT rect;
-
-		GetWindowRect(hwnd, &rect);
-
-		m_windowStart.x = rect.left;
-
-		m_windowStart.y = rect.top;
-
-		SetCapture(hwnd);
 
 		if (m_state == IslandState::Collapsed) {
 			// 仅在当前确实处于音乐紧凑态时，点击主岛才展开到音乐面板
@@ -1387,14 +1495,20 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 				}
 
+				m_weatherLocationText = m_systemMonitor.GetWeatherLocationText();
 				m_weatherDesc = m_systemMonitor.GetWeatherDescription();
 
 				m_weatherTemp = m_systemMonitor.GetWeatherTemperature();
 }
 
-			// 有文件时不收缩
+			// 有文件或番茄会话时不收缩
 
-			if (!!m_fileStash.HasItems()) {
+			bool keepCompact = !!m_fileStash.HasItems();
+			if (auto* pomodoro = m_renderer.GetPomodoroComponent()) {
+				keepCompact = keepCompact || pomodoro->HasActiveSession() || pomodoro->IsExpanded();
+			}
+
+			if (keepCompact) {
 
 				KillTimer(hwnd, m_displayTimerId);
 
@@ -1511,26 +1625,23 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 	case WM_MOUSEWHEEL: {
 		IslandDisplayMode currentMode = DetermineDisplayMode();
+		const int delta = GET_WHEEL_DELTA_WPARAM(wParam);
 
 		// 天气展开模式：滚轮切换 逐小时 ↔ 逐日
 		if (currentMode == IslandDisplayMode::WeatherExpanded) {
-			int delta = GET_WHEEL_DELTA_WPARAM(wParam);
 			m_renderer.OnMouseWheel(0.0f, 0.0f, delta);
 			m_weatherViewMode = (delta > 0) ? WeatherViewMode::Hourly : WeatherViewMode::Daily;
 			EnsureRenderLoopRunning();
 			return 0;
 		}
 
-		// 【修改】仅在音乐模式（展开/紧凑）且确实有音乐会话时允许调整音量
-		bool hasMusic = (currentMode == IslandDisplayMode::MusicCompact ||
-		                 (currentMode == IslandDisplayMode::MusicExpanded && m_mediaMonitor.HasSession()));
+		// 仅在展开态且确实有音乐会话时允许调整音量；紧凑态直接忽略滚轮
+		const bool allowExpandedVolumeAdjust =
+			(m_state == IslandState::Expanded) && m_mediaMonitor.HasSession();
 
-		if (!hasMusic && !m_isVolumeControlActive) {
+		if (!allowExpandedVolumeAdjust) {
 			return 0;
 		}
-
-		// 获取滚轮滚动的方向和大小 (+120 向上, -120 向下)
-		int delta = GET_WHEEL_DELTA_WPARAM(wParam);
 
 		// 获取当前音量并计算新音量（每次滚动调整 2%）
 		float vol = m_mediaMonitor.GetVolume();

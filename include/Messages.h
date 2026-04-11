@@ -12,7 +12,9 @@
 #define WM_DRAG_LEAVE (WM_USER + 202)
 #define WM_DROP_FILE  (WM_USER + 203)
 #define WM_FILE_REMOVED (WM_USER + 204)
-#define WM_SETTINGS_APPLY (WM_USER + 205)
+#define WM_SETTINGS_APPLY   (WM_USER + 205)
+#define WM_LOCATION_RESULT  (WM_USER + 206)
+#define WM_WEATHER_UPDATED  (WM_USER + 207)  // WeatherPlugin fetch 完毕后通知主窗口
 #define WM_APP_INVALIDATE (WM_APP + 50)  // wParam = DirtyFlags
 
 // 内存图像数据结构

@@ -144,6 +144,7 @@ bool RenderEngine::Initialize(HWND hwnd, int canvasWidth, int canvasHeight) {
     m_surface->EndDraw();
 
     RegisterComponents();
+    SetTheme(m_darkMode, m_primaryShellOpacity, m_secondaryShellOpacity);
     return true;
 }
 
@@ -193,6 +194,9 @@ void RenderEngine::RegisterComponents() {
 
     m_clockComponent = std::make_unique<ClockComponent>();
     m_clockComponent->OnAttach(&m_sharedRes);
+
+    m_pomodoroComponent = std::make_unique<PomodoroComponent>();
+    m_pomodoroComponent->OnAttach(&m_sharedRes);
 }
 
 void RenderEngine::SetDpi(float dpi) {
@@ -216,7 +220,8 @@ void RenderEngine::Resize(int width, int height) {
     for (IIslandComponent* component : { static_cast<IIslandComponent*>(m_weatherComponent.get()), static_cast<IIslandComponent*>(m_lyricsComponent.get()),
         static_cast<IIslandComponent*>(m_waveformComponent.get()), static_cast<IIslandComponent*>(m_alertComponent.get()),
         static_cast<IIslandComponent*>(m_volumeComponent.get()), static_cast<IIslandComponent*>(m_musicComponent.get()),
-        static_cast<IIslandComponent*>(m_fileStorageComponent.get()), static_cast<IIslandComponent*>(m_clockComponent.get()) }) {
+        static_cast<IIslandComponent*>(m_fileStorageComponent.get()), static_cast<IIslandComponent*>(m_clockComponent.get()),
+        static_cast<IIslandComponent*>(m_pomodoroComponent.get()) }) {
         if (component) {
             component->OnResize(m_dpi, width, height);
         }
@@ -285,11 +290,11 @@ void RenderEngine::SetFileState(SecondaryContentKind mode, const std::vector<Fil
     }
 }
 
-void RenderEngine::SetWeatherState(const std::wstring& desc, float temp, const std::wstring& iconId,
+void RenderEngine::SetWeatherState(const std::wstring& locationText, const std::wstring& desc, float temp, const std::wstring& iconId,
     const std::vector<HourlyForecast>& hourly, const std::vector<DailyForecast>& daily,
     bool expanded, WeatherViewMode viewMode) {
     if (m_weatherComponent) {
-        m_weatherComponent->SetWeatherData(desc, temp, iconId, hourly, daily);
+        m_weatherComponent->SetWeatherData(locationText, desc, temp, iconId, hourly, daily);
         m_weatherComponent->SetExpanded(expanded);
         m_weatherComponent->SetViewMode(viewMode);
     }
@@ -301,6 +306,40 @@ void RenderEngine::SetAlertState(bool active, const AlertInfo& info) {
         if (!active) {
             m_alertComponent->ClearAlertBitmap();
         }
+    }
+}
+
+void RenderEngine::SetTheme(bool darkMode, float primaryOpacity, float secondaryOpacity) {
+    m_darkMode = darkMode;
+    m_primaryShellOpacity = (std::max)(0.3f, (std::min)(1.0f, primaryOpacity));
+    m_secondaryShellOpacity = (std::max)(0.3f, (std::min)(1.0f, secondaryOpacity));
+
+    if (!m_d2dContext) {
+        return;
+    }
+
+    const D2D1_COLOR_F shellColor = darkMode
+        ? D2D1::ColorF(0.08f, 0.08f, 0.10f, 1.0f)
+        : D2D1::ColorF(0.96f, 0.96f, 0.98f, 1.0f);
+    const D2D1_COLOR_F textColor = darkMode
+        ? D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f)
+        : D2D1::ColorF(0.10f, 0.10f, 0.12f, 1.0f);
+    const D2D1_COLOR_F secondaryText = darkMode
+        ? D2D1::ColorF(0.65f, 0.65f, 0.68f, 1.0f)
+        : D2D1::ColorF(0.36f, 0.36f, 0.40f, 1.0f);
+
+    if (m_blackBrush) m_blackBrush->SetColor(shellColor);
+    if (m_whiteBrush) m_whiteBrush->SetColor(textColor);
+    if (m_grayBrush) m_grayBrush->SetColor(secondaryText);
+    if (m_darkGrayBrush) m_darkGrayBrush->SetColor(darkMode ? D2D1::ColorF(0.2f, 0.2f, 0.2f, 1.0f) : D2D1::ColorF(0.78f, 0.78f, 0.82f, 1.0f));
+    if (m_progressBgBrush) m_progressBgBrush->SetColor(darkMode ? D2D1::ColorF(0.8f, 0.8f, 0.8f, 0.5f) : D2D1::ColorF(0.18f, 0.18f, 0.22f, 0.24f));
+    if (m_progressFgBrush) m_progressFgBrush->SetColor(textColor);
+    if (m_buttonHoverBrush) m_buttonHoverBrush->SetColor(darkMode ? D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f) : D2D1::ColorF(0.12f, 0.12f, 0.16f, 1.0f));
+}
+
+void RenderEngine::SetClockClickCallback(std::function<void()> callback) {
+    if (m_clockComponent) {
+        m_clockComponent->SetOnClick(std::move(callback));
     }
 }
 
@@ -332,12 +371,16 @@ void RenderEngine::UpdateComponents(float deltaTime, const RenderContext& ctx) {
     if (m_volumeComponent) m_volumeComponent->Update(deltaTime);
     if (m_fileStorageComponent) m_fileStorageComponent->Update(deltaTime);
     if (m_clockComponent) m_clockComponent->Update(deltaTime);
+    if (m_pomodoroComponent) m_pomodoroComponent->Update(deltaTime);
 }
 
 IIslandComponent* RenderEngine::ResolvePrimaryComponent(IslandDisplayMode mode) {
     switch (mode) {
     case IslandDisplayMode::Alert:
         return m_alertComponent.get();
+    case IslandDisplayMode::PomodoroExpanded:
+    case IslandDisplayMode::PomodoroCompact:
+        return m_pomodoroComponent.get();
     case IslandDisplayMode::WeatherExpanded:
         return m_weatherComponent.get();
     case IslandDisplayMode::FileDrop:
@@ -372,9 +415,15 @@ void RenderEngine::DrawPrimaryContent(const D2D1_RECT_F& contentRect, const Rend
 
     switch (ctx.mode) {
     case IslandDisplayMode::Alert:
+    case IslandDisplayMode::PomodoroExpanded:
     case IslandDisplayMode::WeatherExpanded:
     case IslandDisplayMode::FileDrop:
     case IslandDisplayMode::Volume:
+        if (m_activePrimaryComponent) {
+            m_activePrimaryComponent->Draw(contentRect, ctx.contentAlpha, ctx.currentTimeMs);
+        }
+        break;
+    case IslandDisplayMode::PomodoroCompact:
         if (m_activePrimaryComponent) {
             m_activePrimaryComponent->Draw(contentRect, ctx.contentAlpha, ctx.currentTimeMs);
         }
@@ -436,6 +485,7 @@ void RenderEngine::DrawSecondaryIsland(const RenderContext& ctx, float top, floa
 
     D2D1_ROUNDED_RECT secRect = D2D1::RoundedRect(D2D1::RectF(secLeft, secTop, secRight, secBottom), secRadius, secRadius);
     float shellAlpha = (ctx.secondaryContent == SecondaryContentKind::Volume) ? ctx.secondaryAlpha : (0.35f + 0.65f * ctx.secondaryAlpha);
+    shellAlpha *= m_secondaryShellOpacity;
     m_blackBrush->SetOpacity(shellAlpha);
     m_d2dContext->FillRoundedRectangle(&secRect, m_blackBrush.Get());
     m_activeSecondaryComponent = ResolveSecondaryComponent(ctx.secondaryContent);
@@ -488,7 +538,7 @@ void RenderEngine::DrawCapsule(const RenderContext& ctx) {
     D2D1_ROUNDED_RECT fallbackRect = D2D1::RoundedRect(notchRect, radius, radius);
     ComPtr<ID2D1PathGeometry> notchGeometry = CreateNotchGeometry(m_d2dFactory.Get(), notchRect, radius);
 
-    m_blackBrush->SetOpacity(1.0f);
+    m_blackBrush->SetOpacity(m_primaryShellOpacity);
     if (notchGeometry) {
         m_d2dContext->FillGeometry(notchGeometry.Get(), m_blackBrush.Get());
     } else {
@@ -567,6 +617,7 @@ bool RenderEngine::HasActiveAnimations() const {
     return (m_musicComponent && m_musicComponent->NeedsRender()) ||
         (m_lyricsComponent && m_lyricsComponent->NeedsRender()) ||
         (m_waveformComponent && m_waveformComponent->NeedsRender()) ||
-        (m_weatherComponent && m_weatherComponent->NeedsRender());
+        (m_weatherComponent && m_weatherComponent->NeedsRender()) ||
+        (m_pomodoroComponent && m_pomodoroComponent->NeedsRender());
 }
 

@@ -160,7 +160,7 @@ FilePanelComponent::HitResult FilePanelComponent::HitTest(float x, float y) cons
         return result;
     }
 
-    int maxVisibleItems = (int)(std::min)(m_storedFiles.size(), (size_t)FileStashStore::kMaxItems);
+    int maxVisibleItems = (int)(std::min)(m_storedFiles.size(), FileStashStore::GetMaxItems());
     for (int index = 0; index < maxVisibleItems; ++index) {
         D2D1_RECT_F rowRect = GetRowRect(m_lastRect, index);
         if (RectContainsPoint(rowRect, x, y)) {
@@ -208,7 +208,7 @@ void FilePanelComponent::RenderDragHint(const D2D1_RECT_F& rect, float contentAl
     float top = rect.top;
     float width = rect.right - rect.left;
     float height = rect.bottom - rect.top;
-    bool isFull = m_storedFiles.size() >= FileStashStore::kMaxItems;
+    bool isFull = m_storedFiles.size() >= FileStashStore::GetMaxItems();
 
     m_res->themeBrush->SetOpacity((isFull ? 0.28f : 0.18f) * contentAlpha);
     D2D1_ROUNDED_RECT bgRect = D2D1::RoundedRect(rect, height / 2.0f, height / 2.0f);
@@ -222,7 +222,9 @@ void FilePanelComponent::RenderDragHint(const D2D1_RECT_F& rect, float contentAl
         D2D1::RectF(iconX, iconY, iconX + iconSize, iconY + iconSize), m_res->themeBrush);
 
     std::wstring title = isFull ? L"暂存已满" : L"拖入以剪切暂存";
-    std::wstring subtitle = isFull ? L"最多 5 个文件，请先移出再拖入" : L"松开后加入文件副岛";
+    std::wstring subtitle = isFull
+        ? (L"最多 " + std::to_wstring(FileStashStore::GetMaxItems()) + L" 个文件，请先移出再拖入")
+        : L"松开后加入文件副岛";
     float textLeft = iconX + iconSize + 12.0f;
     float textWidth = width - (textLeft - left) - 16.0f;
 
@@ -263,8 +265,10 @@ void FilePanelComponent::RenderCompactView(const D2D1_RECT_F& rect, float conten
         ctx->FillRoundedRectangle(D2D1::RoundedRect(iconRect, 4.0f, 4.0f), m_res->fileBrush);
     }
 
-    bool isFull = m_storedFiles.size() >= FileStashStore::kMaxItems;
-    std::wstring countText = isFull ? (std::to_wstring(m_storedFiles.size()) + L" / 5 已满") : (std::to_wstring(m_storedFiles.size()) + L" 个文件");
+    bool isFull = m_storedFiles.size() >= FileStashStore::GetMaxItems();
+    std::wstring countText = isFull
+        ? (std::to_wstring(m_storedFiles.size()) + L" / " + std::to_wstring(FileStashStore::GetMaxItems()) + L" 已满")
+        : (std::to_wstring(m_storedFiles.size()) + L" 个文件");
     auto countLayout = CreateTextLayout(countText, m_res->titleFormat, width - 86.0f);
     if (countLayout) {
         DWRITE_TEXT_METRICS metrics{};
@@ -349,7 +353,7 @@ void FilePanelComponent::RenderExpandedView(const D2D1_RECT_F& rect, float conte
         return;
     }
 
-    int maxVisibleItems = (int)(std::min)(m_storedFiles.size(), (size_t)FileStashStore::kMaxItems);
+    int maxVisibleItems = (int)(std::min)(m_storedFiles.size(), FileStashStore::GetMaxItems());
     float listOffsetY = Lerp(8.0f, 0.0f, listReveal);
     for (int i = 0; i < maxVisibleItems; ++i) {
         float rowFade = contentAlpha * SmoothStep(0.42f + i * 0.07f, 1.0f, expansionProgress);

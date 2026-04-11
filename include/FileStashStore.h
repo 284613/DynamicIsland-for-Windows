@@ -231,16 +231,21 @@ inline bool ShellExecuteVerb(const std::wstring& filePath, const wchar_t* verb) 
 
 class FileStashStore {
 public:
-    static constexpr size_t kMaxItems = 5;
+    static constexpr size_t kDefaultMaxItems = 5;
+    static inline size_t s_maxItems = kDefaultMaxItems;
+
+    static size_t GetMaxItems() { return s_maxItems; }
+    static void SetGlobalMaxItems(size_t maxItems) { s_maxItems = (std::max)(size_t(1), maxItems); }
 
     const std::vector<FileStashItem>& Items() const { return m_items; }
     bool HasItems() const { return !m_items.empty(); }
     size_t Count() const { return m_items.size(); }
+    void SetMaxItems(size_t maxItems) { SetGlobalMaxItems(maxItems); }
 
     bool AddPaths(const std::vector<std::wstring>& sourcePaths, std::wstring* errorMessage = nullptr) {
         for (const auto& sourcePathStr : sourcePaths) {
-            if (m_items.size() >= kMaxItems) {
-                if (errorMessage) *errorMessage = L"最多暂存 5 个文件";
+            if (m_items.size() >= GetMaxItems()) {
+                if (errorMessage) *errorMessage = L"最多暂存 " + std::to_wstring(GetMaxItems()) + L" 个文件";
                 return false;
             }
 

@@ -28,6 +28,8 @@ namespace SettingID {
     constexpr int WEATHER_CITY     = 40;
     constexpr int WEATHER_KEY      = 41;
     constexpr int WEATHER_LOC      = 42;
+    constexpr int WEATHER_AUTO_LOC = 43;
+    constexpr int WEATHER_REGION   = 44;
     constexpr int NOTIFY_APPS      = 50;
     constexpr int ADV_STIFFNESS    = 60;
     constexpr int ADV_DAMPING      = 61;

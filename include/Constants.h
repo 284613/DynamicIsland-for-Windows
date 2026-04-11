@@ -21,6 +21,12 @@ namespace Size {
     // 展开尺寸
     constexpr float EXPANDED_WIDTH = 340.0f;
     constexpr float EXPANDED_HEIGHT = 120.0f;
+
+    // 番茄钟
+    constexpr float POMODORO_EXPANDED_WIDTH = 340.0f;
+    constexpr float POMODORO_EXPANDED_HEIGHT = 246.0f;
+    constexpr float POMODORO_COMPACT_WIDTH = 188.0f;
+    constexpr float POMODORO_COMPACT_HEIGHT = 40.0f;
     
     // 音乐展开高度
     constexpr float MUSIC_EXPANDED_HEIGHT = 160.0f;

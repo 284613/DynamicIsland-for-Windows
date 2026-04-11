@@ -88,6 +88,7 @@ private:
     void DrawToggleControl(const SettingsControl& control, const D2D1_RECT_F& rect, float alpha);
     void DrawSliderControl(const SettingsControl& control, const D2D1_RECT_F& rect, float alpha);
     void DrawTextInputCtrl(const SettingsControl& control, const D2D1_RECT_F& rect, float alpha);
+    void DrawCitySelectorCtrl(const SettingsControl& control, const D2D1_RECT_F& rect, float alpha);
     void DrawButtonAtRect(const SettingsControl& control, const D2D1_RECT_F& rect, float alpha);
     void DrawSeparatorLine(const SettingsControl& control, const D2D1_RECT_F& rect, float alpha);
     void DrawLabelRow(const SettingsControl& control, const D2D1_RECT_F& rect, float alpha);
@@ -142,7 +143,29 @@ private:
     float PixelsToDipY(int y) const;
     int DipToPixels(float value) const;
 
+    struct CityInfo {
+        std::wstring id;
+        std::wstring nameZH;
+        std::wstring nameEN;
+        std::wstring adm1;
+        std::wstring adm2;
+    };
+
+    struct LocationResult {
+        std::wstring name;
+        std::wstring id;
+        bool success = false;
+    };
+
+    void LoadCities();
+    void UpdateCityFilter(const std::wstring& query);
+    void AutoLocateCity();
+    void PositionIMEWindow();
+    D2D1_RECT_F GetRegionPillRect(const D2D1_RECT_F& inputBoxRect) const;
+    D2D1_RECT_F GetCitySearchTextRect(const D2D1_RECT_F& inputBoxRect) const;
+
     HWND m_hwnd = nullptr;
+
     HWND m_parentHwnd = nullptr;
     HINSTANCE m_hInstance = nullptr;
     bool m_visible = false;
@@ -229,5 +252,16 @@ private:
     float m_mediaPollIntervalMs = 1000.0f;
     float m_dpiScale = 1.0f;
 
+    std::vector<CityInfo> m_allCities;
+    std::vector<const CityInfo*> m_filteredCities;
+    std::vector<std::wstring> m_allRegions;  // 从城市数据中提取的去重省份列表
+    bool m_citySearchActive = false;
+    int m_selectedCityIndex = -1;
+    bool m_isLocating = false;
+    std::wstring m_citySearchText;    // 搜索框当前输入，跨页面重建保持不变
+    std::wstring m_selectedRegion;    // 当前筛选省份 (adm1)，空字符串表示全部
+    std::wstring m_selectedPrefecture; // 当前筛选地级市 (adm2)，空字符串表示全部
+    bool m_regionPickerOpen = false;  // 省份/地级市选择面板是否展开
+    int  m_regionPickerLevel = 0;     // 0 = 省份列表，1 = 该省的地级市列表
 };
 

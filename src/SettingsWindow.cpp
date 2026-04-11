@@ -8,12 +8,19 @@
 #include <windowsx.h>
 #include <algorithm>
 #include <cmath>
+#include <fstream>
 #include <shlobj.h>
+#include <sstream>
+#include <thread>
+#include <winhttp.h>
+#include <imm.h>
 
 using Microsoft::WRL::ComPtr;
 
 #pragma comment(lib, "dwmapi.lib")
 #pragma comment(lib, "shlwapi.lib")
+#pragma comment(lib, "winhttp.lib")
+#pragma comment(lib, "imm32.lib")
 
 // ---- 颜色工具 -------------------------------------------------------
 static D2D1_COLOR_F CF(float r, float g, float b, float a = 1.f) {
@@ -78,6 +85,135 @@ namespace {
     constexpr float TRAFFIC_LIGHT_SPACING = 18.f;
     constexpr float TRAFFIC_LIGHT_RADIUS = 6.f;
     constexpr float WINDOW_CORNER_RADIUS = 24.f;
+
+    std::wstring Utf8ToWide(const std::string& utf8) {
+        if (utf8.empty()) return {};
+        int len = MultiByteToWideChar(CP_UTF8, 0, utf8.data(), (int)utf8.size(), nullptr, 0);
+        if (len <= 0) return {};
+        std::wstring wide(len, L'\0');
+        MultiByteToWideChar(CP_UTF8, 0, utf8.data(), (int)utf8.size(), wide.data(), len);
+        return wide;
+    }
+
+    std::string WideToUtf8(const std::wstring& wide) {
+        if (wide.empty()) return {};
+        int len = WideCharToMultiByte(CP_UTF8, 0, wide.data(), (int)wide.size(), nullptr, 0, nullptr, nullptr);
+        if (len <= 0) return {};
+        std::string utf8(len, '\0');
+        WideCharToMultiByte(CP_UTF8, 0, wide.data(), (int)wide.size(), utf8.data(), len, nullptr, nullptr);
+        return utf8;
+    }
+
+    std::wstring TrimLineEndings(std::wstring line) {
+        while (!line.empty() && (line.back() == L'\r' || line.back() == L'\n')) {
+            line.pop_back();
+        }
+        return line;
+    }
+
+    bool StartsWithKey(const std::wstring& line, const std::wstring& key) {
+        return line.size() > key.size() && line.compare(0, key.size(), key) == 0 && line[key.size()] == L'=';
+    }
+
+    std::wstring ReadUtf8IniValue(const std::wstring& path, const std::wstring& section, const std::wstring& key, const std::wstring& fallback) {
+        std::ifstream in(path, std::ios::binary);
+        if (!in.is_open()) return fallback;
+        std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        std::wstring text = Utf8ToWide(bytes);
+        if (text.empty()) return fallback;
+
+        std::wistringstream stream(text);
+        std::wstring line;
+        std::wstring currentSection;
+        const std::wstring targetSection = L"[" + section + L"]";
+        while (std::getline(stream, line)) {
+            line = TrimLineEndings(line);
+            if (line.empty()) continue;
+            if (line.front() == L'[' && line.back() == L']') {
+                currentSection = line;
+                continue;
+            }
+            if (currentSection == targetSection && StartsWithKey(line, key)) {
+                return line.substr(key.size() + 1);
+            }
+        }
+        return fallback;
+    }
+
+    void WriteUtf8IniValue(const std::wstring& path, const std::wstring& section, const std::wstring& key, const std::wstring& value) {
+        std::ifstream in(path, std::ios::binary);
+        std::string bytes;
+        if (in.is_open()) {
+            bytes.assign((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        }
+
+        std::wstring text = bytes.empty() ? L"" : Utf8ToWide(bytes);
+        std::vector<std::wstring> lines;
+        {
+            std::wistringstream stream(text);
+            std::wstring line;
+            while (std::getline(stream, line)) {
+                lines.push_back(TrimLineEndings(line));
+            }
+        }
+
+        const std::wstring targetSection = L"[" + section + L"]";
+        const std::wstring keyLine = key + L"=" + value;
+        bool sectionFound = false;
+        bool keyWritten = false;
+        size_t insertPos = lines.size();
+
+        for (size_t i = 0; i < lines.size(); ++i) {
+            const std::wstring& line = lines[i];
+            if (line == targetSection) {
+                sectionFound = true;
+                insertPos = i + 1;
+                continue;
+            }
+            if (sectionFound && !line.empty() && line.front() == L'[' && line.back() == L']') {
+                insertPos = i;
+                break;
+            }
+            if (sectionFound && StartsWithKey(line, key)) {
+                lines[i] = keyLine;
+                keyWritten = true;
+                break;
+            }
+        }
+
+        if (!keyWritten) {
+            if (!sectionFound) {
+                if (!lines.empty() && !lines.back().empty()) {
+                    lines.push_back(L"");
+                }
+                lines.push_back(targetSection);
+                lines.push_back(keyLine);
+            } else {
+                lines.insert(lines.begin() + static_cast<std::ptrdiff_t>(insertPos), keyLine);
+            }
+        }
+
+        std::wstring output;
+        for (size_t i = 0; i < lines.size(); ++i) {
+            output += lines[i];
+            output += L"\r\n";
+        }
+
+        std::ofstream out(path, std::ios::binary | std::ios::trunc);
+        const std::string utf8 = WideToUtf8(output);
+        out.write(utf8.data(), static_cast<std::streamsize>(utf8.size()));
+    }
+
+    std::wstring TrimWeatherAreaSuffix(std::wstring text) {
+        if (text.size() > 1) {
+            const wchar_t tail = text.back();
+            if (tail == L'市' || tail == L'区' || tail == L'县') {
+                text.pop_back();
+            }
+        }
+        return text;
+    }
+
 }
 
 // ====================================================================
@@ -114,6 +250,108 @@ SettingsWindow::SettingsWindow() {
     for (auto& s : m_trafficLightHoverSprings) {
         s.SetStiffness(220.f); s.SetDamping(24.f);
     }
+    LoadCities();
+}
+
+void SettingsWindow::LoadCities() {
+    std::wstring exePath(MAX_PATH, L'\0');
+    GetModuleFileNameW(nullptr, &exePath[0], MAX_PATH);
+    size_t pos = exePath.find_last_of(L"\\/");
+    std::wstring cityFile = (pos != std::wstring::npos ? exePath.substr(0, pos + 1) : L"") + L"resources\\cities.json";
+
+    HANDLE hFile = CreateFileW(cityFile.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (hFile == INVALID_HANDLE_VALUE) {
+        // 尝试上一级目录 resources
+        cityFile = (pos != std::wstring::npos ? exePath.substr(0, pos + 1) : L"") + L"..\\resources\\cities.json";
+        hFile = CreateFileW(cityFile.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (hFile == INVALID_HANDLE_VALUE) return;
+    }
+
+    DWORD fileSize = GetFileSize(hFile, nullptr);
+    if (fileSize == 0) { CloseHandle(hFile); return; }
+
+    std::string utf8Data(fileSize, '\0');
+    DWORD readSize = 0;
+    ReadFile(hFile, &utf8Data[0], fileSize, &readSize, nullptr);
+    CloseHandle(hFile);
+
+    int wlen = MultiByteToWideChar(CP_UTF8, 0, utf8Data.c_str(), -1, nullptr, 0);
+    std::wstring wdata(wlen, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, utf8Data.c_str(), -1, &wdata[0], wlen);
+
+    auto extract = [](const std::wstring& obj, const wchar_t* key) -> std::wstring {
+        std::wstring pattern = L"\"";
+        pattern += key;
+        pattern += L"\":";
+        size_t p = obj.find(pattern);
+        if (p == std::wstring::npos) return L"";
+        p += pattern.length();
+        while (p < obj.length() && (obj[p] == L' ' || obj[p] == L'\t' || obj[p] == L'\"' || obj[p] == L':')) p++;
+        size_t end = p;
+        while (end < obj.length() && obj[end] != L'\"' && obj[end] != L',' && obj[end] != L'}') end++;
+        
+        std::wstring val = obj.substr(p, end - p);
+        // 去除首尾可能的引号和空格
+        if (!val.empty() && val.front() == L'\"') val.erase(0, 1);
+        if (!val.empty() && val.back() == L'\"') val.pop_back();
+        return val;
+    };
+
+    size_t offset = 0;
+    while (true) {
+        size_t start = wdata.find(L'{', offset);
+        if (start == std::wstring::npos) break;
+        size_t end = wdata.find(L'}', start);
+        if (end == std::wstring::npos) break;
+        std::wstring obj = wdata.substr(start, end - start + 1);
+        CityInfo info;
+        info.id = extract(obj, L"Location_ID");
+        info.nameZH = extract(obj, L"Location_Name_ZH");
+        info.nameEN = extract(obj, L"Location_Name_EN");
+        info.adm1 = extract(obj, L"Adm1_Name_ZH");
+        info.adm2 = extract(obj, L"Adm2_Name_ZH");
+        if (!info.id.empty()) {
+            m_allCities.push_back(info);
+        }
+        offset = end + 1;
+    }
+
+    // 提取去重省份列表，保持首次出现的顺序
+    std::vector<std::wstring> seen;
+    for (const auto& c : m_allCities) {
+        const std::wstring& r = c.adm1;
+        if (!r.empty() && std::find(seen.begin(), seen.end(), r) == seen.end()) {
+            seen.push_back(r);
+        }
+    }
+    m_allRegions = std::move(seen);
+}
+
+void SettingsWindow::UpdateCityFilter(const std::wstring& query) {
+    m_filteredCities.clear();
+    m_selectedCityIndex = -1;
+    m_citySearchActive = true;
+
+    // 三个条件都为空时不展示候选（避免初始状态就弹出）
+    if (query.empty() && m_selectedRegion.empty() && m_selectedPrefecture.empty()) return;
+
+    std::wstring q = query;
+    std::transform(q.begin(), q.end(), q.begin(), ::tolower);
+
+    for (const auto& city : m_allCities) {
+        if (!m_selectedRegion.empty()    && city.adm1 != m_selectedRegion)    continue;
+        if (!m_selectedPrefecture.empty() && city.adm2 != m_selectedPrefecture) continue;
+
+        if (!q.empty()) {
+            std::wstring zh = city.nameZH;
+            std::wstring en = city.nameEN;
+            std::transform(en.begin(), en.end(), en.begin(), ::tolower);
+            if (zh.find(q) == std::wstring::npos && en.find(q) != 0) continue;
+        }
+
+        m_filteredCities.push_back(&city);
+        if (m_filteredCities.size() >= 8) break;
+    }
 }
 
 SettingsWindow::~SettingsWindow() {
@@ -148,7 +386,7 @@ bool SettingsWindow::Create(HINSTANCE hInstance, HWND parentHwnd) {
     RegisterClassExW(&wc);
 
     m_hwnd = CreateWindowExW(
-        WS_EX_TOOLWINDOW | WS_EX_LAYERED | WS_EX_NOACTIVATE,
+        WS_EX_TOOLWINDOW | WS_EX_LAYERED,
         CLASS_NAME, L"Dynamic Island 设置",
         WS_POPUP | WS_CLIPCHILDREN,
         CW_USEDEFAULT, CW_USEDEFAULT, physicalWidth, physicalHeight,
@@ -432,7 +670,7 @@ void SettingsWindow::LoadSettings() {
     m_fileStashMaxItems   = getF(L"Advanced",  L"FileStashMaxItems",  5,   cp);
     m_mediaPollIntervalMs = getF(L"Advanced",  L"MediaPollIntervalMs",1000,cp);
 
-    m_weatherCity         = getS(L"Weather",   L"City",       L"北京",       cp);
+    m_weatherCity         = ReadUtf8IniValue(cp, L"Weather", L"City", getS(L"Weather", L"City", L"北京", cp));
     m_weatherApiKey       = getS(L"Weather",   L"APIKey",     L"",           cp);
     m_weatherLocationId   = getS(L"Weather",   L"LocationId", L"101010100",  cp);
     m_allowedApps         = getS(L"Notifications", L"AllowedApps", L"微信,QQ", cp);
@@ -474,6 +712,7 @@ void SettingsWindow::SaveSettings() {
         m_weatherApiKey.c_str(), cp.c_str());
     WritePrivateProfileStringW(L"Weather", L"LocationId",
         m_weatherLocationId.c_str(), cp.c_str());
+    WriteUtf8IniValue(cp, L"Weather", L"City", m_weatherCity);
 }
 
 void SettingsWindow::ApplySettings() {
@@ -540,32 +779,63 @@ void SettingsWindow::ApplyTheme() {
 }
 
 void SettingsWindow::ResetToDefaults() {
-    m_darkMode = GetSystemDarkMode();
-    m_followSystemTheme = true;
-    m_autoStart = false;
+    bool changed = true;
+    switch (m_currentCategory) {
+    case SettingCategory::General:
+        m_darkMode = GetSystemDarkMode();
+        m_followSystemTheme = true;
+        m_autoStart = false;
+        UpdateTheme();
+        break;
+    case SettingCategory::Appearance:
+        changed = false;
+        break;
+    case SettingCategory::MainUI:
+        m_mainUIWidth = 400.0f;
+        m_mainUIHeight = 420.0f;
+        m_mainUITransparency = 1.0f;
+        break;
+    case SettingCategory::FilePanel:
+        m_filePanelWidth = 340.0f;
+        m_filePanelHeight = 200.0f;
+        m_filePanelTransparency = 0.9f;
+        break;
+    case SettingCategory::Weather:
+        m_weatherCity = L"北京";
+        m_weatherApiKey.clear();
+        m_weatherLocationId = L"101010100";
+        m_citySearchActive = false;
+        m_citySearchText.clear();
+        m_filteredCities.clear();
+        m_selectedCityIndex = -1;
+        m_selectedRegion.clear();
+        m_selectedPrefecture.clear();
+        m_regionPickerOpen = false;
+        m_regionPickerLevel = 0;
+        m_isLocating = false;
+        break;
+    case SettingCategory::Notifications:
+        m_allowedApps = L"微信,QQ";
+        break;
+    case SettingCategory::Advanced:
+        m_springStiffness = 100.0f;
+        m_springDamping = 10.0f;
+        m_lowBatteryThreshold = 20.0f;
+        m_fileStashMaxItems = 5.0f;
+        m_mediaPollIntervalMs = 1000.0f;
+        break;
+    case SettingCategory::About:
+        changed = false;
+        break;
+    }
 
-    m_mainUIWidth = 400.0f;
-    m_mainUIHeight = 420.0f;
-    m_mainUITransparency = 1.0f;
+    if (!changed) {
+        MarkDirty(m_isDirty, L"当前页面没有可恢复的默认项");
+        return;
+    }
 
-    m_filePanelWidth = 340.0f;
-    m_filePanelHeight = 200.0f;
-    m_filePanelTransparency = 0.9f;
-
-    m_weatherCity = L"北京";
-    m_weatherApiKey.clear();
-    m_weatherLocationId = L"101010100";
-    m_allowedApps = L"微信,QQ";
-
-    m_springStiffness = 100.0f;
-    m_springDamping = 10.0f;
-    m_lowBatteryThreshold = 20.0f;
-    m_fileStashMaxItems = 5.0f;
-    m_mediaPollIntervalMs = 1000.0f;
-
-    UpdateTheme();
     SwitchCategory(m_currentCategory);
-    MarkDirty(true, L"已恢复默认设置");
+    MarkDirty(true, L"已恢复当前页面默认值");
 }
 
 void SettingsWindow::RefreshControlTargets() {
@@ -696,6 +966,16 @@ static void mkTextInput(std::vector<SettingsControl>& ctrls, int id,
     c.bounds = D2D1::RectF(0, y, CONT_W, y + INPUT_H);
     ctrls.push_back(c);
 }
+
+static void mkButton(std::vector<SettingsControl>& ctrls, int id,
+                     const wchar_t* text, const std::wstring& valueText, float y) {
+    SettingsControl c; c.kind = ControlKind::Button;
+    c.id = id; c.text = text;
+    c.valueText = valueText;
+    c.bounds = D2D1::RectF(0, y, CONT_W, y + INPUT_H);
+    c.hoverSpring.SetStiffness(200.f); c.hoverSpring.SetDamping(24.f);
+    ctrls.push_back(c);
+}
 static SettingsControl mkSubLabel(const wchar_t* text, float y) {
     SettingsControl c; c.kind = ControlKind::SubLabel;
     c.text = text;
@@ -777,19 +1057,55 @@ void SettingsWindow::BuildFilePanelPage(std::vector<SettingsControl>& ctrls,
 void SettingsWindow::BuildWeatherPage(std::vector<SettingsControl>& ctrls,
                                       float& h) const {
     float y = 0;
-    float cardH = CARD_PAD + INPUT_H + 1 + INPUT_H + 1 + INPUT_H + CARD_PAD;
-    ctrls.push_back(mkCard(y, cardH));
-    float ry = y + CARD_PAD;
-    mkTextInput(ctrls, SettingID::WEATHER_CITY, L"城市名称", L"例：北京 / Shanghai",  m_weatherCity,       ry); ry += INPUT_H + 1;
-    mkTextInput(ctrls, SettingID::WEATHER_KEY,  L"API Key",  L"和风天气企业版密钥",   m_weatherApiKey,     ry); ry += INPUT_H + 1;
-    mkTextInput(ctrls, SettingID::WEATHER_LOC,  L"位置 ID",  L"例：101010100（北京）",m_weatherLocationId, ry);
-    y += cardH + CARD_GAP;
 
-    ctrls.push_back(mkSubLabel(L"API Key 和位置 ID 请在 qweather.com 开发者平台获取。修改后点击应用生效。", y));
+    // 卡片: 城市选择与定位
+    float card1H = CARD_PAD + INPUT_H + 1 + ROW_H + CARD_PAD;
+    ctrls.push_back(mkCard(y, card1H));
+    float ry = y + CARD_PAD;
+
+    // 搜索输入框：输入文字持久化在 m_citySearchText，不依赖重建中的控件列表
+    std::wstring sub = m_citySearchActive ? L"请输入城市中文名或拼音" : L"当前: " + m_weatherCity;
+    mkTextInput(ctrls, SettingID::WEATHER_CITY, L"搜索城市", sub.c_str(),
+                m_citySearchActive ? m_citySearchText : L"",
+                ry);
+    ry += INPUT_H + 1;
+
+    // 自动定位按钮 (Row 样式按钮)
+    {
+        SettingsControl c; c.kind = ControlKind::Button;
+        c.id = SettingID::WEATHER_AUTO_LOC;
+        c.text = m_isLocating ? L"正在定位..." : L"🔵 自动定位当前位置";
+        c.bounds = D2D1::RectF(0, ry, CONT_W, ry + ROW_H);
+        c.enabled = !m_isLocating;
+        c.hoverSpring.SetStiffness(200.f); c.hoverSpring.SetDamping(24.f);
+        ctrls.push_back(c);
+    }
+    y += card1H + CARD_GAP;
+
+    // 卡片: API 配置
+    float card2H = CARD_PAD + INPUT_H + 1 + INPUT_H + CARD_PAD;
+    ctrls.push_back(mkCard(y, card2H));
+    ry = y + CARD_PAD;
+
+    mkTextInput(ctrls, SettingID::WEATHER_KEY, L"API Key", L"和风天气开发版或企业版密钥", m_weatherApiKey, ry); ry += INPUT_H + 1;
+
+    // 位置 ID (只读展示)
+    {
+        SettingsControl c; c.kind = ControlKind::TextInput;
+        c.id = SettingID::WEATHER_LOC;
+        c.text = L"位置 ID";
+        c.subtitle = L"选择城市后自动填入";
+        c.inputText = m_weatherLocationId;
+        c.enabled = false; // 只读
+        c.bounds = D2D1::RectF(0, ry, CONT_W, ry + INPUT_H);
+        ctrls.push_back(c);
+    }
+    y += card2H + CARD_GAP;
+
+    ctrls.push_back(mkSubLabel(L"API Key 可在 qweather.com 获取。支持自动定位或手动搜索全国 3000+ 城市。", y));
     y += 44 + CARD_GAP;
     h = y;
 }
-
 // ====================================================================
 // 页面: 通知
 // ====================================================================
@@ -857,6 +1173,7 @@ void SettingsWindow::RebuildFooterControls() {
     m_footerControls.clear();
     bool isAbout = (m_currentCategory == SettingCategory::About);
     if (isAbout) return;
+    const bool canResetCurrentPage = (m_currentCategory != SettingCategory::Appearance);
     constexpr float buttonGap = 12.0f;
     constexpr float resetWidth = 112.0f;
     constexpr float saveWidth = 104.0f;
@@ -869,7 +1186,7 @@ void SettingsWindow::RebuildFooterControls() {
     {
         SettingsControl c; c.kind = ControlKind::Button;
         c.id = SettingID::BTN_RESET; c.text = L"恢复默认"; c.isPrimary = false;
-        c.enabled = true;
+        c.enabled = canResetCurrentPage;
         c.bounds = D2D1::RectF(resetLeft, 16.0f, resetLeft + resetWidth, 16.0f + buttonHeight);
         c.hoverSpring.SetStiffness(200.f); c.hoverSpring.SetDamping(24.f);
         m_footerControls.push_back(c);
@@ -926,7 +1243,15 @@ void SettingsWindow::SyncStateFromControl(int id) {
     case SettingID::FILE_WIDTH:       m_filePanelWidth       = ctrl->GetRawValue(); break;
     case SettingID::FILE_HEIGHT:      m_filePanelHeight      = ctrl->GetRawValue(); break;
     case SettingID::FILE_ALPHA:       m_filePanelTransparency= ctrl->GetRawValue() / 100.f; break;
-    case SettingID::WEATHER_CITY:     m_weatherCity          = ctrl->inputText; break;
+    case SettingID::WEATHER_CITY:
+        // 搜索模式：不覆盖 m_weatherCity，只更新搜索文字和候选列表
+        if (m_citySearchActive) {
+            m_citySearchText = ctrl->inputText;
+            UpdateCityFilter(ctrl->inputText);
+        } else {
+            m_weatherCity = ctrl->inputText;
+        }
+        break;
     case SettingID::WEATHER_KEY:      m_weatherApiKey        = ctrl->inputText; break;
     case SettingID::WEATHER_LOC:      m_weatherLocationId    = ctrl->inputText; break;
     case SettingID::NOTIFY_APPS:      m_allowedApps          = ctrl->inputText; break;
@@ -1135,6 +1460,33 @@ void SettingsWindow::HandleControlActivation(int id) {
         StartAnimationTimer();
         return;
     }
+
+    if (id == SettingID::WEATHER_CITY) {
+        m_citySearchActive = true;
+        m_regionPickerOpen = false;
+        if (ctrl && ctrl->kind == ControlKind::TextInput && !ctrl->editing) {
+            ctrl->editing = true;
+            m_caretBlinkStart = GetTickCount64();
+        }
+        SetFocusedControl(id);
+        PositionIMEWindow();
+        UpdateCityFilter(m_citySearchText);
+        StartAnimationTimer();
+        return;
+    }
+
+    if (id == SettingID::WEATHER_REGION) {
+        m_regionPickerOpen = !m_regionPickerOpen;
+        m_filteredCities.clear();  // 关闭城市候选
+        StartAnimationTimer();
+        return;
+    }
+
+    if (id == SettingID::WEATHER_AUTO_LOC) {
+        AutoLocateCity();
+        return;
+    }
+
     // Footer buttons
     if (id == SettingID::BTN_RESET) {
         ResetToDefaults();
@@ -1162,7 +1514,10 @@ void SettingsWindow::SetFocusedControl(int id) {
     // 取消旧焦点
     if (m_activeTextInputId && m_activeTextInputId != id) {
         SettingsControl* old = FindControlById(m_activeControls, m_activeTextInputId);
-        if (old) { old->editing = false; SyncStateFromControl(m_activeTextInputId); }
+        if (old) {
+            old->editing = false;
+            SyncStateFromControl(m_activeTextInputId);
+        }
     }
     m_activeTextInputId = id;
     m_focusedControlId  = id;
@@ -1195,7 +1550,15 @@ void SettingsWindow::FocusNextControl(bool reverse) {
 
 void SettingsWindow::UpdateBoundTextValue(int id, const std::wstring& val) {
     SettingsControl* ctrl = FindControlById(m_activeControls, id);
-    if (ctrl) { ctrl->inputText = val; ctrl->cursorPos = int(val.size()); }
+    if (ctrl) { 
+        ctrl->inputText = val; 
+        ctrl->cursorPos = int(val.size()); 
+        
+        if (id == SettingID::WEATHER_CITY) {
+            m_citySearchText = val;  // 持久化，防止页面重建时丢失
+            UpdateCityFilter(val);
+        }
+    }
 }
 
 bool SettingsWindow::IsControlFocusable(const SettingsControl& c) const {
@@ -1408,6 +1771,139 @@ void SettingsWindow::DrawPageLayer(const std::vector<SettingsControl>& ctrls,
         if (c.kind == ControlKind::Card) continue;
         DrawControl(c, alpha, offsetY, scrollY);
     }
+
+    // 搜索结果下拉面板 (仅在天气页激活且有过滤结果时)
+    if (m_currentCategory == SettingCategory::Weather && m_citySearchActive && !m_filteredCities.empty()) {
+        const SettingsControl* cityInput = FindControlById(ctrls, SettingID::WEATHER_CITY);
+        if (cityInput) {
+            float x = CONT_L + cityInput->bounds.left;
+            float inputBottom = CONT_T + cityInput->bounds.bottom - scrollY + offsetY;
+            float w = cityInput->bounds.right - cityInput->bounds.left;
+            float h = float(m_filteredCities.size()) * 40.f;
+
+            float panelTop = (inputBottom + 2 + h > WIN_H - 8.f)
+                ? CONT_T + cityInput->bounds.top - scrollY + offsetY - h - 2
+                : inputBottom + 2;
+
+            D2D1_RECT_F panelRect = D2D1::RectF(x, panelTop, x + w, panelTop + h);
+            FillRoundedRect(panelRect, 8.f, m_cardColor, alpha);
+            DrawRoundedRect(panelRect, 8.f, m_cardStrokeColor, 1.f, alpha);
+
+            for (size_t i = 0; i < m_filteredCities.size(); ++i) {
+                const auto* city = m_filteredCities[i];
+                D2D1_RECT_F itemRect = D2D1::RectF(x, panelTop + i * 40.f, x + w, panelTop + (i + 1) * 40.f);
+
+                // 分割线（非第一项）
+                if (i > 0) {
+                    m_solidBrush->SetColor(WithAlpha(m_cardStrokeColor, alpha));
+                    m_solidBrush->SetOpacity(1.f);
+                    m_renderTarget->DrawLine(
+                        D2D1::Point2F(itemRect.left + 12, itemRect.top),
+                        D2D1::Point2F(itemRect.right - 12, itemRect.top),
+                        m_solidBrush.Get(), 0.5f);
+                }
+
+                std::wstring label = city->nameZH;
+                std::wstring sublabel = city->adm1 + L" · " + city->adm2;
+                DrawTextBlock(label, m_bodyFormat.Get(),
+                    D2D1::RectF(itemRect.left + 12, itemRect.top + 4, itemRect.right - 12, itemRect.top + 24),
+                    m_textColor, alpha, DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
+                DrawTextBlock(sublabel, m_captionFormat.Get(),
+                    D2D1::RectF(itemRect.left + 12, itemRect.top + 23, itemRect.right - 12, itemRect.bottom - 4),
+                    m_secondaryTextColor, alpha, DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
+            }
+        }
+    }
+
+    // 联动选择面板（省 → 地级市）
+    if (m_currentCategory == SettingCategory::Weather && m_regionPickerOpen) {
+        const SettingsControl* cityInput = FindControlById(ctrls, SettingID::WEATHER_CITY);
+        if (cityInput) {
+            constexpr int COLS = 4;
+            float itemW  = CONT_W / COLS;
+            float itemH  = 34.f;
+            float headerH = 32.f;   // 标题 / 返回按钮行高
+            float panelLeft = CONT_L + cityInput->bounds.left;
+            float ibBottom  = CONT_T + cityInput->bounds.bottom - scrollY + offsetY;
+
+            if (m_regionPickerLevel == 0) {
+                // ── Level 0: 省份 4 列网格 ──
+                size_t total = m_allRegions.size() + 1; // +1 "全部"
+                size_t rows  = (total + COLS - 1) / COLS;
+                float panelH = headerH + float(rows) * itemH + 4.f;
+                float panelTop = (ibBottom + 4 + panelH > WIN_H - 8.f)
+                    ? CONT_T + cityInput->bounds.top - scrollY + offsetY - panelH - 4
+                    : ibBottom + 4;
+
+                D2D1_RECT_F panelRect = D2D1::RectF(panelLeft, panelTop, panelLeft + CONT_W, panelTop + panelH);
+                FillRoundedRect(panelRect, 8.f, m_cardColor, alpha);
+                DrawRoundedRect(panelRect, 8.f, m_cardStrokeColor, 1.f, alpha);
+
+                // 标题行
+                DrawTextBlock(L"选择省份", m_bodyFormat.Get(),
+                    D2D1::RectF(panelLeft + 14, panelTop, panelLeft + CONT_W, panelTop + headerH),
+                    m_secondaryTextColor, alpha, DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+                m_solidBrush->SetColor(WithAlpha(m_cardStrokeColor, alpha));
+                m_solidBrush->SetOpacity(1.f);
+                m_renderTarget->DrawLine({panelLeft + 8, panelTop + headerH},
+                    {panelLeft + CONT_W - 8, panelTop + headerH}, m_solidBrush.Get(), 0.5f);
+
+                for (size_t i = 0; i < total; ++i) {
+                    bool isAll  = (i == 0);
+                    const std::wstring& lbl = isAll ? L"全部" : m_allRegions[i - 1];
+                    bool sel = isAll ? m_selectedRegion.empty() : (m_allRegions[i - 1] == m_selectedRegion);
+                    float ix = panelLeft + float(i % COLS) * itemW;
+                    float iy = panelTop + headerH + 2.f + float(i / COLS) * itemH;
+                    D2D1_RECT_F ir = D2D1::RectF(ix, iy, ix + itemW, iy + itemH);
+                    if (sel) FillRoundedRect({ir.left+3,ir.top+2,ir.right-3,ir.bottom-2}, 5.f, WithAlpha(m_accentColor, alpha*0.18f), alpha);
+                    DrawTextBlock(lbl, m_bodyFormat.Get(), {ir.left+4,ir.top,ir.right-4,ir.bottom},
+                        sel ? WithAlpha(m_accentColor, alpha) : WithAlpha(m_textColor, alpha),
+                        alpha, DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+                }
+            } else {
+                // ── Level 1: 所选省份内的地级市列表 ──
+                // 收集去重地级市
+                std::vector<std::wstring> prefectures;
+                for (const auto& c : m_allCities) {
+                    if (c.adm1 != m_selectedRegion) continue;
+                    if (std::find(prefectures.begin(), prefectures.end(), c.adm2) == prefectures.end())
+                        prefectures.push_back(c.adm2);
+                }
+                size_t total = prefectures.size() + 1; // +1 "全部（该省）"
+                size_t rows  = (total + COLS - 1) / COLS;
+                float panelH = headerH + float(rows) * itemH + 4.f;
+                float panelTop = (ibBottom + 4 + panelH > WIN_H - 8.f)
+                    ? CONT_T + cityInput->bounds.top - scrollY + offsetY - panelH - 4
+                    : ibBottom + 4;
+
+                D2D1_RECT_F panelRect = D2D1::RectF(panelLeft, panelTop, panelLeft + CONT_W, panelTop + panelH);
+                FillRoundedRect(panelRect, 8.f, m_cardColor, alpha);
+                DrawRoundedRect(panelRect, 8.f, m_cardStrokeColor, 1.f, alpha);
+
+                // 标题行：← 返回  +  省份名
+                DrawTextBlock(L"← " + m_selectedRegion, m_bodyFormat.Get(),
+                    D2D1::RectF(panelLeft + 14, panelTop, panelLeft + CONT_W, panelTop + headerH),
+                    m_accentColor, alpha, DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+                m_solidBrush->SetColor(WithAlpha(m_cardStrokeColor, alpha));
+                m_solidBrush->SetOpacity(1.f);
+                m_renderTarget->DrawLine({panelLeft + 8, panelTop + headerH},
+                    {panelLeft + CONT_W - 8, panelTop + headerH}, m_solidBrush.Get(), 0.5f);
+
+                for (size_t i = 0; i < total; ++i) {
+                    bool isAll  = (i == 0);
+                    const std::wstring& lbl = isAll ? L"全省" : prefectures[i - 1];
+                    bool sel = isAll ? m_selectedPrefecture.empty() : (prefectures[i - 1] == m_selectedPrefecture);
+                    float ix = panelLeft + float(i % COLS) * itemW;
+                    float iy = panelTop + headerH + 2.f + float(i / COLS) * itemH;
+                    D2D1_RECT_F ir = D2D1::RectF(ix, iy, ix + itemW, iy + itemH);
+                    if (sel) FillRoundedRect({ir.left+3,ir.top+2,ir.right-3,ir.bottom-2}, 5.f, WithAlpha(m_accentColor, alpha*0.18f), alpha);
+                    DrawTextBlock(lbl, m_bodyFormat.Get(), {ir.left+4,ir.top,ir.right-4,ir.bottom},
+                        sel ? WithAlpha(m_accentColor, alpha) : WithAlpha(m_textColor, alpha),
+                        alpha, DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+                }
+            }
+        }
+    }
 }
 
 D2D1_COLOR_F SettingsWindow::WithAlpha(D2D1_COLOR_F c, float a) const {
@@ -1434,9 +1930,6 @@ void SettingsWindow::DrawControl(const SettingsControl& c,
     }
 }
 
-// ====================================================================
-// Toggle
-// ====================================================================
 void SettingsWindow::DrawToggleControl(const SettingsControl& c,
                                        const D2D1_RECT_F& sr, float alpha) {
     float cx = sr.left + 16.f;
@@ -1504,7 +1997,7 @@ void SettingsWindow::DrawSliderControl(const SettingsControl& c,
 // TextInput
 // ====================================================================
 void SettingsWindow::DrawTextInputCtrl(const SettingsControl& c,
-                                       const D2D1_RECT_F& sr, float alpha) {
+                                        const D2D1_RECT_F& sr, float alpha) {
     float cx = sr.left + 16.f;
     DrawTextBlock(c.text, m_bodyFormat.Get(),
         D2D1::RectF(cx, sr.top + 10.f, sr.right - 16.f, sr.top + 27.f), m_textColor, alpha);
@@ -1519,23 +2012,74 @@ void SettingsWindow::DrawTextInputCtrl(const SettingsControl& c,
                                        : WithAlpha(m_cardStrokeColor, alpha);
     DrawRoundedRect(ib, 7.f, strokeCol, c.editing ? 1.5f : 1.f);
 
-    D2D1_RECT_F tr = D2D1::RectF(ib.left + 8.f, ib.top, ib.right - 8.f, ib.bottom);
-    DrawTextBlock(c.inputText.empty() ? std::wstring() : c.inputText,
-        m_bodyFormat.Get(), tr, m_textColor, alpha,
-        DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    // WEATHER_CITY: 右侧绘制地区筛选胶囊
+    bool isCitySearch = (c.id == SettingID::WEATHER_CITY);
+    if (isCitySearch) {
+        D2D1_RECT_F pill = GetRegionPillRect(ib);
+        bool regionActive = !m_selectedRegion.empty() || !m_selectedPrefecture.empty();
+        D2D1_COLOR_F pillFill = regionActive ? WithAlpha(m_accentColor, alpha * 0.85f)
+                                             : WithAlpha(m_inputFillColor, alpha);
+        D2D1_COLOR_F pillStroke = regionActive ? WithAlpha(m_accentColor, alpha)
+                                              : WithAlpha(m_cardStrokeColor, alpha);
+        D2D1_COLOR_F pillText = regionActive ? WithAlpha(CF(1.f, 1.f, 1.f), alpha)
+                                            : WithAlpha(m_secondaryTextColor, alpha);
+        FillRoundedRect(pill, 5.f, pillFill, alpha);
+        DrawRoundedRect(pill, 5.f, pillStroke, 1.f, alpha);
+        // 显示：地级市 > 省份 > 全部
+        std::wstring regionLabel;
+        if (!m_selectedPrefecture.empty())      regionLabel = m_selectedPrefecture;
+        else if (!m_selectedRegion.empty())     regionLabel = m_selectedRegion;
+        else                                    regionLabel = L"全部";
+        regionLabel += L" ▾";
+        m_solidBrush->SetColor(pillText);
+        m_solidBrush->SetOpacity(1.f);
+        ComPtr<IDWriteTextLayout> pil;
+        m_dwriteFactory->CreateTextLayout(regionLabel.c_str(), (UINT32)regionLabel.size(),
+            m_captionFormat.Get(), pill.right - pill.left - 4, pill.bottom - pill.top, &pil);
+        if (pil) {
+            pil->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+            pil->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+            m_renderTarget->DrawTextLayout(D2D1::Point2F(pill.left + 2.f, pill.top), pil.Get(), m_solidBrush.Get());
+        }
+    }
+
+    D2D1_RECT_F tr = isCitySearch ? GetCitySearchTextRect(ib)
+                                  : D2D1::RectF(ib.left + 8.f, ib.top, ib.right - 8.f, ib.bottom);
+
+    // 占位提示：无内容时显示灰色提示
+    if (c.inputText.empty() && c.editing) {
+        DrawTextBlock(c.subtitle.empty() ? L"" : c.subtitle,
+            m_bodyFormat.Get(), tr, WithAlpha(m_secondaryTextColor, alpha * 0.5f),
+            alpha, DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    } else {
+        DrawTextBlock(c.inputText,
+            m_bodyFormat.Get(), tr, m_textColor, alpha,
+            DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    }
 
     if (c.editing) {
         bool blink = ((GetTickCount64() - m_caretBlinkStart) % 1000) < 500;
         if (blink) {
-            float caretX = (std::min)(tr.left + float(c.cursorPos) * 8.f, tr.right - 4.f);
+            float caretX = tr.left;
+            if (!c.inputText.empty()) {
+                Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
+                m_dwriteFactory->CreateTextLayout(c.inputText.c_str(), (UINT32)c.inputText.length(),
+                    m_bodyFormat.Get(), tr.right - tr.left, tr.bottom - tr.top, &layout);
+                if (layout) {
+                    DWRITE_HIT_TEST_METRICS metrics;
+                    float tx, ty;
+                    layout->HitTestTextPosition((UINT32)c.cursorPos, FALSE, &tx, &ty, &metrics);
+                    caretX += tx;
+                }
+            }
+            caretX = (std::min)(caretX, tr.right - 2.f);
             m_solidBrush->SetColor(m_textColor);
             m_solidBrush->SetOpacity(alpha);
-            m_renderTarget->DrawLine(D2D1::Point2F(caretX, ib.top + 5.f), D2D1::Point2F(caretX, ib.bottom - 5.f), m_solidBrush.Get(), 1.5f);
+            m_renderTarget->DrawLine(D2D1::Point2F(caretX, ib.top + 6.f), D2D1::Point2F(caretX, ib.bottom - 6.f), m_solidBrush.Get(), 1.5f);
             m_solidBrush->SetOpacity(1.f);
         }
     }
 }
-
 // ====================================================================
 // Button
 // ====================================================================
@@ -1646,6 +2190,39 @@ void SettingsWindow::DrawTextBlock(const std::wstring& text, IDWriteTextFormat* 
 // ====================================================================
 D2D1_RECT_F SettingsWindow::GetWindowRectDip() const { return D2D1::RectF(0.f, 0.f, WIN_W, WIN_H); }
 D2D1_RECT_F SettingsWindow::GetSidebarRect() const { return D2D1::RectF(0.f, 0.f, SIDEBAR, WIN_H); }
+
+// 将 IME 候选窗口定位到当前活动输入框的正下方
+void SettingsWindow::PositionIMEWindow() {
+    if (!m_hwnd || !m_activeTextInputId) return;
+    HIMC himc = ImmGetContext(m_hwnd);
+    if (!himc) return;
+
+    SettingsControl* ctrl = FindControlById(m_activeControls, m_activeTextInputId);
+    if (ctrl) {
+        float scrollY = m_scrollSpring.GetValue();
+        float ibx = CONT_L + ctrl->bounds.left + 16.f;
+        float iby = CONT_T + ctrl->bounds.top + 48.f - scrollY;  // 输入框内顶部
+
+        COMPOSITIONFORM cf{};
+        cf.dwStyle = CFS_POINT;
+        cf.ptCurrentPos.x = DipToPixels(ibx);
+        cf.ptCurrentPos.y = DipToPixels(iby + 30.f);  // 输入框底部
+        ImmSetCompositionWindow(himc, &cf);
+    }
+    ImmReleaseContext(m_hwnd, himc);
+}
+
+// 地区筛选按钮：输入框右侧小胶囊
+D2D1_RECT_F SettingsWindow::GetRegionPillRect(const D2D1_RECT_F& ib) const {
+    constexpr float pillW = 72.f;
+    return D2D1::RectF(ib.right - pillW - 4.f, ib.top + 4.f, ib.right - 4.f, ib.bottom - 4.f);
+}
+
+// 搜索文字区域：把输入框右侧留给地区按钮
+D2D1_RECT_F SettingsWindow::GetCitySearchTextRect(const D2D1_RECT_F& ib) const {
+    constexpr float pillW = 72.f;
+    return D2D1::RectF(ib.left + 8.f, ib.top, ib.right - pillW - 12.f, ib.bottom);
+}
 D2D1_RECT_F SettingsWindow::GetHeaderRect() const { return D2D1::RectF(CONT_L, TITLEBAR, WIN_W, CONT_T); }
 D2D1_RECT_F SettingsWindow::GetContentViewportRect() const { return D2D1::RectF(CONT_L, CONT_T, WIN_W - CONT_PAD, CONT_B); }
 D2D1_RECT_F SettingsWindow::GetFooterRect() const { return D2D1::RectF(SIDEBAR, CONT_B, WIN_W, WIN_H); }
@@ -1677,6 +2254,96 @@ void SettingsWindow::ApplyRoundedRegion() const {
     SetWindowRgn(m_hwnd, rgn, TRUE);
 }
 
+void SettingsWindow::AutoLocateCity() {
+    if (m_isLocating) return;
+    m_isLocating = true;
+    m_statusText = L"正在定位中...";
+    m_statusAlpha.SetTarget(1.f);
+    StartAnimationTimer();
+
+    std::wstring apiKey = m_weatherApiKey;
+    if (apiKey.empty()) apiKey = L"bf25bfa431394152adb2f4ed57ac092e";
+
+    HWND hwnd = m_hwnd;
+    std::thread([this, hwnd, apiKey]() {
+        auto HttpGet = [](const wchar_t* host, const wchar_t* path) -> std::string {
+            std::string response;
+            HINTERNET hSession = WinHttpOpen(L"DynamicIsland/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+            if (hSession) {
+                HINTERNET hConnect = WinHttpConnect(hSession, host, INTERNET_DEFAULT_HTTPS_PORT, 0);
+                if (hConnect) {
+                    HINTERNET hRequest = WinHttpOpenRequest(hConnect, L"GET", path, nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE);
+                    if (hRequest) {
+                        if (WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0)) {
+                            if (WinHttpReceiveResponse(hRequest, nullptr)) {
+                                DWORD size = 0;
+                                do {
+                                    if (!WinHttpQueryDataAvailable(hRequest, &size)) break;
+                                    if (size == 0) break;
+                                    std::string buf(size, '\0');
+                                    DWORD read = 0;
+                                    if (WinHttpReadData(hRequest, &buf[0], size, &read)) {
+                                        buf.resize(read);
+                                        response += buf;
+                                    }
+                                } while (size > 0);
+                            }
+                        }
+                        WinHttpCloseHandle(hRequest);
+                    }
+                    WinHttpCloseHandle(hConnect);
+                }
+                WinHttpCloseHandle(hSession);
+            }
+            return response;
+        };
+
+        char path[512];
+        int len = WideCharToMultiByte(CP_UTF8, 0, apiKey.c_str(), -1, nullptr, 0, nullptr, nullptr);
+        std::string akUtf8(len, '\0');
+        WideCharToMultiByte(CP_UTF8, 0, apiKey.c_str(), -1, &akUtf8[0], len, nullptr, nullptr);
+        snprintf(path, sizeof(path), "/v2/city/lookup?location=auto_ip&key=%s", akUtf8.c_str());
+        
+        int wlen = MultiByteToWideChar(CP_UTF8, 0, path, -1, nullptr, 0);
+        std::wstring wpath(wlen, L'\0');
+        MultiByteToWideChar(CP_UTF8, 0, path, -1, &wpath[0], wlen);
+
+        std::string resp = HttpGet(L"geoapi.qweather.com", wpath.c_str());
+        
+        LocationResult* res = new LocationResult();
+
+        if (!resp.empty()) {
+            auto extractField = [](const std::string& json, const char* key) -> std::string {
+                std::string pattern = "\""; pattern += key; pattern += "\":\"";
+                size_t p = json.find(pattern);
+                if (p == std::string::npos) return "";
+                p += pattern.length();
+                size_t end = json.find("\"", p);
+                if (end == std::string::npos) return "";
+                return json.substr(p, end - p);
+            };
+
+            std::string code = extractField(resp, "code");
+            if (code == "200") {
+                std::string name = extractField(resp, "name");
+                std::string id = extractField(resp, "id");
+                
+                int nlen = MultiByteToWideChar(CP_UTF8, 0, name.c_str(), -1, nullptr, 0);
+                res->name.resize(nlen - 1);
+                MultiByteToWideChar(CP_UTF8, 0, name.c_str(), -1, &res->name[0], nlen);
+
+                int ilen = MultiByteToWideChar(CP_UTF8, 0, id.c_str(), -1, nullptr, 0);
+                res->id.resize(ilen - 1);
+                MultiByteToWideChar(CP_UTF8, 0, id.c_str(), -1, &res->id[0], ilen);
+                
+                res->success = true;
+            }
+        }
+
+        PostMessage(hwnd, WM_LOCATION_RESULT, res->success ? 1 : 0, reinterpret_cast<LPARAM>(res));
+    }).detach();
+}
+
 // ====================================================================
 // WndProc
 // ====================================================================
@@ -1698,8 +2365,8 @@ LRESULT SettingsWindow::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         if (hit == HTCLIENT) {
             POINT pt{ GET_X_LPARAM(lp), GET_Y_LPARAM(lp) };
             ScreenToClient(hwnd, &pt);
-            float wx = PixelsToDipX(pt.x);
-            float wy = PixelsToDipY(pt.y);
+            float wx = this->PixelsToDipX(pt.x);
+            float wy = this->PixelsToDipY(pt.y);
             D2D1_RECT_F closeRect = GetCloseButtonRect();
             bool onCloseButton = wx >= closeRect.left && wx <= closeRect.right &&
                                  wy >= closeRect.top && wy <= closeRect.bottom;
@@ -1711,12 +2378,33 @@ LRESULT SettingsWindow::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
     case WM_ERASEBKGND:
         return 1;
-
+        
     case WM_PAINT: {
         PAINTSTRUCT ps;
         BeginPaint(hwnd, &ps);
         if (EnsureDeviceResources()) Render();
         EndPaint(hwnd, &ps);
+        return 0;
+    }
+
+    case WM_LOCATION_RESULT: {
+        LocationResult* res = reinterpret_cast<LocationResult*>(lp);
+        m_isLocating = false;
+        if (wp && res) {
+            m_weatherCity = res->name;
+            m_weatherLocationId = res->id;
+            m_citySearchActive = false;
+            m_filteredCities.clear();
+            UpdateBoundTextValue(SettingID::WEATHER_CITY, m_weatherCity);
+            SetFocusedControl(0);
+            m_citySearchText.clear();
+            ApplySettings();  // 写入 config.ini 并通知主窗口刷新天气
+            MarkDirty(false, L"已定位并应用: " + res->name);
+            RefreshControlTargets();
+        } else {
+            SetStatusText(L"定位失败，请手动选择城市");
+        }
+        delete res;
         return 0;
     }
 
@@ -1760,8 +2448,8 @@ LRESULT SettingsWindow::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             TrackMouseEvent(&tme);
             m_mouseTracking = true;
         }
-        float wx = PixelsToDipX(GET_X_LPARAM(lp));
-        float wy = PixelsToDipY(GET_Y_LPARAM(lp));
+        float wx = this->PixelsToDipX(GET_X_LPARAM(lp));
+        float wy = this->PixelsToDipY(GET_Y_LPARAM(lp));
         UpdateHoverState(wx, wy);
         if (m_draggingSliderId) {
             UpdateSliderDrag(wx);
@@ -1785,8 +2473,165 @@ LRESULT SettingsWindow::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
     case WM_LBUTTONDOWN: {
         SetCapture(hwnd);
-        float wx = PixelsToDipX(GET_X_LPARAM(lp));
-        float wy = PixelsToDipY(GET_Y_LPARAM(lp));
+        float wx = this->PixelsToDipX(GET_X_LPARAM(lp));
+        float wy = this->PixelsToDipY(GET_Y_LPARAM(lp));
+
+        // 城市下拉选择逻辑
+        if (m_currentCategory == SettingCategory::Weather && m_citySearchActive && !m_filteredCities.empty()) {
+            const SettingsControl* cityInput = FindControlById(m_activeControls, SettingID::WEATHER_CITY);
+            if (cityInput) {
+                float x = CONT_L + cityInput->bounds.left;
+                float scrollY = m_scrollSpring.GetValue();
+                float inputBottom = CONT_T + cityInput->bounds.bottom - scrollY;
+                float w = cityInput->bounds.right - cityInput->bounds.left;
+                float h = float(m_filteredCities.size()) * 40.f;
+
+                // 与绘制逻辑保持一致：不足时向上弹出
+                float panelTop;
+                if (inputBottom + 2 + h > WIN_H - 8.f) {
+                    panelTop = CONT_T + cityInput->bounds.top - scrollY - h - 2;
+                } else {
+                    panelTop = inputBottom + 2;
+                }
+
+                for (size_t i = 0; i < m_filteredCities.size(); ++i) {
+                    D2D1_RECT_F itemRect = D2D1::RectF(x, panelTop + i * 40.f, x + w, panelTop + (i + 1) * 40.f);
+                    if (wx >= itemRect.left && wx <= itemRect.right && wy >= itemRect.top && wy <= itemRect.bottom) {
+                        const auto* city = m_filteredCities[i];
+                        const auto buildSelectionLabel = [](const auto& selectedCity) {
+                            std::wstring area = TrimWeatherAreaSuffix(selectedCity.adm2);
+                            if (!area.empty() && !selectedCity.nameZH.empty() &&
+                                area != selectedCity.nameZH && selectedCity.adm2 != selectedCity.nameZH) {
+                                return area + L" " + selectedCity.nameZH;
+                            }
+                            return selectedCity.nameZH.empty() ? area : selectedCity.nameZH;
+                        };
+                        m_weatherCity = buildSelectionLabel(*city);
+                        m_weatherLocationId = city->id;
+                        UpdateBoundTextValue(SettingID::WEATHER_CITY, m_weatherCity);
+                        m_citySearchActive = false;
+                        m_filteredCities.clear();
+                        SetFocusedControl(0);
+                        m_citySearchText.clear();
+                        ApplySettings();  // 写入 config.ini 并通知主窗口刷新天气
+                        MarkDirty(false, L"已应用: " + m_weatherCity);
+                        RefreshControlTargets();
+                        return 0;
+                    }
+                }
+            }
+        }
+
+        // 联动选择面板命中
+        if (m_currentCategory == SettingCategory::Weather && m_regionPickerOpen) {
+            const SettingsControl* cityInput = FindControlById(m_activeControls, SettingID::WEATHER_CITY);
+            if (cityInput) {
+                float scrollY  = m_scrollSpring.GetValue();
+                constexpr int COLS = 4;
+                float itemW    = CONT_W / COLS;
+                float itemH    = 34.f;
+                float headerH  = 32.f;
+                float panelLeft = CONT_L + cityInput->bounds.left;
+                float ibBottom  = CONT_T + cityInput->bounds.bottom - scrollY;
+
+                // 重建和绘制一样的列表
+                std::vector<std::wstring> items;
+                if (m_regionPickerLevel == 0) {
+                    items.push_back(L"");  // 全部，空字符串占位
+                    for (auto& r : m_allRegions) items.push_back(r);
+                } else {
+                    items.push_back(L"");  // 全省，空字符串占位
+                    for (const auto& c : m_allCities) {
+                        if (c.adm1 != m_selectedRegion) continue;
+                        if (std::find(items.begin(), items.end(), c.adm2) == items.end())
+                            items.push_back(c.adm2);
+                    }
+                }
+
+                size_t total  = items.size();
+                size_t rows   = (total + COLS - 1) / COLS;
+                float panelH  = headerH + float(rows) * itemH + 4.f;
+                float panelTop = (ibBottom + 4 + panelH > WIN_H - 8.f)
+                    ? CONT_T + cityInput->bounds.top - scrollY - panelH - 4
+                    : ibBottom + 4;
+
+                bool inPanel = wx >= panelLeft && wx <= panelLeft + CONT_W &&
+                               wy >= panelTop  && wy <= panelTop  + panelH;
+                if (inPanel) {
+                    // 点击标题行 → level1 时返回 level0
+                    if (wy <= panelTop + headerH) {
+                        if (m_regionPickerLevel == 1) {
+                            m_regionPickerLevel = 0;
+                            InvalidateRect(hwnd, nullptr, FALSE);
+                        }
+                        return 0;
+                    }
+                    // 点击格子
+                    float relX = wx - panelLeft;
+                    float relY = wy - (panelTop + headerH + 2.f);
+                    if (relY >= 0) {
+                        size_t col = size_t(relX / itemW);
+                        size_t row = size_t(relY / itemH);
+                        size_t idx = row * COLS + col;
+                        if (idx < total) {
+                            if (m_regionPickerLevel == 0) {
+                                if (idx == 0) {
+                                    // "全部"：清空省份和地级市，直接关闭
+                                    m_selectedRegion.clear();
+                                    m_selectedPrefecture.clear();
+                                    m_regionPickerOpen = false;
+                                } else {
+                                    m_selectedRegion = items[idx];
+                                    m_selectedPrefecture.clear();
+                                    m_regionPickerLevel = 1; // 进入地级市选择
+                                    InvalidateRect(hwnd, nullptr, FALSE);
+                                    return 0;
+                                }
+                            } else {
+                                // level 1: 选地级市
+                                m_selectedPrefecture = (idx == 0) ? L"" : items[idx];
+                                m_regionPickerOpen = false;
+                            }
+                        }
+                    }
+                    m_citySearchActive = true;
+                    UpdateCityFilter(m_citySearchText);
+                    SettingsControl* ci = FindControlById(m_activeControls, SettingID::WEATHER_CITY);
+                    if (ci) { ci->editing = true; m_caretBlinkStart = GetTickCount64(); }
+                    SetFocusedControl(SettingID::WEATHER_CITY);
+                    PositionIMEWindow();
+                    BuildPage(m_currentCategory, m_activeControls, m_activeContentHeight);
+                    InvalidateRect(hwnd, nullptr, FALSE);
+                    return 0;
+                }
+                // 点在面板外：关闭
+                m_regionPickerOpen = false;
+                m_regionPickerLevel = 0;
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
+        }
+
+        // 地区胶囊按钮命中（在城市搜索框控件范围内的右侧 pill 区域）
+        if (m_currentCategory == SettingCategory::Weather) {
+            const SettingsControl* cityInput = FindControlById(m_activeControls, SettingID::WEATHER_CITY);
+            if (cityInput) {
+                float scrollY = m_scrollSpring.GetValue();
+                float iby  = CONT_T + cityInput->bounds.top + 48.f - scrollY;
+                float ibx  = CONT_L + cityInput->bounds.left + 16.f;
+                float ibr  = CONT_L + cityInput->bounds.right - 16.f;
+                D2D1_RECT_F ib = D2D1::RectF(ibx, iby, ibr, iby + 30.f);
+                D2D1_RECT_F pill = GetRegionPillRect(ib);
+                if (wx >= pill.left && wx <= pill.right && wy >= pill.top && wy <= pill.bottom) {
+                    m_regionPickerOpen = !m_regionPickerOpen;
+                    m_regionPickerLevel = 0;  // 每次从省级开始
+                    m_filteredCities.clear();
+                    StartAnimationTimer();
+                    InvalidateRect(hwnd, nullptr, FALSE);
+                    return 0;
+                }
+            }
+        }
+
         D2D1_RECT_F closeRect = GetCloseButtonRect();
         if (wx >= closeRect.left && wx <= closeRect.right &&
             wy >= closeRect.top && wy <= closeRect.bottom) { Hide(); return 0; }
@@ -1794,6 +2639,10 @@ LRESULT SettingsWindow::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         int nav = HitTestNavigation(wx, wy);
         if (nav >= 0) {
             if (nav != int(m_currentCategory)) {
+                m_citySearchActive = false;
+                m_citySearchText.clear();
+                m_filteredCities.clear();
+                m_regionPickerOpen = false;
                 SwitchCategory(SettingCategory(nav));
                 InvalidateRect(hwnd, nullptr, FALSE);
             }
@@ -1818,8 +2667,8 @@ LRESULT SettingsWindow::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
     case WM_LBUTTONUP: {
         ReleaseCapture();
-        float wx = PixelsToDipX(GET_X_LPARAM(lp));
-        float wy = PixelsToDipY(GET_Y_LPARAM(lp));
+        float wx = this->PixelsToDipX(GET_X_LPARAM(lp));
+        float wy = this->PixelsToDipY(GET_Y_LPARAM(lp));
         if (m_draggingSliderId) {
             EndSliderDrag();
         } else if (m_pressedControlId) {
@@ -1838,6 +2687,40 @@ LRESULT SettingsWindow::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
     }
 
+    case WM_IME_CHAR:
+        // 拦截：不转发给 DefWindowProc，防止 IME 上屏字符再次经由 WM_CHAR 插入
+        return 0;
+
+    case WM_IME_COMPOSITION: {
+        // 处理中文 IME 上屏结果
+        if (lp & GCS_RESULTSTR) {
+            HIMC himc = ImmGetContext(hwnd);
+            if (himc && m_activeTextInputId) {
+                LONG byteLen = ImmGetCompositionStringW(himc, GCS_RESULTSTR, nullptr, 0);
+                if (byteLen > 0) {
+                    std::wstring result(byteLen / sizeof(wchar_t), L'\0');
+                    ImmGetCompositionStringW(himc, GCS_RESULTSTR, &result[0], byteLen);
+                    SettingsControl* ctrl = FindControlById(m_activeControls, m_activeTextInputId);
+                    if (ctrl && ctrl->editing) {
+                        ctrl->inputText.insert(ctrl->cursorPos, result);
+                        ctrl->cursorPos += int(result.size());
+                        m_caretBlinkStart = GetTickCount64();
+                        SyncStateFromControl(m_activeTextInputId);
+                        PositionIMEWindow();
+                        InvalidateRect(hwnd, nullptr, FALSE);
+                    }
+                }
+                ImmReleaseContext(hwnd, himc);
+            }
+        }
+        return DefWindowProcW(hwnd, msg, wp, lp);
+    }
+
+    case WM_IME_SETCONTEXT:
+        // 允许系统显示组合串窗口（输入中间状态），但隐藏默认候选窗口
+        lp &= ~ISC_SHOWUICOMPOSITIONWINDOW;
+        return DefWindowProcW(hwnd, msg, wp, lp);
+
     case WM_CHAR: {
         wchar_t ch = wchar_t(wp);
         if (m_activeTextInputId) {
@@ -1854,6 +2737,7 @@ LRESULT SettingsWindow::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 }
                 m_caretBlinkStart = GetTickCount64();
                 SyncStateFromControl(m_activeTextInputId);
+                PositionIMEWindow();
                 InvalidateRect(hwnd, nullptr, FALSE);
             }
         }

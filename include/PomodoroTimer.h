@@ -2,6 +2,7 @@
 #include <windows.h>
 #include <string>
 #include <chrono>
+#include <functional>
 
 // 番茄钟组件 - 实用小工具
 class PomodoroTimer {
@@ -43,6 +44,7 @@ private:
     
     // 上次更新时间
     std::chrono::steady_clock::time_point m_lastUpdate;
+    std::chrono::milliseconds m_accumulatedTime{ 0 };
 };
 
 inline PomodoroTimer::PomodoroTimer() {
@@ -52,6 +54,7 @@ inline PomodoroTimer::PomodoroTimer() {
 inline void PomodoroTimer::SetDuration(int minutes) {
     m_durationSeconds = minutes * 60;
     m_remainingSeconds = m_durationSeconds;
+    m_accumulatedTime = std::chrono::milliseconds(0);
 }
 
 inline void PomodoroTimer::Start() {
@@ -71,20 +74,27 @@ inline void PomodoroTimer::Reset() {
     m_remainingSeconds = m_durationSeconds;
     m_isRunning = false;
     m_isPaused = false;
+    m_accumulatedTime = std::chrono::milliseconds(0);
 }
 
 inline void PomodoroTimer::Update(float deltaTime) {
     if (!m_isRunning || m_isPaused) return;
     
     auto now = std::chrono::steady_clock::now();
-    auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - m_lastUpdate).count();
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_lastUpdate);
     m_lastUpdate = now;
-    
-    m_remainingSeconds -= (int)elapsed;
+
+    m_accumulatedTime += elapsed;
+    while (m_accumulatedTime >= std::chrono::seconds(1) && m_remainingSeconds > 0) {
+        m_accumulatedTime -= std::chrono::seconds(1);
+        --m_remainingSeconds;
+    }
     
     if (m_remainingSeconds <= 0) {
         m_remainingSeconds = 0;
         m_isRunning = false;
+        m_isPaused = false;
+        m_accumulatedTime = std::chrono::milliseconds(0);
         if (m_onFinish) {
             m_onFinish();
         }

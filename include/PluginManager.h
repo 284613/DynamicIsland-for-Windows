@@ -110,6 +110,9 @@ struct DailyForecast {
 
 class IWeatherPlugin : public IPlugin {
 public:
+    // 获取位置描述（来源于设置页 Weather.City）
+    virtual std::wstring GetLocationText() const = 0;
+
     // 获取天气描述
     virtual std::wstring GetWeatherDescription() const = 0;
 

@@ -70,6 +70,16 @@ private:
     std::wstring m_cachedArtist;
     bool m_cachedIsPlaying = false;
     bool m_cachedHasSession = false;
+    bool m_darkMode = true;
+    bool m_followSystemTheme = true;
+    float m_mainUITransparency = 1.0f;
+    float m_filePanelTransparency = 0.9f;
+    float m_springStiffness = 400.0f;
+    float m_springDamping = 30.0f;
+    int m_mediaPollIntervalMs = 1000;
+    int m_fileStashMaxItems = 5;
+    bool m_autoStart = false;
+    bool m_pomodoroExpanded = false;
 
     void StartAnimation();
     void UpdatePhysics();
@@ -86,6 +96,12 @@ private:
     void ShowFileStashLimitAlert();
     void RemoveFileStashIndex(int index);
     POINT LogicalFromPhysical(POINT physicalPt) const;
+    bool GetSystemDarkMode() const;
+    void ApplyRuntimeSettings();
+    void UpdateAutoStart(bool enabled);
+    void OpenPomodoroPanel();
+    void SyncPomodoroMode();
+    void HandlePomodoroFinished();
 
     struct ProgressBarLayout {
         float left;
@@ -205,6 +221,7 @@ private:
     bool m_isFullscreen = false; // 全屏检测标志
 
     // 天气信息
+    std::wstring m_weatherLocationText = L"北京";
     std::wstring m_weatherDesc = L"Sunny";
     float m_weatherTemp = 25.0f;
     WeatherViewMode m_weatherViewMode = WeatherViewMode::Hourly;

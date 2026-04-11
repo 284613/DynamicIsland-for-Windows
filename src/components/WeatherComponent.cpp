@@ -10,12 +10,21 @@ void WeatherComponent::OnAttach(SharedResources* res) {
 }
 
 void WeatherComponent::Update(float deltaTime) {
-    // animPhase 在 Draw 里按 currentTime 推进，此处保留供未来使用
+    if (m_isViewTransitioning && m_viewTransitionDuration > 0.0f) {
+        m_viewTransitionProgress += deltaTime / m_viewTransitionDuration;
+        if (m_viewTransitionProgress >= 1.0f) {
+            m_viewTransitionProgress = 1.0f;
+            m_viewMode = m_targetViewMode;
+            m_transitionFromMode = m_targetViewMode;
+            m_isViewTransitioning = false;
+        }
+    }
 }
 
 // ── 数据更新 ───────────────────────────────────────────────────────────────
 
 void WeatherComponent::SetWeatherData(
+    const std::wstring& locationText,
     const std::wstring& desc, float temp, const std::wstring& iconId,
     const std::vector<HourlyForecast>& hourly,
     const std::vector<DailyForecast>& daily)
@@ -25,6 +34,7 @@ void WeatherComponent::SetWeatherData(
         m_weatherType = newType;
         ResetAnimation();
     }
+    m_locationText = locationText;
     m_desc   = desc;
     m_temp   = temp;
     m_iconId = iconId;
@@ -32,15 +42,33 @@ void WeatherComponent::SetWeatherData(
     m_daily  = daily;
 }
 
+void WeatherComponent::SetViewMode(WeatherViewMode mode) {
+    BeginViewTransition(mode);
+}
+
 // ── 主绘制入口 ─────────────────────────────────────────────────────────────
 
 void WeatherComponent::Draw(const D2D1_RECT_F& rect, float contentAlpha, ULONGLONG currentTimeMs) {
     if (!m_res || !m_isExpanded) return;
 
-    if (m_viewMode == WeatherViewMode::Daily)
-        DrawWeatherDaily(rect, contentAlpha, currentTimeMs);
-    else
-        DrawWeatherExpanded(rect, contentAlpha, currentTimeMs);
+    if (!m_isViewTransitioning) {
+        DrawWeatherView(m_viewMode, rect, contentAlpha, currentTimeMs);
+        return;
+    }
+
+    const float eased = EaseOutCubic((std::max)(0.0f, (std::min)(1.0f, m_viewTransitionProgress)));
+    const float enterOffsetY = (1.0f - eased) * 12.0f;
+    const float exitOffsetY = -eased * 6.0f;
+
+    D2D1_RECT_F fromRect = rect;
+    fromRect.top += exitOffsetY;
+    fromRect.bottom += exitOffsetY;
+    DrawWeatherView(m_transitionFromMode, fromRect, contentAlpha * (1.0f - eased), currentTimeMs);
+
+    D2D1_RECT_F toRect = rect;
+    toRect.top += enterOffsetY;
+    toRect.bottom += enterOffsetY;
+    DrawWeatherView(m_targetViewMode, toRect, contentAlpha * eased, currentTimeMs);
 }
 
 void WeatherComponent::DrawCompact(float iconX, float iconY, float iconSize,
@@ -76,10 +104,54 @@ void WeatherComponent::DrawCompact(float iconX, float iconY, float iconSize,
 bool WeatherComponent::OnMouseWheel(float /*x*/, float /*y*/, int delta) {
     if (!m_isExpanded) return false;
     if (delta < 0)
-        m_viewMode = WeatherViewMode::Daily;
+        BeginViewTransition(WeatherViewMode::Daily);
     else
-        m_viewMode = WeatherViewMode::Hourly;
+        BeginViewTransition(WeatherViewMode::Hourly);
     return true;
+}
+
+void WeatherComponent::DrawWeatherView(WeatherViewMode mode, const D2D1_RECT_F& rect, float contentAlpha, ULONGLONG currentTime) {
+    if (contentAlpha <= 0.01f) {
+        return;
+    }
+
+    if (mode == WeatherViewMode::Daily) {
+        DrawWeatherDaily(rect, contentAlpha, currentTime);
+    } else {
+        DrawWeatherExpanded(rect, contentAlpha, currentTime);
+    }
+}
+
+void WeatherComponent::BeginViewTransition(WeatherViewMode targetMode) {
+    if (m_isViewTransitioning) {
+        if (targetMode == m_targetViewMode) {
+            return;
+        }
+
+        const float clampedProgress = (std::max)(0.0f, (std::min)(1.0f, m_viewTransitionProgress));
+        m_transitionFromMode = m_targetViewMode;
+        m_targetViewMode = targetMode;
+        m_viewMode = m_transitionFromMode;
+        m_viewTransitionProgress = 1.0f - clampedProgress;
+        return;
+    }
+
+    if (targetMode == m_viewMode) {
+        m_targetViewMode = targetMode;
+        m_transitionFromMode = targetMode;
+        m_viewTransitionProgress = 1.0f;
+        return;
+    }
+
+    m_transitionFromMode = m_viewMode;
+    m_targetViewMode = targetMode;
+    m_viewTransitionProgress = 0.0f;
+    m_isViewTransitioning = true;
+}
+
+float WeatherComponent::EaseOutCubic(float t) const {
+    float oneMinus = 1.0f - t;
+    return 1.0f - oneMinus * oneMinus * oneMinus;
 }
 
 // ── TextLayout 缓存 ────────────────────────────────────────────────────────
@@ -983,17 +1055,39 @@ void WeatherComponent::DrawWeatherExpanded(const D2D1_RECT_F& rect, float conten
 
     ComPtr<IDWriteTextFormat> descFmt;
     m_res->dwriteFactory->CreateTextFormat(L"Microsoft YaHei", nullptr, DWRITE_FONT_WEIGHT_NORMAL,
-        DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 10.0f, L"zh-cn", &descFmt);
+        DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 10.5f, L"zh-cn", &descFmt);
     descFmt->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
     descFmt->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
 
+    ComPtr<IDWriteTextFormat> locationFmt;
+    m_res->dwriteFactory->CreateTextFormat(L"Microsoft YaHei", nullptr, DWRITE_FONT_WEIGHT_MEDIUM,
+        DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 10.5f, L"zh-cn", &locationFmt);
+    locationFmt->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+    locationFmt->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
+
+    const float textWidth = (std::max)(60.0f, cardWidth - 20.0f);
+    const float textLeft = std::round(leftCardLeft + (cardWidth - textWidth) * 0.5f);
+
     ComPtr<IDWriteTextLayout> tempLayout;
     ComPtr<IDWriteTextLayout> descLayout;
+    ComPtr<IDWriteTextLayout> locationLayout;
     m_res->dwriteFactory->CreateTextLayout(tempText.c_str(), (UINT32)tempText.length(), hugeTempFormat.Get(), cardWidth, 80.0f, &tempLayout);
-    m_res->dwriteFactory->CreateTextLayout(m_desc.c_str(), (UINT32)m_desc.length(), descFmt.Get(), cardWidth, 30.0f, &descLayout);
+    m_res->dwriteFactory->CreateTextLayout(m_desc.c_str(), (UINT32)m_desc.length(), descFmt.Get(), textWidth, 30.0f, &descLayout);
+    const std::wstring locationText = m_locationText.empty() ? L"北京" : m_locationText;
+    m_res->dwriteFactory->CreateTextLayout(locationText.c_str(), (UINT32)locationText.length(), locationFmt.Get(), textWidth, 24.0f, &locationLayout);
+
+    ComPtr<IDWriteInlineObject> trimmingSign;
+    m_res->dwriteFactory->CreateEllipsisTrimmingSign(locationFmt.Get(), &trimmingSign);
+    DWRITE_TRIMMING trimming = {};
+    trimming.granularity = DWRITE_TRIMMING_GRANULARITY_CHARACTER;
+    if (locationLayout && trimmingSign) {
+        locationLayout->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+        locationLayout->SetTrimming(&trimming, trimmingSign.Get());
+    }
 
     DWRITE_TEXT_METRICS tempMetrics{};
     DWRITE_TEXT_METRICS descMetrics{};
+    DWRITE_TEXT_METRICS locationMetrics{};
     if (tempLayout) {
         tempLayout->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
         tempLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
@@ -1004,13 +1098,17 @@ void WeatherComponent::DrawWeatherExpanded(const D2D1_RECT_F& rect, float conten
         descLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
         descLayout->GetMetrics(&descMetrics);
     }
+    if (locationLayout) {
+        locationLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        locationLayout->GetMetrics(&locationMetrics);
+    }
 
-    const float bottomPadding = 10.0f;
-    const float textGap = 3.0f;
+    const float bottomPadding = 16.0f;
+    const float lineGap = 4.0f;
+    const float tempGap = 8.0f;
     float descY = std::round(cardBottom - bottomPadding - descMetrics.height);
-    float tempY = std::round(descY - textGap - tempMetrics.height);
-    float tempX = std::round(leftCardLeft);
-    float descX = std::round(leftCardLeft);
+    float locationY = std::round(descY - lineGap - locationMetrics.height);
+    float tempY = std::round(locationY - tempGap - tempMetrics.height);
 
     auto oldTextAA = ctx->GetTextAntialiasMode();
     ctx->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
@@ -1019,10 +1117,23 @@ void WeatherComponent::DrawWeatherExpanded(const D2D1_RECT_F& rect, float conten
         D2D1::RectF(leftCardLeft, tempY, leftCardLeft + cardWidth, tempY + std::round(tempMetrics.height + 6.0f)),
         m_res->whiteBrush);
 
+    m_res->grayBrush->SetOpacity(contentAlpha * 0.78f);
+    if (locationLayout) {
+        ctx->DrawTextLayout(D2D1::Point2F(textLeft, locationY), locationLayout.Get(), m_res->grayBrush);
+    } else {
+        ctx->DrawTextW(locationText.c_str(), (UINT32)locationText.length(), locationFmt.Get(),
+            D2D1::RectF(textLeft, locationY, textLeft + textWidth, locationY + std::round(locationMetrics.height + 4.0f)),
+            m_res->grayBrush);
+    }
+
     m_res->grayBrush->SetOpacity(contentAlpha * 0.60f);
-    ctx->DrawTextW(m_desc.c_str(), (UINT32)m_desc.length(), descFmt.Get(),
-        D2D1::RectF(leftCardLeft, descY, leftCardLeft + cardWidth, descY + std::round(descMetrics.height + 4.0f)),
-        m_res->grayBrush);
+    if (descLayout) {
+        ctx->DrawTextLayout(D2D1::Point2F(textLeft, descY), descLayout.Get(), m_res->grayBrush);
+    } else {
+        ctx->DrawTextW(m_desc.c_str(), (UINT32)m_desc.length(), descFmt.Get(),
+            D2D1::RectF(textLeft, descY, textLeft + textWidth, descY + std::round(descMetrics.height + 4.0f)),
+            m_res->grayBrush);
+    }
     ctx->SetTextAntialiasMode(oldTextAA);
 
     // 右侧 2×3 逐小时网格

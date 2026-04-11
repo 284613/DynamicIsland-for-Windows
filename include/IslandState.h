@@ -10,9 +10,11 @@ enum class WeatherViewMode { Hourly, Daily };
 enum class IslandDisplayMode
 {
     Idle,
+    PomodoroCompact,
+    PomodoroExpanded,
     MusicCompact,
     MusicExpanded,
-    WeatherExpanded,
+	WeatherExpanded,
     Alert,
     Volume,
     FileDrop

@@ -16,6 +16,7 @@ public:
     void Update(float deltaTime) override;
 
     // IWeatherPlugin implementation
+    std::wstring GetLocationText() const override { return m_locationText; }
     std::wstring GetWeatherDescription() const override { return m_description; }
     float GetTemperature() const override { return m_temperature; }
     std::wstring GetIconId() const override { return m_iconId; }
@@ -26,11 +27,14 @@ public:
 
     // 强制下次 Update 时立即刷新（无视时间间隔）
     void RequestRefresh() { m_lastUpdateTime = 0; }
+    // 设置 fetch 完成后的通知窗口
+    void SetNotifyHwnd(HWND hwnd) { m_notifyHwnd = hwnd; }
 
 private:
     void FetchWeather();
 
 private:
+    std::wstring m_locationText;
     std::wstring m_description;
     float m_temperature = 0.0f;
     std::wstring m_iconId = L"100";
@@ -40,6 +44,7 @@ private:
     bool m_hasSevereWarning = false;
 
     size_t m_lastUpdateTime = 0;
+    HWND   m_notifyHwnd = nullptr;
 };
 
 
