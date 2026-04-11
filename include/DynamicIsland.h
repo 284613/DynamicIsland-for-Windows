@@ -85,6 +85,15 @@ private:
     void ResetFileSecondaryInteraction();
     void ShowFileStashLimitAlert();
     void RemoveFileStashIndex(int index);
+    POINT LogicalFromPhysical(POINT physicalPt) const;
+
+    struct ProgressBarLayout {
+        float left;
+        float right;
+    };
+
+    ProgressBarLayout GetProgressBarLayout() const;
+    static float ClampProgress(float progress);
 
     float GetCurrentWidth() const { return m_layoutController.GetCurrentWidth(); }
     float GetCurrentHeight() const { return m_layoutController.GetCurrentHeight(); }

@@ -1,45 +1,45 @@
 //DynamicIsland.cpp
 
-
-
 #include "DynamicIsland.h"
-
-
 
 #include "EventBus.h"
 
-
-
 #include <windowsx.h>
-
-
 
 #include <cmath>
 #include <fstream>
-#include <iostream>
 #include <mutex>
 #include <sstream>
 #include <shlwapi.h>
 
 #pragma comment(lib, "shlwapi.lib")
 
-
-
 #include <chrono>
-
-
 
 #include "RenderEngine.h"
 #include "LyricsMonitor.h"
 
 namespace {
-std::wstring GetInputDebugLogPath() {
+std::wstring GetExeDirectory() {
     wchar_t exePath[MAX_PATH] = {};
     if (!GetModuleFileNameW(nullptr, exePath, MAX_PATH)) {
-        return L"DynamicIsland_input_debug.log";
+        return {};
     }
     PathRemoveFileSpecW(exePath);
-    return std::wstring(exePath) + L"\\DynamicIsland_input_debug.log";
+    return std::wstring(exePath);
+}
+
+std::wstring GetConfigPath() {
+    const std::wstring exeDirectory = GetExeDirectory();
+    return exeDirectory.empty() ? L"config.ini" : exeDirectory + L"\\config.ini";
+}
+}
+
+#ifdef _DEBUG
+std::wstring GetInputDebugLogPath() {
+    const std::wstring exeDirectory = GetExeDirectory();
+    return exeDirectory.empty() ? L"DynamicIsland_input_debug.log"
+                                : exeDirectory + L"\\DynamicIsland_input_debug.log";
 }
 
 void AppendInputDebugLog(const std::wstring& message) {
@@ -60,33 +60,12 @@ void AppendInputDebugLog(const std::wstring& message) {
         out << line;
     }
 }
+#else
+void AppendInputDebugLog(const std::wstring&) {}
+#endif
 
 bool PathsEqualIgnoreCase(const std::wstring& lhs, const std::wstring& rhs) {
     return CompareStringOrdinal(lhs.c_str(), -1, rhs.c_str(), -1, TRUE) == CSTR_EQUAL;
-}
-
-const wchar_t* SecondaryKindToString(SecondaryContentKind kind) {
-    switch (kind) {
-    case SecondaryContentKind::None: return L"None";
-    case SecondaryContentKind::Volume: return L"Volume";
-    case SecondaryContentKind::FileMini: return L"FileMini";
-    case SecondaryContentKind::FileExpanded: return L"FileExpanded";
-    case SecondaryContentKind::FileDropTarget: return L"FileDropTarget";
-    default: return L"Unknown";
-    }
-}
-
-const wchar_t* FileHitKindToString(FilePanelComponent::HitResult::Kind kind) {
-    switch (kind) {
-    case FilePanelComponent::HitResult::Kind::None: return L"None";
-    case FilePanelComponent::HitResult::Kind::MiniBody: return L"MiniBody";
-    case FilePanelComponent::HitResult::Kind::PreviewPane: return L"PreviewPane";
-    case FilePanelComponent::HitResult::Kind::CollapseButton: return L"CollapseButton";
-    case FilePanelComponent::HitResult::Kind::ExpandedBackground: return L"ExpandedBackground";
-    case FilePanelComponent::HitResult::Kind::FileItem: return L"FileItem";
-    default: return L"Unknown";
-    }
-}
 }
 
 std::wstring ExtractIconFromExe(const std::wstring& appName) {
@@ -97,15 +76,11 @@ std::wstring ExtractIconFromExe(const std::wstring& appName) {
 
     if (!GetModuleFileNameW(nullptr, exePath, MAX_PATH)) return iconPath;
 
-
-
     // Extract only once, locate the current .exe directory
 
     PathRemoveFileSpecW(exePath);
 
     std::wstring base(exePath);
-
-
 
     // Match app name and point to icon path
 
@@ -144,42 +119,39 @@ bool DynamicIsland::IsFullscreen() {
             rcWindow.bottom >= mi.rcMonitor.bottom);
 }
 
-
-
-
-
-
 DynamicIsland::~DynamicIsland()
-
-
 
 {
 
-
-
-
-
 }
-
-
-
-
 
 DynamicIsland::DynamicIsland()
 
-
-
 {
-
-
-
-
 
 }
 
+POINT DynamicIsland::LogicalFromPhysical(POINT physicalPt) const {
+    return {
+        (LONG)std::round(physicalPt.x / m_dpiScale),
+        (LONG)std::round(physicalPt.y / m_dpiScale),
+    };
+}
 
+DynamicIsland::ProgressBarLayout DynamicIsland::GetProgressBarLayout() const {
+    const float left = (CANVAS_WIDTH - GetCurrentWidth()) / 2.0f;
+    const float right = left + GetCurrentWidth();
+    const float artLeft = left + 20.0f;
+    const float textLeft = artLeft + 60.0f + 15.0f;
+    return {
+        textLeft - 80.0f,
+        textLeft + (right - 20.0f - textLeft),
+    };
+}
 
-
+float DynamicIsland::ClampProgress(float progress) {
+    return progress < 0.0f ? 0.0f : (progress > 1.0f ? 1.0f : progress);
+}
 
 void DynamicIsland::TransitionTo(IslandDisplayMode mode) {
 
@@ -231,19 +203,11 @@ void DynamicIsland::TransitionTo(IslandDisplayMode mode) {
 
 }
 
-
-
-
-
 void DynamicIsland::SetTargetSize(float width, float height) {
 
 	m_layoutController.SetTargetSize(width, height);
 
 }
-
-
-
-
 
 IslandDisplayMode DynamicIsland::DetermineDisplayMode() const {
 	// PR6: Use priority table for configurable scheduling
@@ -290,402 +254,48 @@ D2D1_RECT_F DynamicIsland::GetSecondaryRectLogical() const {
 	return D2D1::RectF(secLeft, secTop, secLeft + secWidth, secTop + secHeight);
 }
 
-void DynamicIsland::ResetFileSecondaryInteraction() {
-	m_fileHoveredIndex = -1;
-	m_filePressedIndex = -1;
-	m_fileLastClickIndex = -1;
-	m_fileLastClickTime = 0;
-	m_fileDragStarted = false;
-	m_filePressPoint = {};
-}
-
-void DynamicIsland::ShowFileStashLimitAlert() {
-	AlertInfo info{};
-	info.type = Constants::Alert::TYPE_FILE;
-	info.name = L"文件暂存已满";
-	info.deviceType = L"最多暂存 5 个文件";
-	info.priority = PRIORITY_P3_BACKGROUND;
-	m_alertQueue.push(info);
-	ProcessNextAlert();
-}
-
-void DynamicIsland::RemoveFileStashIndex(int index) {
-	if (index < 0 || index >= (int)m_fileStash.Count()) return;
-	m_fileStash.RemoveIndex((size_t)index);
-	if (!m_fileStash.HasItems()) {
-		m_fileSecondaryExpanded = false;
-		m_fileSelectedIndex = -1;
-		ResetFileSecondaryInteraction();
-	} else if (m_fileSelectedIndex >= (int)m_fileStash.Count()) {
-		m_fileSelectedIndex = (int)m_fileStash.Count() - 1;
-	}
-}
-
-bool DynamicIsland::HandleFileSecondaryMouseDown(POINT pt) {
-	SecondaryContentKind secondary = DetermineSecondaryContent();
-	D2D1_RECT_F secondaryRect = GetSecondaryRectLogical();
-	{
-		std::wostringstream oss;
-		oss << L"MouseDown secondary=" << SecondaryKindToString(secondary)
-			<< L" pt=(" << pt.x << L"," << pt.y << L")"
-			<< L" rect=(" << secondaryRect.left << L"," << secondaryRect.top << L"," << secondaryRect.right << L"," << secondaryRect.bottom << L")"
-			<< L" count=" << m_fileStash.Count()
-			<< L" expanded=" << (m_fileSecondaryExpanded ? 1 : 0);
-		AppendInputDebugLog(oss.str());
-	}
-	if (secondary != SecondaryContentKind::FileMini &&
-		secondary != SecondaryContentKind::FileExpanded &&
-		secondary != SecondaryContentKind::FileDropTarget) {
-		AppendInputDebugLog(L"MouseDown ignored: secondary content not file-related");
-		return false;
-	}
-
-	if ((float)pt.x < secondaryRect.left || (float)pt.x > secondaryRect.right ||
-		(float)pt.y < secondaryRect.top || (float)pt.y > secondaryRect.bottom) {
-		AppendInputDebugLog(L"MouseDown ignored: point outside secondary rect");
-		return false;
-	}
-
-	auto hit = m_renderer.HitTestFileSecondary((float)pt.x, (float)pt.y);
-	{
-		std::wostringstream oss;
-		oss << L"MouseDown hit=" << FileHitKindToString(hit.kind) << L" index=" << hit.index;
-		AppendInputDebugLog(oss.str());
-	}
-	if (secondary == SecondaryContentKind::FileMini || secondary == SecondaryContentKind::FileDropTarget) {
-		m_fileSecondaryExpanded = m_fileStash.HasItems();
-		StartAnimation();
-		AppendInputDebugLog(m_fileSecondaryExpanded ? L"MouseDown action: expand file secondary" : L"MouseDown action: cannot expand because stash empty");
-		Invalidate(Dirty_FileDrop | Dirty_Region);
-		return true;
-	}
-
-	if (hit.kind == FilePanelComponent::HitResult::Kind::CollapseButton ||
-		hit.kind == FilePanelComponent::HitResult::Kind::ExpandedBackground) {
-		m_fileSecondaryExpanded = false;
-		ResetFileSecondaryInteraction();
-		StartAnimation();
-		AppendInputDebugLog(L"MouseDown action: collapse file secondary");
-		Invalidate(Dirty_FileDrop | Dirty_Region);
-		return true;
-	}
-
-	if (hit.kind == FilePanelComponent::HitResult::Kind::PreviewPane) {
-		AppendInputDebugLog(L"MouseDown action: consume preview pane");
-		return true;
-	}
-
-	if (hit.kind == FilePanelComponent::HitResult::Kind::FileItem) {
-		m_fileSelectedIndex = hit.index;
-		m_filePressedIndex = hit.index;
-		m_filePressPoint = pt;
-		m_fileDragStarted = false;
-		Invalidate(Dirty_FileDrop);
-		AppendInputDebugLog(L"MouseDown action: press file item");
-		return true;
-	}
-
-	AppendInputDebugLog(L"MouseDown action: consumed with no state change");
-	return true;
-}
-
-bool DynamicIsland::HandleFileSecondaryMouseMove(HWND hwnd, POINT pt, WPARAM keyState) {
-	SecondaryContentKind secondary = DetermineSecondaryContent();
-	bool secondaryVisible = (secondary == SecondaryContentKind::FileMini ||
-		secondary == SecondaryContentKind::FileExpanded ||
-		secondary == SecondaryContentKind::FileDropTarget);
-	D2D1_RECT_F secondaryRect = GetSecondaryRectLogical();
-	bool insideSecondary = secondaryVisible &&
-		(float)pt.x >= secondaryRect.left && (float)pt.x <= secondaryRect.right &&
-		(float)pt.y >= secondaryRect.top && (float)pt.y <= secondaryRect.bottom;
-
-	if (insideSecondary) {
-		auto hit = m_renderer.HitTestFileSecondary((float)pt.x, (float)pt.y);
-		int newHovered = (hit.kind == FilePanelComponent::HitResult::Kind::FileItem) ? hit.index : -1;
-		if (newHovered != m_fileHoveredIndex) {
-			std::wostringstream oss;
-			oss << L"MouseMove hover change: secondary=" << SecondaryKindToString(secondary)
-				<< L" hit=" << FileHitKindToString(hit.kind) << L" index=" << hit.index;
-			AppendInputDebugLog(oss.str());
-			m_fileHoveredIndex = newHovered;
-			Invalidate(Dirty_Hover | Dirty_FileDrop);
-		}
-	}
-	else if (m_fileHoveredIndex != -1) {
-		m_fileHoveredIndex = -1;
-		Invalidate(Dirty_Hover | Dirty_FileDrop);
-	}
-
-	if (m_filePressedIndex != -1 && (keyState & MK_LBUTTON)) {
-		int dx = pt.x - m_filePressPoint.x;
-		int dy = pt.y - m_filePressPoint.y;
-		if (std::abs(dx) >= GetSystemMetrics(SM_CXDRAG) || std::abs(dy) >= GetSystemMetrics(SM_CYDRAG)) {
-			bool moved = false;
-			m_fileDragStarted = true;
-			m_fileSelfDropDetected = false;
-			AppendInputDebugLog(L"MouseMove action: begin file drag");
-			m_fileStash.BeginMoveDrag(hwnd, (size_t)m_filePressedIndex, moved);
-			if (moved) {
-				if (m_fileSelfDropDetected) {
-					AppendInputDebugLog(L"MouseMove action: ignore self-drop back into stash");
-				}
-				else {
-					AppendInputDebugLog(L"MouseMove action: drag completed with move effect");
-					RemoveFileStashIndex(m_filePressedIndex);
-				}
-			}
-			m_fileSelfDropDetected = false;
-			m_filePressedIndex = -1;
-			Invalidate(Dirty_FileDrop | Dirty_Region);
-			return true;
-		}
-	}
-
-	return insideSecondary;
-}
-
-bool DynamicIsland::HandleFileSecondaryMouseUp(POINT pt) {
-	SecondaryContentKind secondary = DetermineSecondaryContent();
-	bool secondaryVisible = (secondary == SecondaryContentKind::FileMini ||
-		secondary == SecondaryContentKind::FileExpanded ||
-		secondary == SecondaryContentKind::FileDropTarget);
-	D2D1_RECT_F secondaryRect = GetSecondaryRectLogical();
-	bool isOverSecondary = secondaryVisible &&
-		(float)pt.x >= secondaryRect.left && (float)pt.x <= secondaryRect.right &&
-		(float)pt.y >= secondaryRect.top && (float)pt.y <= secondaryRect.bottom;
-	auto hit = isOverSecondary ? m_renderer.HitTestFileSecondary((float)pt.x, (float)pt.y) : FilePanelComponent::HitResult{};
-	{
-		std::wostringstream oss;
-		oss << L"MouseUp secondary=" << SecondaryKindToString(secondary)
-			<< L" pt=(" << pt.x << L"," << pt.y << L")"
-			<< L" inside=" << (isOverSecondary ? 1 : 0)
-			<< L" hit=" << FileHitKindToString(hit.kind) << L" index=" << hit.index
-			<< L" pressedIndex=" << m_filePressedIndex
-			<< L" dragStarted=" << (m_fileDragStarted ? 1 : 0);
-		AppendInputDebugLog(oss.str());
-	}
-
-	if (m_filePressedIndex != -1 && !m_fileDragStarted &&
-		hit.kind == FilePanelComponent::HitResult::Kind::FileItem &&
-		hit.index == m_filePressedIndex) {
-		m_fileSelectedIndex = hit.index;
-		ULONGLONG now = GetTickCount64();
-		bool isDoubleClick = (m_fileLastClickIndex == hit.index) &&
-			(now - m_fileLastClickTime <= (ULONGLONG)GetDoubleClickTime());
-		if (isDoubleClick) {
-			m_fileStash.OpenIndex((size_t)hit.index);
-			m_fileLastClickIndex = -1;
-			m_fileLastClickTime = 0;
-			AppendInputDebugLog(L"MouseUp action: open file item");
-		}
-		else {
-			m_fileStash.PreviewIndex((size_t)hit.index);
-			m_fileLastClickIndex = hit.index;
-			m_fileLastClickTime = now;
-			AppendInputDebugLog(L"MouseUp action: preview file item");
-		}
-		Invalidate(Dirty_FileDrop);
-		m_filePressedIndex = -1;
-		return true;
-	}
-
-	m_filePressedIndex = -1;
-	m_fileDragStarted = false;
-	AppendInputDebugLog(isOverSecondary ? L"MouseUp action: consume secondary click" : L"MouseUp ignored outside secondary");
-	return isOverSecondary;
-}
-
-
-
-
-
 void DynamicIsland::LoadConfig() {
-
-
-
-
-
-	wchar_t exePath[MAX_PATH];
-
-
-
-
-
-	GetModuleFileNameW(NULL, exePath, MAX_PATH);
-
-
-
-
-
-
-
-
-
-
-
-
-
-	// 获取当前 exe 所在的目录
-
-
-
-
-
-	std::wstring pathStr(exePath);
-
-
-
-
-
-	size_t pos = pathStr.find_last_of(L"\\/");
-
-
-
-
-
-	std::wstring configPath = pathStr.substr(0, pos) + L"\\config.ini";
+	const std::wstring configPath = GetConfigPath();
 
 	m_allowedApps.clear();
 
-
-
-
-
-
-
-
-
-
-
-
-
 	// 读取 INI 文件（如果文件不存在则使用后面的默认值）
 
-
-
-
-
 	CANVAS_WIDTH = (float)GetPrivateProfileIntW(L"Settings", L"CanvasWidth", (int)Constants::Size::CANVAS_WIDTH, configPath.c_str());
-
-
-
-
 
 	CANVAS_HEIGHT = (float)GetPrivateProfileIntW(L"Settings", L"CanvasHeight", (int)Constants::Size::CANVAS_HEIGHT, configPath.c_str());
 	if (CANVAS_HEIGHT < Constants::Size::CANVAS_HEIGHT) {
 		CANVAS_HEIGHT = Constants::Size::CANVAS_HEIGHT;
 	}
 
-
-
-
-
-
-
-
-
-	// COLLAPSED_WIDTH = (float)GetPrivateProfileIntW(L"Settings", L"CollapsedWidth", (int)Constants::Size::COLLAPSED_WIDTH, configPath.c_str());
-
-	// COLLAPSED_HEIGHT = (float)GetPrivateProfileIntW(L"Settings", L"CollapsedHeight", (int)Constants::Size::COLLAPSED_HEIGHT, configPath.c_str());
-
-	// COMPACT_WIDTH = (float)GetPrivateProfileIntW(L"Settings", L"CompactWidth", (int)Constants::Size::COMPACT_WIDTH, configPath.c_str());
-
-	// COMPACT_HEIGHT = (float)GetPrivateProfileIntW(L"Settings", L"CompactHeight", (int)Constants::Size::COMPACT_HEIGHT, configPath.c_str());
-
-	// EXPANDED_WIDTH = (float)GetPrivateProfileIntW(L"Settings", L"ExpandedWidth", (int)Constants::Size::EXPANDED_WIDTH, configPath.c_str());
-
-	// EXPANDED_HEIGHT = (float)GetPrivateProfileIntW(L"Settings", L"ExpandedHeight", (int)Constants::Size::EXPANDED_HEIGHT, configPath.c_str());
-
-	// MUSIC_EXPANDED_HEIGHT = (float)GetPrivateProfileIntW(L"Settings", L"MusicExpandedHeight", (int)Constants::Size::MUSIC_EXPANDED_HEIGHT, configPath.c_str());
-
-	// ALERT_WIDTH = (float)GetPrivateProfileIntW(L"Settings", L"AlertWidth", (int)Constants::Size::ALERT_WIDTH, configPath.c_str());
-
-	// ALERT_HEIGHT = (float)GetPrivateProfileIntW(L"Settings", L"AlertHeight", (int)Constants::Size::ALERT_HEIGHT, configPath.c_str());
-
-
-
-
-
 	wchar_t allowedAppsBuf[512] = { 0 };
-
-
-
-
 
 	GetPrivateProfileStringW(L"Notifications", L"AllowedApps", L"", allowedAppsBuf, 512, configPath.c_str());
 	if (allowedAppsBuf[0] == L'\0') {
 		GetPrivateProfileStringW(L"Settings", L"AllowedApps", L"微信,QQ", allowedAppsBuf, 512, configPath.c_str());
 	}
 
-
-
-
-
 	std::wstring appsStr(allowedAppsBuf);
-
-
-
-
 
 	size_t start = 0, end;
 
-
-
-
-
 	while ((end = appsStr.find(L',', start)) != std::wstring::npos) {
-
-
-
-
 
 		m_allowedApps.push_back(appsStr.substr(start, end - start));
 
-
-
-
-
 		start = end + 1;
-
-
-
-
 
 	}
 
-
-
-
-
 	m_allowedApps.push_back(appsStr.substr(start));
-
-
-
-
 
 	// 初始状态设定为折叠
 
-
-
-
-
 	m_layoutController.SetTargetSize(Constants::Size::COLLAPSED_WIDTH, Constants::Size::COLLAPSED_HEIGHT);
-
-
-
-
 
 }
 
-
-
-
-
 bool DynamicIsland::Initialize(HINSTANCE hInstance) {
-
-
-
-
 
 	LoadConfig(); // 【新增】最优先加载配置文件
 
@@ -699,172 +309,60 @@ bool DynamicIsland::Initialize(HINSTANCE hInstance) {
 		{ IslandDisplayMode::Idle,             10, [this]() { return true; } },
 	};
 
-
-
-
-
 	// 获取系统初始 DPI 并计算缩放
-
-
-
-
 
 	m_currentDpi = GetDpiForSystem();
 
-
-
-
-
 	m_dpiScale = m_currentDpi / 96.0f;
-
-
-
-
 
 	// 计算初始的物理像素大小
 
-
-
-
-
 	int physCanvasW = (int)(CANVAS_WIDTH * m_dpiScale);
-
-
-
-
 
 	int physCanvasH = (int)(CANVAS_HEIGHT * m_dpiScale);
 
-
-
-
-
 	// 创建窗口（传入物理尺寸）
-
-
-
-
 
 	if (!m_window.Create(hInstance, physCanvasW, physCanvasH, this)) return false;
 
-
-
-
-
 	// 窗口创建后，获取该窗口所在显示器的精准 DPI
-
-
-
-
 
 	m_currentDpi = GetDpiForWindow(m_window.GetHWND());
 
-
-
-
-
 	m_dpiScale = m_currentDpi / 96.0f;
-
-
-
-
 
 	// 初始化渲染引擎，传入物理尺寸
 
-
-
-
-
 	if (!m_renderer.Initialize(m_window.GetHWND(), physCanvasW, physCanvasH)) return false;
 
-
-
-
-
 	m_renderer.SetDpi((float)m_currentDpi);
-
-
-
-
 
     // 初始化文件面板窗口
     m_mediaMonitor.SetTargetWindow(m_window.GetHWND());
     m_settingsWindow.Create(hInstance, m_window.GetHWND());
 
-
-
-
-
 	m_mediaMonitor.Initialize();
-
-
-
-
 
 	m_connectionMonitor.Initialize(m_window.GetHWND());
 
-
-
-
-
 	m_notificationMonitor.Initialize(m_window.GetHWND(), m_allowedApps);
-
-
-
-
 
 	m_lyricsMonitor.Initialize(m_window.GetHWND());
 
-
-
-
-
 	m_systemMonitor.Initialize(m_window.GetHWND()); // 【新增】启动电量监控
-
-
-
-
 
 	// 【新增】立即获取天气（不等10分钟定时器）
 
-
-
-
-
 	m_systemMonitor.UpdateWeather();
 
-
-
-
-
 	m_weatherDesc = m_systemMonitor.GetWeatherDescription();
-
-
-
-
 
 	m_weatherTemp = m_systemMonitor.GetWeatherTemperature();
 RegisterHotKey(m_window.GetHWND(), HOTKEY_ID, MOD_CONTROL | MOD_ALT, 'I');
 
-
-
-
-
-
-
-
-
 	bool isPlaying = m_mediaMonitor.IsPlaying();
 
-
-
-
-
 	bool hasSession = m_mediaMonitor.HasSession();
-
-
-
-
 
 	// Construct RenderContext for initial draw
 
@@ -886,43 +384,15 @@ RegisterHotKey(m_window.GetHWND(), HOTKEY_ID, MOD_CONTROL | MOD_ALT, 'I');
 	m_renderer.SetWeatherState(m_weatherDesc, m_weatherTemp, L"", {}, {}, false, m_weatherViewMode);
 	m_renderer.SetAlertState(false, AlertInfo{});
 
-
-
-
-
 	m_renderer.DrawCapsule(initCtx);
-
-
-
-
-
-
-
-
 
 	m_window.Show();
 
-
-
-
-
 	UpdateWindowRegion();
-
-
-
-
 
 	CreateTrayIcon();
 
-
-
-
-
 	// 【新增】订阅EventBus事件 - MediaMetadataChanged事件处理
-
-
-
-
 
 	EventBus::GetInstance().Subscribe(EventType::MediaMetadataChanged, [this](const Event& e) {
 
@@ -948,10 +418,6 @@ RegisterHotKey(m_window.GetHWND(), HOTKEY_ID, MOD_CONTROL | MOD_ALT, 'I');
 		// 触发重绘
 		PostMessage(m_window.GetHWND(), WM_APP_INVALIDATE, Dirty_MediaState, 0);
 	});
-
-
-
-
 
 	// 【新增】订阅EventBus事件 - NotificationArrived事件处理
 
@@ -996,33 +462,13 @@ RegisterHotKey(m_window.GetHWND(), HOTKEY_ID, MOD_CONTROL | MOD_ALT, 'I');
 
 	return true;
 
-
-
-
-
 }
-
-
-
-
 
 void DynamicIsland::Run() {
 
-
-
-
-
 	m_window.RunLoop();
 
-
-
-
-
 }
-
-
-
-
 
 void DynamicIsland::EnsureRenderLoopRunning() {
     if (!m_renderLoopActive) {
@@ -1051,74 +497,26 @@ bool DynamicIsland::ShouldKeepRendering() const {
 
 void DynamicIsland::StartAnimation() {
 
-
-
-
-
 	// 添加保护：只有目标真正改变才触发动画
-
-
-
-
 
 	static float lastTargetWidth = 0;
 
-
-
-
-
 	static float lastTargetHeight = 0;
-
-
-
-
-
-
-
-
 
 	if (!IsAnimating() || GetTargetWidth() != lastTargetWidth || GetTargetHeight() != lastTargetHeight) {
 
-
-
-
-
 		lastTargetWidth = GetTargetWidth();
-
-
-
-
 
 		lastTargetHeight = GetTargetHeight();
 
-
-
-
-
 		m_layoutController.StartAnimation();
-
-
-
-
 
 		EnsureRenderLoopRunning();
 	SetTimer(m_window.GetHWND(), m_fullscreenTimerId, 1000, nullptr); // 全屏检测定时器（每秒）
 
-
-
-
-
 	}
 
-
-
-
-
 }
-
-
-
-
 
 void DynamicIsland::UpdatePhysics() {
 
@@ -1136,27 +534,11 @@ void DynamicIsland::UpdatePhysics() {
 
 	static ULONGLONG lastUpdate = GetTickCount64();
 
-
-
-
-
 	ULONGLONG now = GetTickCount64();
-
-
-
-
 
 	float deltaTime = (now - lastUpdate) / 1000.0f;
 
-
-
-
-
 	lastUpdate = now;
-
-
-
-
 
 	// 正常物理更新 - 使用弹簧动画系统
 	SecondaryContentKind secondaryContent = DetermineSecondaryContent();
@@ -1179,153 +561,52 @@ void DynamicIsland::UpdatePhysics() {
 
 	m_layoutController.UpdatePhysics();
 
-
-
-
-
 	// 物理动画完成后，根据状态自动调整目标尺寸
-
-
-
-
 
 	if (m_layoutController.IsAnimating() && m_state == IslandState::Collapsed) {
 
-
-
-
-
 		// 如果正在播放且当前是Mini态或目标是Mini，自动展开到Compact
-
-
-
-
 
 		if (m_mediaMonitor.IsPlaying() && GetTargetHeight() < Constants::Size::COMPACT_MIN_HEIGHT && !m_fileStash.HasItems()) {
 
-
-
-
-
 			SetTargetSize(Constants::Size::COMPACT_WIDTH, Constants::Size::COMPACT_HEIGHT);
 
-
-
-
-
 			StartAnimation();
-
-
-
-
 
 		}
 
 	}
 
-
-
-
-
-
-
-
-
-
 	std::wstring realTitle = m_cachedTitle;
 	std::wstring realArtist = m_cachedArtist;
 
-
-
-
-
 	// 检查是否显示时间：收缩状态 + 无通知 + 不在播放（暂停就显示时间）
-
-
-
-
 
 	bool showTime = (m_state == IslandState::Collapsed && !m_isAlertActive && !isPlaying);
 
-
-
-
-
 	// 节流：每1000ms更新一次时间字符串，避免频繁重绘导致抖动
-
-
-
-
 
 	static ULONGLONG lastTimeStrUpdate = 0;
 
-
-
-
-
 	static std::wstring cachedTimeStr = L"";
-
-
-
-
 
 	ULONGLONG nowMs = GetTickCount64();
 
-
-
-
-
-
-
-
-
 	if (showTime && (nowMs - lastTimeStrUpdate > 1000)) {
-
-
-
-
 
 		cachedTimeStr = GetCurrentTimeString();
 
-
-
-
-
 		lastTimeStrUpdate = nowMs;
-
-
-
-
 
 	} else if (!showTime) {
 
-
-
-
-
 		cachedTimeStr = L"";
-
-
-
-
 
 		lastTimeStrUpdate = 0;
 
-
-
-
-
 	}
 
-
-
-
-
 	std::wstring timeStr = cachedTimeStr;
-
-
-
-
 
 	// 获取音乐进度与歌词（节流到 100ms）
 	static ULONGLONG lastProgressPoll = 0;
@@ -1352,137 +633,49 @@ void DynamicIsland::UpdatePhysics() {
 
 	// 如果正在拖动或刚松开进度条，使用临时进度
 
-
-
-
-
 	if (m_isDraggingProgress || m_justReleasedProgress) {
-
-
-
-
 
 		progress = m_tempProgress;
 
-
-
-
-
 		// 如果刚松开，检查是否应该停止使用临时进度
-
-
-
-
 
 		if (m_justReleasedProgress) {
 
-
-
-
-
 			ULONGLONG now = GetTickCount64();
-
-
-
-
 
 			bool shouldStop = false;
 
-
-
-
-
 			// 条件1：已经过了1秒
-
-
-
-
 
 			if (now - m_progressReleaseTime > 1000) {
 
-
-
-
-
 				shouldStop = true;
-
-
-
-
 
 			}
 
 			// 条件2：实际位置已经接近临时位置（差距小于0.5秒）
 
-
-
-
-
 			else if (duration.count() > 0) {
-
-
-
-
 
 				float actualProgress = (float)position.count() / (float)duration.count();
 
-
-
-
-
 				float threshold = 0.5f / (float)duration.count();
-
-
-
-
 
 				if (std::abs(actualProgress - m_tempProgress) < threshold) {
 
-
-
-
-
 					shouldStop = true;
-
-
-
-
 
 				}
 
-
-
-
-
 			}
-
-
-
-
 
 			if (shouldStop) {
 
-
-
-
-
 				m_justReleasedProgress = false;
-
-
-
-
 
 			}
 
-
-
-
-
 		}
-
-
-
-
 
 	}
 	m_renderer.SetPlaybackState(hasSession, isPlaying, progress, realTitle, realArtist);
@@ -1550,10 +743,6 @@ void DynamicIsland::UpdatePhysics() {
 
 LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
 
-
-
-
-
 	switch (uMsg) {
 
 	case WM_APP_INVALIDATE:
@@ -1565,23 +754,12 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 		LoadConfig();
 		m_notificationMonitor.UpdateAllowedApps(m_allowedApps);
 		m_systemMonitor.SetLowBatteryThreshold(
-			GetPrivateProfileIntW(L"Advanced", L"LowBatteryThreshold", 20,
-				(std::wstring([] {
-					wchar_t exePath[MAX_PATH] = {};
-					GetModuleFileNameW(nullptr, exePath, MAX_PATH);
-					std::wstring pathStr(exePath);
-					size_t pos = pathStr.find_last_of(L"\\/");
-					return pathStr.substr(0, pos) + L"\\config.ini";
-				}())).c_str()));
+			GetPrivateProfileIntW(L"Advanced", L"LowBatteryThreshold", 20, GetConfigPath().c_str()));
 		m_systemMonitor.UpdateWeather();
 		m_weatherDesc = m_systemMonitor.GetWeatherDescription();
 		m_weatherTemp = m_systemMonitor.GetWeatherTemperature();
 		Invalidate(Dirty_Weather | Dirty_MediaState | Dirty_Region);
 		return 0;
-
-
-
-
 
 	case WM_NCHITTEST: {
 		POINT physicalPt;
@@ -1589,9 +767,7 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 		physicalPt.y = GET_Y_LPARAM(lParam);
 		ScreenToClient(hwnd, &physicalPt);
 
-		POINT pt;
-		pt.x = (LONG)std::round(physicalPt.x / m_dpiScale);
-		pt.y = (LONG)std::round(physicalPt.y / m_dpiScale);
+		const POINT pt = LogicalFromPhysical(physicalPt);
 
 		float left = (CANVAS_WIDTH - GetCurrentWidth()) / 2.0f;
 		float right = left + GetCurrentWidth();
@@ -1614,126 +790,39 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 		return HTTRANSPARENT;
 	}
 
-
-
-
-
 	case WM_MOUSEMOVE:
-
-
-
-
 
 	{
 
-
-
-
-
 		POINT physicalPt;
-
-
-
-
 
 		physicalPt.x = GET_X_LPARAM(lParam);
 
-
-
-
-
 		physicalPt.y = GET_Y_LPARAM(lParam);
 
-
-
-
-
-		POINT pt; // 转成逻辑坐标，供后续的 HitTest 使用
-
-
-
-
-
-		// 【修改】加入 std::round，解决边缘像素计算错位的问题
-
-
-
-
-
-		pt.x = (LONG)std::round(physicalPt.x / m_dpiScale);
-
-
-
-
-
-		pt.y = (LONG)std::round(physicalPt.y / m_dpiScale);
+		const POINT pt = LogicalFromPhysical(physicalPt);
 
 		if (HandleFileSecondaryMouseMove(hwnd, pt, wParam)) {
 			return 0;
 		}
 
-
-
-
-
-
 		// 鼠标悬停检测
-
-
-
-
 
 		float hoverLeft = (CANVAS_WIDTH - GetCurrentWidth()) / 2.0f;
 
-
-
-
-
 		float hoverRight = hoverLeft + GetCurrentWidth();
-
-
-
-
 
 		float hoverTop = 10.0f;
 
-
-
-
-
 		float hoverBottom = hoverTop + GetCurrentHeight();
-
-
-
-
 
 		bool isOverIsland = (pt.x >= hoverLeft && pt.x <= hoverRight && pt.y >= hoverTop && pt.y <= hoverBottom);
 
-
-
-
-
-
-
-
-
 		if (isOverIsland != m_isHovering) {
-
-
-
-
 
 			m_isHovering = isOverIsland;
 
-
-
-
-
 			// 悬停时：停止待处理的自动收缩定时器
-
-
-
-
 
 			if (m_isHovering) {
 
@@ -1741,59 +830,23 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 			}
 
-
-
-
-
 			bool suppressHoverResize = m_fileStash.HasItems();
 
 			
 
-
-
-
-
 			if (!suppressHoverResize && m_isHovering && m_state == IslandState::Collapsed) {
-
-
-
-
 
 				if (GetTargetHeight() < Constants::Size::COMPACT_MIN_HEIGHT) {
 
-
-
-
-
 					SetTargetSize(Constants::Size::COMPACT_WIDTH, Constants::Size::COMPACT_HEIGHT);
-
-
-
-
 
 					StartAnimation();
 
-
-
-
-
 				}
-
-
-
-
 
 			} else if (!suppressHoverResize && !m_isHovering && m_state == IslandState::Collapsed) {
 
-
-
-
-
 				// 鼠标离开时：如果是compact大小，启动5秒定时器后缩小到mini
-
-
-
-
 
 				if (GetTargetHeight() >= Constants::Size::COMPACT_MIN_HEIGHT) {
 
@@ -1803,21 +856,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 				}
 
-
-
-
-
 			}
 
-
-
-
-
 		}
-
-
-
-
 
 		// Weather icon hover detection: trigger animation on first hover
 		if (m_state == IslandState::Collapsed && !m_mediaMonitor.IsPlaying() && !m_isWeatherExpanded) {
@@ -1839,457 +880,127 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 // 进度条拖动
 
-
-
-
-
 		if (m_isDraggingProgress) {
 
-
-
-
-
-			// 计算拖动位置对应的进度 (使用与RenderEngine一致的坐标)
-
-
-
-
-
-			float left = (CANVAS_WIDTH - GetCurrentWidth()) / 2.0f;
-
-
-
-
-
-			float top = 10.0f;
-
-
-
-
-
-			float right = left + GetCurrentWidth();
-
-
-
-
-
-			float artSize = 60.0f;
-
-
-
-
-
-			float artLeft = left + 20.0f;
-
-
-
-
-
-			float textLeft = artLeft + artSize + 15.0f;
-
-
-
-
-
-			float titleMaxWidth = (right - 20.0f) - textLeft;
-
-
-
-
-
-			float progressBarLeft = textLeft - 80.0f;
-
-
-
-
-
-			float progressBarRight = textLeft + titleMaxWidth;
-
-
-
-
-
-			float clickX = (float)pt.x;
-
-
-
-
-
-			float progress = (clickX - progressBarLeft) / (progressBarRight - progressBarLeft);
-
-
-
-
-
-			progress = (progress < 0.0f) ? 0.0f : ((progress > 1.0f) ? 1.0f : progress);
-
-
-
-
-
-			// 只更新临时进度，不设置播放位置
-
-
-
-
-
-			m_tempProgress = progress;
-
-
-
-
+			const auto progressLayout = GetProgressBarLayout();
+			const float progress = ((float)pt.x - progressLayout.left) / (progressLayout.right - progressLayout.left);
+			m_tempProgress = ClampProgress(progress);
 
 			StartAnimation();
 
-
-
-
-
 			return 0;
 
-
-
-
-
 		}
-
-
-
-
 
 		if (m_dragging) {
 
-
-
-
-
 			POINT current;
-
-
-
-
 
 			GetCursorPos(&current);
 
-
-
-
-
 			int dx = current.x - m_dragStart.x;
-
-
-
-
 
 			int dy = current.y - m_dragStart.y;
 
-
-
-
-
 			// 计算新窗口位置
-
-
-
-
 
 			int newLeft = m_windowStart.x + dx;
 
-
-
-
-
 			int newTop = m_windowStart.y + dy;
-
-
-
-
 
 			// 获取当前窗口所在显示器的工作区
 
-
-
-
-
 			HMONITOR hMonitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
-
-
-
-
 
 			MONITORINFO mi = { sizeof(MONITORINFO) };
 
-
-
-
-
 			if (GetMonitorInfo(hMonitor, &mi)) {
-
-
-
-
 
 				RECT workArea = mi.rcWork; // 工作区（排除任务栏）
 
-
-
-
-
 				// 获取窗口大小
-
-
-
-
 
 				RECT windowRect;
 
-
-
-
-
 				GetWindowRect(hwnd, &windowRect);
-
-
-
-
 
 				int width = windowRect.right - windowRect.left;
 
-
-
-
-
 				int height = windowRect.bottom - windowRect.top;
-
-
-
-
 
 				// 限制新位置不超出工作区
 
-
-
-
-
 				if (newLeft < workArea.left) newLeft = workArea.left;
-
-
-
-
 
 				if (newTop < workArea.top) newTop = workArea.top;
 
-
-
-
-
 				if (newLeft + width > workArea.right) newLeft = workArea.right - width;
-
-
-
-
 
 				if (newTop + height > workArea.bottom) newTop = workArea.bottom - height;
 
-
-
-
-
 			}
-
-
-
-
 
 			SetWindowPos(hwnd, nullptr, newLeft, newTop, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOREDRAW);
 
-
-
-
-
 			return 0;
 
-
-
-
-
 		}
-
-
-
-
 
 		int hit = m_layoutController.HitTestPlaybackButtons(pt, m_state == IslandState::Expanded, m_mediaMonitor.HasSession(), CANVAS_WIDTH, GetCurrentWidth(), GetCurrentHeight(), m_dpiScale);
 
-
-
-
-
 		if (hit != m_hoveredButtonIndex) {
-
-
-
-
 
 			m_hoveredButtonIndex = hit;
 
-
-
-
-
 			StartAnimation(); // 叫醒渲染器画高亮
 
-
-
-
-
 		}
-
-
-
-
 
 		// 进度条悬停检测
 
-
-
-
-
 		int progressHit = m_layoutController.HitTestProgressBar(pt, m_state == IslandState::Expanded, m_mediaMonitor.HasSession(), CANVAS_WIDTH, GetCurrentWidth(), GetCurrentHeight(), m_dpiScale);
-
-
-
-
 
 		if (progressHit != m_hoveredProgress) {
 
-
-
-
-
 			m_hoveredProgress = progressHit;
-
-
-
-
 
 			StartAnimation();
 
-
-
-
-
 		}
-
-
-
-
 
 		TRACKMOUSEEVENT tme{};
 
-
-
-
-
 		tme.cbSize = sizeof(TRACKMOUSEEVENT);
-
-
-
-
 
 		tme.dwFlags = TME_LEAVE;
 
-
-
-
-
 		tme.hwndTrack = hwnd;
-
-
-
-
 
 		TrackMouseEvent(&tme);
 
-
-
-
-
 		return 0;
-
-
-
-
 
 	}
 
-
-
-
-
 	case WM_MOUSELEAVE: {
-
-
-
-
 
 		if (m_hoveredButtonIndex != -1 || m_pressedButtonIndex != -1 || m_hoveredProgress != -1 || m_pressedProgress != -1) {
 
-
-
-
-
 			m_hoveredButtonIndex = -1;
-
-
-
-
 
 			m_pressedButtonIndex = -1;
 
-
-
-
-
 			m_hoveredProgress = -1;
-
-
-
-
 
 			m_pressedProgress = -1;
 
-
-
-
-
 		}
-
-
-
-
 
 		// 鼠标离开时重置悬停状态
 
-
-
-
-
 		if (m_isHovering) {
 
-
-
-
-
 			m_isHovering = false;
-
-
-
-
-
-
-
-
 
 		
 			// Auto-collapse from COMPACT to MINI when mouse leaves island
@@ -2304,65 +1015,19 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 		Invalidate(Dirty_Hover | Dirty_FileDrop);
 		return 0;
 
-
-
-
-
 	}
-
-
-
-
 
 	// 鼠标点击胶囊体
 
-
-
-
-
 	case WM_LBUTTONDOWN: {
-
-
-
-
 
 		POINT physicalPt;
 
-
-
-
-
 		physicalPt.x = GET_X_LPARAM(lParam);
-
-
-
-
 
 		physicalPt.y = GET_Y_LPARAM(lParam);
 
-
-
-
-
-		POINT pt; // 转成逻辑坐标，供后续的 HitTest 使用
-
-
-
-
-
-		// 【修改】加入 std::round，解决边缘像素计算错位的问题
-
-
-
-
-
-		pt.x = (LONG)std::round(physicalPt.x / m_dpiScale);
-
-
-
-
-
-		pt.y = (LONG)std::round(physicalPt.y / m_dpiScale);
+		const POINT pt = LogicalFromPhysical(physicalPt);
 
 		if (HandleFileSecondaryMouseDown(pt)) {
 			return 0;
@@ -2370,171 +1035,33 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 		int hit = m_layoutController.HitTestPlaybackButtons(pt, m_state == IslandState::Expanded, m_mediaMonitor.HasSession(), CANVAS_WIDTH, GetCurrentWidth(), GetCurrentHeight(), m_dpiScale);
 
-
-
-
-
 		if (hit != -1) {
-
-
-
-
 
 			m_pressedButtonIndex = hit;
 
-
-
-
-
 			StartAnimation(); // 触发缩小（按下）动画
-
-
-
-
 
 			return 0; // 拦截点击，不要触发窗口拖拽！
 
-
-
-
-
 		}
-
-
-
-
 
 		// 点击胶囊不再打开文件 - 文件在侧边栏管理
 
-
-
-
-
 		// --- 检查是否点中了进度条 ---
-
-
-
-
 
 		int progressHit = m_layoutController.HitTestProgressBar(pt, m_state == IslandState::Expanded, m_mediaMonitor.HasSession(), CANVAS_WIDTH, GetCurrentWidth(), GetCurrentHeight(), m_dpiScale);
 
-
-
-
-
 		if (progressHit != -1) {
-
-
-
-
 
 			m_isDraggingProgress = true;
 
-
-
-
-
-			// 计算点击位置对应的进度 (使用与RenderEngine一致的坐标)
-
-
-
-
-
-			float left = (CANVAS_WIDTH - GetCurrentWidth()) / 2.0f;
-
-
-
-
-
-			float top = 10.0f;
-
-
-
-
-
-			float right = left + GetCurrentWidth();
-
-
-
-
-
-			float artSize = 60.0f;
-
-
-
-
-
-			float artLeft = left + 20.0f;
-
-
-
-
-
-			float textLeft = artLeft + artSize + 15.0f;
-
-
-
-
-
-			float titleMaxWidth = (right - 20.0f) - textLeft;
-
-
-
-
-
-			float progressBarLeft = textLeft - 80.0f;
-
-
-
-
-
-			float progressBarRight = textLeft + titleMaxWidth;
-
-
-
-
-
-			float clickX = (float)pt.x;
-
-
-
-
-
-			float progress = (clickX - progressBarLeft) / (progressBarRight - progressBarLeft);
-
-
-
-
-
-			progress = (progress < 0.0f) ? 0.0f : ((progress > 1.0f) ? 1.0f : progress);
-
-
-
-
-
-			// 初始化临时进度
-
-
-
-
-
-			m_tempProgress = progress;
-
-
-
-
+			const auto progressLayout = GetProgressBarLayout();
+			const float progress = ((float)pt.x - progressLayout.left) / (progressLayout.right - progressLayout.left);
+			m_tempProgress = ClampProgress(progress);
 
 			StartAnimation();
 
-
-
-
-
 			return 0;
-
-
-
-
 
 		}
 
@@ -2562,51 +1089,19 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 		// 如果没点中按钮，执行原有的拖动和折叠逻辑
 
-
-
-
-
 		m_dragging = true;
-
-
-
-
 
 		GetCursorPos(&m_dragStart);
 
-
-
-
-
 		RECT rect;
-
-
-
-
 
 		GetWindowRect(hwnd, &rect);
 
-
-
-
-
 		m_windowStart.x = rect.left;
-
-
-
-
 
 		m_windowStart.y = rect.top;
 
-
-
-
-
 		SetCapture(hwnd);
-
-
-
-
 
 		if (m_state == IslandState::Collapsed) {
 			// 仅在当前确实处于音乐紧凑态时，点击主岛才展开到音乐面板
@@ -2646,71 +1141,21 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 		}
 
-
-
-
-
 		return 0;
-
-
-
-
 
 	}
 
-
-
-
-
 	case WM_LBUTTONUP:
-
-
-
-
 
 	{
 
-
-
-
-
 		POINT physicalPt;
-
-
-
-
 
 		physicalPt.x = GET_X_LPARAM(lParam);
 
-
-
-
-
 		physicalPt.y = GET_Y_LPARAM(lParam);
 
-
-
-
-
-		POINT pt; // 转成逻辑坐标，供后续的 HitTest 使用
-
-
-
-
-
-		// 【修改】加入 std::round，解决边缘像素计算错位的问题
-
-
-
-
-
-		pt.x = (LONG)std::round(physicalPt.x / m_dpiScale);
-
-
-
-
-
-		pt.y = (LONG)std::round(physicalPt.y / m_dpiScale);
+		const POINT pt = LogicalFromPhysical(physicalPt);
 
 		if (HandleFileSecondaryMouseUp(pt)) {
 			return 0;
@@ -2718,183 +1163,63 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 		// 释放进度条拖动
 
-
-
-
-
 		if (m_isDraggingProgress) {
-
-
-
-
 
 			m_isDraggingProgress = false;
 
-
-
-
-
 			m_justReleasedProgress = true;
-
-
-
-
 
 			m_progressReleaseTime = GetTickCount64();
 
-
-
-
-
 			// 设置播放位置
-
-
-
-
 
 			auto duration = m_mediaMonitor.GetDuration();
 
-
-
-
-
 			if (duration.count() > 0) {
-
-
-
-
 
 				auto newPosition = std::chrono::seconds((long long)(m_tempProgress * duration.count()));
 
-
-
-
-
 				m_mediaMonitor.SetPosition(newPosition);
-
-
-
-
 
 			}
 
-
-
-
-
 			return 0;
 
-
-
-
-
 		}
-
-
-
-
 
 		// 如果之前按下了按钮，松开时触发它
 
-
-
-
-
 		if (m_pressedButtonIndex != -1) {
-
-
-
-
 
 			int hit = m_layoutController.HitTestPlaybackButtons(pt, m_state == IslandState::Expanded, m_mediaMonitor.HasSession(), CANVAS_WIDTH, GetCurrentWidth(), GetCurrentHeight(), m_dpiScale);
 
-
-
-
-
 			// 只有松开时鼠标还在那个按钮上，才算数（防止按错滑动取消）
-
-
-
-
 
 			if (hit == m_pressedButtonIndex) {
 
-
-
-
-
 				if (hit == 0) m_mediaMonitor.Previous();
-
-
-
-
 
 				else if (hit == 1) m_mediaMonitor.PlayPause();
 
-
-
-
-
 				else if (hit == 2) m_mediaMonitor.Next();
-
-
-
-
 
 			}
 
-
-
-
-
 			m_pressedButtonIndex = -1; // 取消按下状态
-
-
-
-
 
 			StartAnimation(); // 恢复图标大小
 
-
-
-
-
 			return 0;
-
-
-
-
 
 		}
 
-
-
-
-
 		m_dragging = false;
-
-
-
-
 
 		ReleaseCapture();
 
-
-
-
-
 		return 0;
 
-
-
-
-
 	}
-
-
-
-
 
 	case WM_DRAG_ENTER: {
 		m_isDragHovering = true;
@@ -2985,310 +1310,106 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 	}
 
-
-
-
-
 	case WM_SHOW_ALERT: {
-
-
-
-
 
 		AlertInfo* info = (AlertInfo*)lParam;
 
-
-
-
-
 		m_alertQueue.push(*info);
-
-
-
-
 
 		delete info; // 防止内存泄漏
 
-
-
-
-
 		ProcessNextAlert();
-
-
-
-
 
 		return 0;
 
-
-
-
-
 	}
-
-
-
-
 
 	case WM_DPICHANGED: {
 
-
-
-
-
 		// 显示器 DPI 发生改变 (例如窗口被拖到了另一个缩放不同的屏幕)
-
-
-
-
 
 		m_currentDpi = HIWORD(wParam);
 
-
-
-
-
 		m_dpiScale = m_currentDpi / 96.0f;
-
-
-
-
 
 		// 更新画板 DPI
 
-
-
-
-
 		m_renderer.SetDpi((float)m_currentDpi);
-
-
-
-
 
 		// 系统建议的新窗口物理位置和大小
 
-
-
-
-
 		RECT* prcNewWindow = (RECT*)lParam;
-
-
-
-
 
 		int newW = prcNewWindow->right - prcNewWindow->left;
 
-
-
-
-
 		int newH = prcNewWindow->bottom - prcNewWindow->top;
-
-
-
-
 
 		// 设置新位置
 
-
-
-
-
 		SetWindowPos(hwnd, nullptr, prcNewWindow->left, prcNewWindow->top, newW, newH, SWP_NOZORDER | SWP_NOACTIVATE);
-
-
-
-
 
 		// 重置画板表面尺寸
 
-
-
-
-
 		m_renderer.Resize(newW, newH);
-
-
-
-
 
 		UpdateWindowRegion();
 
-
-
-
-
 		StartAnimation();
-
-
-
-
 
 		return 0;
 
-
-
-
-
 	}
-
-
-
-
 
 	case WM_TIMER: {
 
-
-
-
-
 		if (wParam == m_timerId) {
-
-
-
-
 
 			UpdatePhysics();
 
-
-
-
-
 		}
-
-
-
-
 
 		else if (wParam == m_displayTimerId) {
 
-
-
-
-
 			// Update weather every 10 min (fixed - runs regardless of stored files)
-
-
-
-
 
 			{
 
-
-
-
-
 				static size_t lastWeatherUpdate = 0;
-
-
-
-
 
 				size_t now = GetTickCount64();
 
-
-
-
-
 				if (now - lastWeatherUpdate > 5 * 60 * 1000) {
-
-
-
-
 
 					m_systemMonitor.UpdateWeather();
 
-
-
-
-
 					lastWeatherUpdate = now;
-
-
-
-
 
 				}
 
-
-
-
-
 				m_weatherDesc = m_systemMonitor.GetWeatherDescription();
-
-
-
-
 
 				m_weatherTemp = m_systemMonitor.GetWeatherTemperature();
 }
 
-
-
-
-
 			// 有文件时不收缩
-
-
-
-
 
 			if (!!m_fileStash.HasItems()) {
 
-
-
-
-
 				KillTimer(hwnd, m_displayTimerId);
-
-
-
-
 
 				break;
 
-
-
-
-
 			}
-
-
-
-
 
 			if (m_state == IslandState::Expanded) {
 
-
-
-
-
 				m_state = IslandState::Collapsed;
-
-
-
-
 
 				TransitionTo(DetermineDisplayMode());
 
-
-
-
-
 				// 通知结束后，即使鼠标不在岛屿上，也启动5秒定时器缩小到mini
 
-
-
-
-
 				SetTimer(hwnd, m_displayTimerId, 5000, nullptr);
-
-
-
-
 
 			} else if (m_state == IslandState::Collapsed && GetTargetHeight() >= Constants::Size::COMPACT_MIN_HEIGHT) {
 
@@ -3304,131 +1425,47 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 			KillTimer(hwnd, m_displayTimerId);
 
-
-
-
-
 		}
-
-
-
-
 
 		else if (wParam == m_alertTimerId) {
 
-
-
-
-
 			KillTimer(hwnd, m_alertTimerId);
-
-
-
-
 
 			m_isAlertActive = false;
 
-
-
-
-
 			// 清理内存中的图标数据
-
-
-
-
 
 			if (!m_currentAlert.iconData.empty()) {
 
-
-
-
-
 				m_currentAlert.iconData.clear();
 
-
-
-
-
 			}
-
-
-
-
 
 			// 清理文件（兼容旧代码）
 
-
-
-
-
 			if (m_currentAlert.type == 3 && !m_currentAlert.iconPath.empty()) {
-
-
-
-
 
 				DeleteFileW(m_currentAlert.iconPath.c_str());
 
-
-
-
-
 			}
 
-
-
-
-
 			ProcessNextAlert();
-
-
-
-
 
 			// ProcessNextAlert will call TransitionTo if there's a new alert
 
 			// If no new alert and state is Collapsed, use DetermineDisplayMode
 
-
-
-
-
 			if (!m_isAlertActive && m_state == IslandState::Collapsed) {
-
-
-
-
 
 				TransitionTo(DetermineDisplayMode());
 
-
-
-
-
 			} else {
-
-
-
-
 
 				StartAnimation();
 
-
-
-
-
 			}
 
-
-
-
-
 		}
-
-
-
-
 
 		else if (wParam == m_volumeTimerId) {
 
@@ -3471,10 +1508,6 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 	}
 
-
-
-
-
 	case WM_MOUSEWHEEL: {
 		IslandDisplayMode currentMode = DetermineDisplayMode();
 
@@ -3501,105 +1534,37 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 		// 获取当前音量并计算新音量（每次滚动调整 2%）
 		float vol = m_mediaMonitor.GetVolume();
 
-
-
-
-
 		vol += (delta > 0) ? 0.02f : -0.02f;
-
-
-
-
 
 		// 限制在 0.0 到 1.0 之间
 
-
-
-
-
 		if (vol > 1.0f) vol = 1.0f;
-
-
-
-
 
 		if (vol < 0.0f) vol = 0.0f;
 
-
-
-
-
 		m_mediaMonitor.SetVolume(vol);
-
-
-
-
 
 		m_currentVolume = vol;
 
-
-
-
-
 		// 触发音量条 UI
-
-
-
-
 
 		if (!m_isVolumeControlActive) {
 
-
-
-
-
 			m_isVolumeControlActive = true;
-
-
-
-
 
 			// 如果原本是收缩状态，让它展开成弹窗大小
 
-
-
-
-
 			if (m_state == IslandState::Collapsed && !m_isAlertActive) {
-
-
-
-
 
 				TransitionTo(IslandDisplayMode::Volume);
 
-
-
-
-
 			} else {
-
-
-
-
 
 				StartAnimation();
 
-
-
-
-
 			}
 
-
-
-
-
 		}
-
-
-
-
 
 		// 刷新定时器：停止滚动 2 秒后自动收缩
 		SetTimer(hwnd, m_volumeTimerId, 2000, nullptr);
@@ -3611,196 +1576,67 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 	case WM_UPDATE_ALBUM_ART:
 
-
-
-
-
 	{
-
-
-
-
 
 		wchar_t* path = (wchar_t*)wParam;
 
-
-
-
-
 		if (path) {
-
-
-
-
 
 			m_renderer.LoadAlbumArt(path);
 
-
-
-
-
 			free(path);  // 释放 _wcsdup 分配的内存
-
-
-
-
 
 		}
 
-
-
-
-
 		return 0;
 
-
-
-
-
 	}
-
-
-
-
 
 	case WM_UPDATE_ALBUM_ART_MEMORY:
 
-
-
-
-
 	{
-
-
-
-
 
 		ImageData* imgData = (ImageData*)wParam;
 
-
-
-
-
 		if (imgData) {
-
-
-
-
 
 			if (!imgData->data.empty()) {
 
-
-
-
-
 				m_renderer.LoadAlbumArtFromMemory(imgData->data);
-
-
-
-
 
 			}
 
-
-
-
-
 			// 注意：这里我们不删除 imgData->data，因为 MediaMonitor 保留了所有权
-
-
-
-
 
 			delete imgData;
 
-
-
-
-
 		}
-
-
-
-
 
 		return 0;
 
-
-
-
-
 	}
-
-
-
-
 
 	case WM_SHOW_ALERT_MEMORY:
 
-
-
-
-
 	{
-
-
-
-
 
 		AlertInfo* info = (AlertInfo*)lParam;
 
-
-
-
-
 		if (info) {
-
-
-
-
 
 			m_alertQueue.push(*info);
 
-
-
-
-
 			// 注意：不要删除 info->iconData，因为它还在队列中使用
-
-
-
-
 
 			delete info;
 
-
-
-
-
 			ProcessNextAlert();
-
-
-
-
 
 		}
 
-
-
-
-
 		return 0;
 
-
-
-
-
 	}
-
-
-
-
-
 
 	case WM_TRAYICON:
 	{
@@ -3826,151 +1662,51 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 		return 0;
 	}
 
-
-
-
-
-
-
-
-
 	case WM_POWERBROADCAST:
-
-
-
-
 
 		m_systemMonitor.OnPowerEvent(wParam, lParam);
 
-
-
-
-
 		return 0;
-
-
-
-
 
 	case WM_DESTROY:
 
-
-
-
-
 		PostQuitMessage(0);
-
-
-
-
 
 		return 0;
 
-
-
-
-
 	}
-
-
-
-
 
 	return DefWindowProc(hwnd, uMsg, wParam, lParam);
 
-
-
-
-
 }
-
-
-
-
 
 void DynamicIsland::CreateTrayIcon() {
 
-
-
-
-
 	memset(&m_nid, 0, sizeof(m_nid));
-
-
-
-
 
 	m_nid.cbSize = sizeof(m_nid);
 
-
-
-
-
 	m_nid.hWnd = m_window.GetHWND();
-
-
-
-
 
 	m_nid.uID = 1001;               // 自定义ID
 
-
-
-
-
 	m_nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
-
-
-
-
 
 	m_nid.uCallbackMessage = WM_TRAYICON;
 
-
-
-
-
 	m_nid.hIcon = LoadIcon(nullptr, IDI_APPLICATION); // 可替换为自己的图标
-
-
-
-
 
 	wcscpy_s(m_nid.szTip, L"Dynamic Island");
 
-
-
-
-
 	Shell_NotifyIcon(NIM_ADD, &m_nid);
 
-
-
-
-
 }
-
-
-
-
 
 void DynamicIsland::RemoveTrayIcon() {
 
-
-
-
-
 	Shell_NotifyIcon(NIM_DELETE, &m_nid);
 
-
-
-
-
 }
-
-
-
-
 
 void DynamicIsland::UpdateWindowRegion() {
 	// 计算主岛区域
@@ -4026,10 +1762,6 @@ void DynamicIsland::UpdateWindowRegion() {
 	}
 }
 
-
-
-
-
 // 【OPT-03】处理P0紧急警告（可打断当前显示）
 void DynamicIsland::ProcessAlertWithPriority(const AlertInfo& alert) {
 	m_isAlertActive = true;
@@ -4041,171 +1773,59 @@ void DynamicIsland::ProcessAlertWithPriority(const AlertInfo& alert) {
 
 void DynamicIsland::ProcessNextAlert() {
 
-
-
-
-
 	if (!m_isAlertActive && !m_alertQueue.empty()) {
-
-
-
-
 
 		m_currentAlert = m_alertQueue.front();
 
-
-
-
-
 		m_alertQueue.pop();
-
-
-
-
 
 		m_isAlertActive = true;
 
-
-
-
-
 		// 如果是通知，提前让画板去加载真实的 App 图标（优先使用内存数据）
-
-
-
-
 
 		if (m_currentAlert.type == 3) {
 
-
-
-
-
 			if (!m_currentAlert.iconData.empty()) {
-
-
-
-
 
 				m_renderer.LoadAlertIconFromMemory(m_currentAlert.iconData);
 
-
-
-
-
 			}
-
-
-
-
 
 			else if (!m_currentAlert.iconPath.empty()) {
 
-
-
-
-
 				m_renderer.LoadAlertIcon(m_currentAlert.iconPath);
-
-
-
-
 
 			}
 
-
-
-
-
 		}
-
-
-
-
 
 		if (m_state == IslandState::Collapsed) {
 
-
-
-
-
 			TransitionTo(IslandDisplayMode::Alert);
-
-
-
-
 
 		} else {
 
-
-
-
-
 			StartAnimation();
-
-
-
-
 
 		}
 
-
-
-
-
 		SetTimer(m_window.GetHWND(), m_alertTimerId, 3000, nullptr);
-
-
-
-
 
 	}
 
-
-
-
-
 }
-
-
-
-
 
 std::wstring DynamicIsland::GetCurrentTimeString() {
 
-
-
-
-
 	SYSTEMTIME st;
-
-
-
-
 
 	GetLocalTime(&st);
 
-
-
-
-
 	wchar_t timeStr[64];
-
-
-
-
 
 	swprintf_s(timeStr, 64, L"%02d:%02d", st.wHour, st.wMinute);
 
-
-
-
-
 	return std::wstring(timeStr);
-
-
-
-
 
 }
 

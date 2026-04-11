@@ -146,6 +146,9 @@
     <ClCompile Include="src\DynamicIsland.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\FileSecondaryInput.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="src\FilePanelWindow.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

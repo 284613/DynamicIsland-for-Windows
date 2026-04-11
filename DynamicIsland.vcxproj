@@ -186,6 +186,7 @@
     <ClCompile Include="src\components\ClockComponent.cpp" />
     <ClCompile Include="src\ConnectionMonitor.cpp" />
     <ClCompile Include="src\DynamicIsland.cpp" />
+    <ClCompile Include="src\FileSecondaryInput.cpp" />
     <ClCompile Include="src\FilePanelWindow.cpp" />
     <ClCompile Include="src\LyricsMonitor.cpp" />
     <ClCompile Include="src\main.cpp" />
