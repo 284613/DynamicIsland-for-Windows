@@ -22,6 +22,7 @@
 #include "components/FilePanelComponent.h"
 #include "components/ClockComponent.h"
 #include "components/PomodoroComponent.h"
+#include "components/TodoComponent.h"
 
 #pragma comment(lib, "dcomp.lib")
 #pragma comment(lib, "d2d1.lib")
@@ -44,8 +45,15 @@ public:
     bool OnMouseWheel(float x, float y, int delta);
     bool OnMouseMove(float x, float y);
     bool OnMouseClick(float x, float y);
+    bool OnChar(wchar_t ch);
+    bool OnKeyDown(WPARAM key);
+    bool OnImeComposition(HWND hwnd, LPARAM lParam);
+    bool OnImeSetContext(HWND hwnd, WPARAM wParam, LPARAM lParam, LRESULT& result);
+    D2D1_RECT_F GetImeAnchorRect() const;
     bool SecondaryContainsPoint(float x, float y) const;
     FilePanelComponent::HitResult HitTestFileSecondary(float x, float y) const;
+    bool HandleIdleTodoMouseMove(float x, float y);
+    bool IdleTodoBadgeContains(float x, float y) const;
 
     bool HasActiveAnimations() const;
 
@@ -63,7 +71,9 @@ public:
     void SetAlertState(bool active, const AlertInfo& info);
     void SetTheme(bool darkMode, float primaryOpacity, float secondaryOpacity);
     void SetClockClickCallback(std::function<void()> callback);
+    void SetTodoStore(TodoStore* store);
     PomodoroComponent* GetPomodoroComponent() const { return m_pomodoroComponent.get(); }
+    TodoComponent* GetTodoComponent() const { return m_todoComponent.get(); }
 
     bool LoadAlbumArt(const std::wstring& file);
     bool LoadAlbumArtFromMemory(const std::vector<uint8_t>& data);
@@ -86,6 +96,7 @@ private:
     std::unique_ptr<FilePanelComponent> m_fileStorageComponent;
     std::unique_ptr<ClockComponent> m_clockComponent;
     std::unique_ptr<PomodoroComponent> m_pomodoroComponent;
+    std::unique_ptr<TodoComponent> m_todoComponent;
     std::unique_ptr<WeatherComponent> m_weatherComponent;
     std::unique_ptr<LyricsComponent> m_lyricsComponent;
     std::unique_ptr<WaveformComponent> m_waveformComponent;

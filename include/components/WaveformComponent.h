@@ -3,7 +3,7 @@
 
 class WaveformComponent : public IIslandComponent {
 public:
-    void OnAttach(SharedResources* res) override { m_res = res; }
+    void OnAttach(SharedResources* res) override;
     void Update(float deltaTime) override;
     void Draw(const D2D1_RECT_F& rect, float contentAlpha, ULONGLONG currentTimeMs) override;
     bool IsActive() const override { return m_audioLevel > 0.0f; }
@@ -14,6 +14,7 @@ public:
 
 private:
     SharedResources* m_res = nullptr;
+    ComPtr<ID2D1SolidColorBrush> m_waveBrush;
     float m_audioLevel   = 0.0f;
     float m_islandHeight = 40.0f;
 

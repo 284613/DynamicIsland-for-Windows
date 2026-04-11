@@ -139,6 +139,7 @@
     <ClInclude Include="include\components\VolumeComponent.h" />
     <ClInclude Include="include\components\FilePanelComponent.h" />
     <ClInclude Include="include\components\IIslandComponent.h" />
+    <ClInclude Include="include\components\TodoComponent.h" />
     <ClInclude Include="include\components\WeatherComponent.h" />
     <ClInclude Include="include\components\WaveformComponent.h" />
     <ClInclude Include="include\components\LyricsComponent.h" />
@@ -168,6 +169,7 @@
     <ClInclude Include="include\Spring.h" />
     <ClInclude Include="include\SystemMonitor.h" />
     <ClInclude Include="include\ThreadSafeQueue.h" />
+    <ClInclude Include="include\TodoStore.h" />
     <ClInclude Include="include\VolumeOSDController.h" />
     <ClInclude Include="include\WeatherPlugin.h" />
     <ClInclude Include="include\WindowManager.h" />
@@ -181,6 +183,7 @@
     <ClCompile Include="src\components\MusicPlayerComponent.cpp" />
     <ClCompile Include="src\components\VolumeComponent.cpp" />
     <ClCompile Include="src\components\FilePanelComponent.cpp" />
+    <ClCompile Include="src\components\TodoComponent.cpp" />
     <ClCompile Include="src\components\WeatherComponent.cpp" />
     <ClCompile Include="src\components\WaveformComponent.cpp" />
     <ClCompile Include="src\components\LyricsComponent.cpp" />
@@ -196,6 +199,7 @@
     <ClCompile Include="src\NotificationMonitor.cpp" />
     <ClCompile Include="src\RenderEngine.cpp" />
     <ClCompile Include="src\SystemMonitor.cpp" />
+    <ClCompile Include="src\TodoStore.cpp" />
     <ClCompile Include="src\TaskDetector.cpp" />
     <ClCompile Include="src\WeatherPlugin.cpp" />
     <ClCompile Include="src\WindowManager.cpp" />

@@ -13,12 +13,15 @@
 #include "SystemMonitor.h"
 #include "FilePanelWindow.h"
 #include "FileStashStore.h"
+#include "TodoStore.h"
 #include "LayoutController.h"
 #include "Spring.h"
 #include "Constants.h"
 #include "SettingsWindow.h"
 #include <d2d1_1.h>
+#include <imm.h>
 #pragma comment(lib, "shell32.lib")
+#pragma comment(lib, "imm32.lib")
 
 #define WM_TRAYICON (WM_USER + 101)
 
@@ -80,13 +83,19 @@ private:
     int m_fileStashMaxItems = 5;
     bool m_autoStart = false;
     bool m_pomodoroExpanded = false;
+    bool m_todoInputActive = false;
+    bool m_todoExpanded = false;
 
     void StartAnimation();
     void UpdatePhysics();
     void LoadConfig(); // 【新增】加载配置文件的函数
     void TransitionTo(IslandDisplayMode mode);
     void SetTargetSize(float width, float height);
-    IslandDisplayMode DetermineDisplayMode() const;
+    IslandDisplayMode DetermineBaseDisplayMode() const;
+    IslandDisplayMode DetermineDisplayMode();
+    std::vector<IslandDisplayMode> CollectAvailableCompactModes() const;
+    void ClearCompactOverride();
+    static bool IsCompactSwitchableMode(IslandDisplayMode mode);
     SecondaryContentKind DetermineSecondaryContent() const;
     D2D1_RECT_F GetSecondaryRectLogical() const;
     bool HandleFileSecondaryMouseDown(POINT pt);
@@ -102,6 +111,13 @@ private:
     void OpenPomodoroPanel();
     void SyncPomodoroMode();
     void HandlePomodoroFinished();
+    void OpenTodoInputCompact();
+    void CloseTodoInputCompact();
+    void OpenTodoPanel();
+    void CloseTodoPanel();
+    void PositionActiveImeWindow();
+    bool IsTodoTextMode(IslandDisplayMode mode) const;
+    bool ShouldKeepCompactOverride() const;
 
     struct ProgressBarLayout {
         float left;
@@ -161,9 +177,12 @@ private:
     NotificationMonitor m_notificationMonitor;
     LyricsMonitor m_lyricsMonitor; // 歌词监听器
     SystemMonitor m_systemMonitor; // 【新增】系统状态（电量）监控器
+    TodoStore m_todoStore;
     std::vector<std::wstring> m_allowedApps;    // 配置中允许通知的软件
     // ============================================
     IslandState m_state = IslandState::Collapsed;
+    bool m_hasCompactOverride = false;
+    IslandDisplayMode m_compactOverrideMode = IslandDisplayMode::Idle;
     bool m_isHovering = false;  // 鼠标是否悬停
 
     // LayoutController handles size, alpha, springs, and hit testing

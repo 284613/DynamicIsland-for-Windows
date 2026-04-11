@@ -27,6 +27,10 @@ namespace Size {
     constexpr float POMODORO_EXPANDED_HEIGHT = 246.0f;
     constexpr float POMODORO_COMPACT_WIDTH = 188.0f;
     constexpr float POMODORO_COMPACT_HEIGHT = 40.0f;
+
+    // TODO
+    constexpr float TODO_EXPANDED_WIDTH = 460.0f;
+    constexpr float TODO_EXPANDED_HEIGHT = 340.0f;
     
     // 音乐展开高度
     constexpr float MUSIC_EXPANDED_HEIGHT = 160.0f;
@@ -52,7 +56,7 @@ namespace Size {
     constexpr float FILE_SECONDARY_DROPTARGET_HEIGHT = 64.0f;
     
     // 画布尺寸
-    constexpr float CANVAS_WIDTH = 400.0f;
+    constexpr float CANVAS_WIDTH = 560.0f;
     constexpr float CANVAS_HEIGHT = 420.0f;
     
     // 紧凑模式阈值
