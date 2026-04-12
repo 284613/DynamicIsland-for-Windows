@@ -134,7 +134,16 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="include\AgentSessionModel.h" />
+    <ClInclude Include="include\AgentSessionMonitor.h" />
+    <ClInclude Include="include\ClaudeHookBridge.h" />
+    <ClInclude Include="include\ClaudeHookInstaller.h" />
+    <ClInclude Include="include\ClaudeSessionStore.h" />
+    <ClInclude Include="include\CodexHookBridge.h" />
+    <ClInclude Include="include\CodexHookInstaller.h" />
+    <ClInclude Include="include\CodexSessionStore.h" />
     <ClInclude Include="include\components\AlertComponent.h" />
+    <ClInclude Include="include\components\AgentSessionsComponent.h" />
     <ClInclude Include="include\components\MusicPlayerComponent.h" />
     <ClInclude Include="include\components\VolumeComponent.h" />
     <ClInclude Include="include\components\FilePanelComponent.h" />
@@ -179,7 +188,16 @@
     <ClInclude Include="include\Logger.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="src\AgentSessionMonitor.cpp" />
+    <ClCompile Include="src\AgentSessionModel.cpp" />
+    <ClCompile Include="src\ClaudeHookBridge.cpp" />
+    <ClCompile Include="src\ClaudeHookInstaller.cpp" />
+    <ClCompile Include="src\ClaudeSessionStore.cpp" />
+    <ClCompile Include="src\CodexHookBridge.cpp" />
+    <ClCompile Include="src\CodexHookInstaller.cpp" />
+    <ClCompile Include="src\CodexSessionStore.cpp" />
     <ClCompile Include="src\components\AlertComponent.cpp" />
+    <ClCompile Include="src\components\AgentSessionsComponent.cpp" />
     <ClCompile Include="src\components\MusicPlayerComponent.cpp" />
     <ClCompile Include="src\components\VolumeComponent.cpp" />
     <ClCompile Include="src\components\FilePanelComponent.cpp" />

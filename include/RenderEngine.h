@@ -12,7 +12,9 @@
 #include <wincodec.h>
 #include "Messages.h"
 #include "IslandState.h"
+#include "AgentSessionModel.h"
 #include "components/IIslandComponent.h"
+#include "components/AgentSessionsComponent.h"
 #include "components/WeatherComponent.h"
 #include "components/WaveformComponent.h"
 #include "components/LyricsComponent.h"
@@ -72,8 +74,16 @@ public:
     void SetTheme(bool darkMode, float primaryOpacity, float secondaryOpacity);
     void SetClockClickCallback(std::function<void()> callback);
     void SetTodoStore(TodoStore* store);
+    void SetAgentSessionState(const std::vector<AgentSessionSummary>& summaries,
+        AgentSessionFilter filter,
+        AgentKind selectedKind,
+        const std::wstring& selectedSessionId,
+        const std::vector<AgentHistoryEntry>& selectedHistory,
+        AgentKind compactProvider,
+        bool chooserOpen);
     PomodoroComponent* GetPomodoroComponent() const { return m_pomodoroComponent.get(); }
     TodoComponent* GetTodoComponent() const { return m_todoComponent.get(); }
+    AgentSessionsComponent* GetAgentSessionsComponent() const { return m_agentSessionsComponent.get(); }
 
     bool LoadAlbumArt(const std::wstring& file);
     bool LoadAlbumArtFromMemory(const std::vector<uint8_t>& data);
@@ -97,6 +107,7 @@ private:
     std::unique_ptr<ClockComponent> m_clockComponent;
     std::unique_ptr<PomodoroComponent> m_pomodoroComponent;
     std::unique_ptr<TodoComponent> m_todoComponent;
+    std::unique_ptr<AgentSessionsComponent> m_agentSessionsComponent;
     std::unique_ptr<WeatherComponent> m_weatherComponent;
     std::unique_ptr<LyricsComponent> m_lyricsComponent;
     std::unique_ptr<WaveformComponent> m_waveformComponent;

@@ -31,6 +31,10 @@ namespace Size {
     // TODO
     constexpr float TODO_EXPANDED_WIDTH = 460.0f;
     constexpr float TODO_EXPANDED_HEIGHT = 340.0f;
+
+    // Agent sessions
+    constexpr float AGENT_EXPANDED_WIDTH = 540.0f;
+    constexpr float AGENT_EXPANDED_HEIGHT = 360.0f;
     
     // 音乐展开高度
     constexpr float MUSIC_EXPANDED_HEIGHT = 160.0f;
@@ -42,6 +46,8 @@ namespace Size {
     // Compact 紧凑态
     constexpr float COMPACT_WIDTH = 200.0f;
     constexpr float COMPACT_HEIGHT = 40.0f;
+    constexpr float AGENT_EDGE_BADGE_WIDTH = 30.0f;
+    constexpr float CLAUDE_EDGE_BADGE_WIDTH = AGENT_EDGE_BADGE_WIDTH;
     
     // 提示弹窗尺寸
     constexpr float ALERT_WIDTH = 220.0f;
@@ -56,8 +62,8 @@ namespace Size {
     constexpr float FILE_SECONDARY_DROPTARGET_HEIGHT = 64.0f;
     
     // 画布尺寸
-    constexpr float CANVAS_WIDTH = 560.0f;
-    constexpr float CANVAS_HEIGHT = 420.0f;
+    constexpr float CANVAS_WIDTH = 720.0f;
+    constexpr float CANVAS_HEIGHT = 520.0f;
     
     // 紧凑模式阈值
     constexpr float COMPACT_THRESHOLD = 60.0f;

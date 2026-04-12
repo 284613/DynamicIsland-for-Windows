@@ -4,6 +4,10 @@
 // ============================================================
 #include "SettingsWindow.h"
 #include "Messages.h"
+#include "ClaudeHookInstaller.h"
+#include "ClaudeHookBridge.h"
+#include "CodexHookInstaller.h"
+#include "CodexHookBridge.h"
 #include <dwmapi.h>
 #include <windowsx.h>
 #include <algorithm>
@@ -43,10 +47,11 @@ static const CatMeta kCats[] = {
     { L"\uE8B7", L"文件副岛", L"文件副岛", L"微调文件寄存面板的尺寸与通透感" },
     { L"\uE9CA", L"天气",     L"天气",     L"和风天气 API 与城市配置" },
     { L"\uEA8F", L"通知",     L"通知",     L"允许接管通知的应用列表" },
+    { L"\uE71D", L"Agent",    L"Agent Hooks",  L"安装 Claude / Codex hooks，并检测运行态监听状态" },
     { L"\uE90F", L"高级",     L"高级",     L"物理参数与系统行为调优" },
     { L"\uE946", L"关于",     L"关于",     L"项目版本与设计说明" },
 };
-static constexpr int kCatCount = 8;
+static constexpr int kCatCount = 9;
 
 // ---- 常量（DIP 基准） -----------------------------------------------
 namespace {
@@ -817,6 +822,9 @@ void SettingsWindow::ResetToDefaults() {
     case SettingCategory::Notifications:
         m_allowedApps = L"微信,QQ";
         break;
+    case SettingCategory::Agent:
+        changed = false;
+        break;
     case SettingCategory::Advanced:
         m_springStiffness = 100.0f;
         m_springDamping = 10.0f;
@@ -913,6 +921,7 @@ void SettingsWindow::BuildPage(SettingCategory cat,
     case SettingCategory::FilePanel:     BuildFilePanelPage    (ctrls, contentH); break;
     case SettingCategory::Weather:       BuildWeatherPage      (ctrls, contentH); break;
     case SettingCategory::Notifications: BuildNotificationsPage(ctrls, contentH); break;
+    case SettingCategory::Agent:         BuildAgentPage        (ctrls, contentH); break;
     case SettingCategory::Advanced:      BuildAdvancedPage     (ctrls, contentH); break;
     case SettingCategory::About:         BuildAboutPage        (ctrls, contentH); break;
     }
@@ -1124,6 +1133,52 @@ void SettingsWindow::BuildNotificationsPage(std::vector<SettingsControl>& ctrls,
 }
 
 // ====================================================================
+// 页面: Claude / Agent
+// ====================================================================
+void SettingsWindow::BuildAgentPage(std::vector<SettingsControl>& ctrls,
+                                    float& h) const {
+    const ClaudeHookInstallStatus claudeStatus = ClaudeHookInstaller::DetectStatus();
+    const CodexHookInstallStatus codexStatus = CodexHookInstaller::DetectStatus();
+    float y = 0.0f;
+
+    float statusCardH = CARD_PAD + 176.0f + CARD_PAD;
+    ctrls.push_back(mkCard(y, statusCardH));
+    ctrls.push_back(mkSubLabel(
+        (L"Claude\n"
+         L"Python: " + std::wstring(claudeStatus.pythonAvailable ? L"Ready" : L"Missing") +
+         L"\nPipe: " + std::wstring(claudeStatus.pipeListening ? L"Listening" : L"Stopped") +
+         L"\nHooks: " + std::wstring(claudeStatus.installed ? L"Installed" : L"Not installed") +
+         L"\n\nCodex\n"
+         L"Node: " + std::wstring(codexStatus.nodeAvailable ? L"Ready" : L"Missing") +
+         L"\nPipe: " + std::wstring(codexStatus.pipeListening ? L"Listening" : L"Stopped") +
+         L"\nHooks: " + std::wstring(codexStatus.installed ? L"Installed" : L"Not installed")).c_str(),
+        y + CARD_PAD));
+    y += statusCardH + CARD_GAP;
+
+    float claudeActionCardH = CARD_PAD + INPUT_H + 1.0f + INPUT_H + 1.0f + INPUT_H + CARD_PAD;
+    ctrls.push_back(mkCard(y, claudeActionCardH));
+    float ry = y + CARD_PAD;
+    mkButton(ctrls, SettingID::CLAUDE_INSTALL,   L"Install Hooks",   L"", ry); ry += INPUT_H + 1.0f;
+    mkButton(ctrls, SettingID::CLAUDE_REINSTALL, L"Reinstall Hooks", L"", ry); ry += INPUT_H + 1.0f;
+    mkButton(ctrls, SettingID::CLAUDE_UNINSTALL, L"Uninstall Hooks", L"", ry);
+    y += claudeActionCardH + CARD_GAP;
+
+    float codexActionCardH = CARD_PAD + INPUT_H + 1.0f + INPUT_H + 1.0f + INPUT_H + CARD_PAD;
+    ctrls.push_back(mkCard(y, codexActionCardH));
+    ry = y + CARD_PAD;
+    mkButton(ctrls, SettingID::CODEX_INSTALL,   L"Install Codex Hooks",   L"", ry); ry += INPUT_H + 1.0f;
+    mkButton(ctrls, SettingID::CODEX_REINSTALL, L"Reinstall Codex Hooks", L"", ry); ry += INPUT_H + 1.0f;
+    mkButton(ctrls, SettingID::CODEX_UNINSTALL, L"Uninstall Codex Hooks", L"", ry);
+    y += codexActionCardH + CARD_GAP;
+
+    ctrls.push_back(mkSubLabel(
+        L"Claude 会写入 ~/.claude/hooks 与 ~/.claude/settings.json；Codex 会写入 ~/.codex/hooks 与 ~/.codex/hooks.json。两者都只增改本应用自己的 hook 条目，不覆盖用户已有其他 hooks。",
+        y));
+    y += 52.0f + CARD_GAP;
+    h = y;
+}
+
+// ====================================================================
 // 页面: 高级
 // ====================================================================
 void SettingsWindow::BuildAdvancedPage(std::vector<SettingsControl>& ctrls,
@@ -1171,9 +1226,9 @@ void SettingsWindow::BuildAboutPage(std::vector<SettingsControl>& ctrls,
 // ====================================================================
 void SettingsWindow::RebuildFooterControls() {
     m_footerControls.clear();
-    bool isAbout = (m_currentCategory == SettingCategory::About);
+    bool isAbout = (m_currentCategory == SettingCategory::About || m_currentCategory == SettingCategory::Agent);
     if (isAbout) return;
-    const bool canResetCurrentPage = (m_currentCategory != SettingCategory::Appearance);
+    const bool canResetCurrentPage = (m_currentCategory != SettingCategory::Appearance && m_currentCategory != SettingCategory::Agent);
     constexpr float buttonGap = 12.0f;
     constexpr float resetWidth = 112.0f;
     constexpr float saveWidth = 104.0f;
@@ -1504,6 +1559,42 @@ void SettingsWindow::HandleControlActivation(int id) {
         RebuildFooterControls();
         return;
     }
+    if (id == SettingID::CLAUDE_INSTALL) {
+        ClaudeHookActionResult result = ClaudeHookInstaller::Install();
+        SwitchCategory(m_currentCategory);
+        MarkDirty(false, result.message);
+        return;
+    }
+    if (id == SettingID::CLAUDE_REINSTALL) {
+        ClaudeHookActionResult result = ClaudeHookInstaller::Reinstall();
+        SwitchCategory(m_currentCategory);
+        MarkDirty(false, result.message);
+        return;
+    }
+    if (id == SettingID::CLAUDE_UNINSTALL) {
+        ClaudeHookActionResult result = ClaudeHookInstaller::Uninstall();
+        SwitchCategory(m_currentCategory);
+        MarkDirty(false, result.message);
+        return;
+    }
+    if (id == SettingID::CODEX_INSTALL) {
+        CodexHookActionResult result = CodexHookInstaller::Install();
+        SwitchCategory(m_currentCategory);
+        MarkDirty(false, result.message);
+        return;
+    }
+    if (id == SettingID::CODEX_REINSTALL) {
+        CodexHookActionResult result = CodexHookInstaller::Reinstall();
+        SwitchCategory(m_currentCategory);
+        MarkDirty(false, result.message);
+        return;
+    }
+    if (id == SettingID::CODEX_UNINSTALL) {
+        CodexHookActionResult result = CodexHookInstaller::Uninstall();
+        SwitchCategory(m_currentCategory);
+        MarkDirty(false, result.message);
+        return;
+    }
     // TextInput: toggle edit
     if (ctrl && ctrl->kind == ControlKind::TextInput) {
         SetFocusedControl(id);
@@ -1738,7 +1829,7 @@ void SettingsWindow::DrawHeader() {
 // 底部
 // ====================================================================
 void SettingsWindow::DrawFooter() {
-    bool isAbout = (m_currentCategory == SettingCategory::About);
+    bool isAbout = (m_currentCategory == SettingCategory::About || m_currentCategory == SettingCategory::Agent);
     FillRoundedRect(D2D1::RectF(SIDEBAR, CONT_B, WIN_W, WIN_H), 0.f, m_footerColor);
     m_solidBrush->SetColor(m_hairlineColor);
     m_solidBrush->SetOpacity(1.f);

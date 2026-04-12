@@ -200,6 +200,9 @@ void RenderEngine::RegisterComponents() {
 
     m_todoComponent = std::make_unique<TodoComponent>();
     m_todoComponent->OnAttach(&m_sharedRes);
+
+    m_agentSessionsComponent = std::make_unique<AgentSessionsComponent>();
+    m_agentSessionsComponent->OnAttach(&m_sharedRes);
 }
 
 void RenderEngine::SetDpi(float dpi) {
@@ -224,7 +227,8 @@ void RenderEngine::Resize(int width, int height) {
         static_cast<IIslandComponent*>(m_waveformComponent.get()), static_cast<IIslandComponent*>(m_alertComponent.get()),
         static_cast<IIslandComponent*>(m_volumeComponent.get()), static_cast<IIslandComponent*>(m_musicComponent.get()),
         static_cast<IIslandComponent*>(m_fileStorageComponent.get()), static_cast<IIslandComponent*>(m_clockComponent.get()),
-        static_cast<IIslandComponent*>(m_pomodoroComponent.get()), static_cast<IIslandComponent*>(m_todoComponent.get()) }) {
+        static_cast<IIslandComponent*>(m_pomodoroComponent.get()), static_cast<IIslandComponent*>(m_todoComponent.get()),
+        static_cast<IIslandComponent*>(m_agentSessionsComponent.get()) }) {
         if (component) {
             component->OnResize(m_dpi, width, height);
         }
@@ -318,6 +322,23 @@ void RenderEngine::SetTodoStore(TodoStore* store) {
     }
 }
 
+void RenderEngine::SetAgentSessionState(const std::vector<AgentSessionSummary>& summaries,
+    AgentSessionFilter filter,
+    AgentKind selectedKind,
+    const std::wstring& selectedSessionId,
+    const std::vector<AgentHistoryEntry>& selectedHistory,
+    AgentKind compactProvider,
+    bool chooserOpen) {
+    if (!m_agentSessionsComponent) {
+        return;
+    }
+
+    m_agentSessionsComponent->SetSessions(summaries);
+    m_agentSessionsComponent->SetFilter(filter);
+    m_agentSessionsComponent->SetSelectedSession(selectedKind, selectedSessionId, selectedHistory);
+    m_agentSessionsComponent->SetCompactState(compactProvider, chooserOpen);
+}
+
 void RenderEngine::SetTheme(bool darkMode, float primaryOpacity, float secondaryOpacity) {
     m_darkMode = darkMode;
     m_primaryShellOpacity = (std::max)(0.3f, (std::min)(1.0f, primaryOpacity));
@@ -345,6 +366,7 @@ void RenderEngine::SetTheme(bool darkMode, float primaryOpacity, float secondary
     if (m_progressFgBrush) m_progressFgBrush->SetColor(textColor);
     if (m_buttonHoverBrush) m_buttonHoverBrush->SetColor(darkMode ? D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f) : D2D1::ColorF(0.12f, 0.12f, 0.16f, 1.0f));
     if (m_todoComponent) m_todoComponent->SetDarkMode(darkMode);
+    if (m_agentSessionsComponent) m_agentSessionsComponent->SetDarkMode(darkMode);
 }
 
 void RenderEngine::SetClockClickCallback(std::function<void()> callback) {
@@ -386,6 +408,10 @@ void RenderEngine::UpdateComponents(float deltaTime, const RenderContext& ctx) {
         m_todoComponent->SetDisplayMode(ctx.mode);
         m_todoComponent->Update(deltaTime);
     }
+    if (m_agentSessionsComponent) {
+        m_agentSessionsComponent->SetDisplayMode(ctx.mode);
+        m_agentSessionsComponent->Update(deltaTime);
+    }
 }
 
 IIslandComponent* RenderEngine::ResolvePrimaryComponent(IslandDisplayMode mode) {
@@ -396,6 +422,9 @@ IIslandComponent* RenderEngine::ResolvePrimaryComponent(IslandDisplayMode mode) 
     case IslandDisplayMode::TodoListCompact:
     case IslandDisplayMode::TodoExpanded:
         return m_todoComponent.get();
+    case IslandDisplayMode::AgentCompact:
+    case IslandDisplayMode::AgentExpanded:
+        return m_agentSessionsComponent.get();
     case IslandDisplayMode::PomodoroExpanded:
     case IslandDisplayMode::PomodoroCompact:
         return m_pomodoroComponent.get();
@@ -430,6 +459,19 @@ IIslandComponent* RenderEngine::ResolveSecondaryComponent(SecondaryContentKind k
 
 void RenderEngine::DrawPrimaryContent(const D2D1_RECT_F& contentRect, const RenderContext& ctx) {
     m_activePrimaryComponent = ResolvePrimaryComponent(ctx.mode);
+    D2D1_RECT_F primaryRect = contentRect;
+    const bool showWorkingEdgeBadge =
+        m_agentSessionsComponent &&
+        m_agentSessionsComponent->ShouldShowWorkingEdgeBadge(ctx.mode, ctx.islandHeight);
+    if (showWorkingEdgeBadge) {
+        const D2D1_RECT_F badgeRect = D2D1::RectF(
+            contentRect.left + 2.0f,
+            contentRect.top + 3.0f,
+            contentRect.left + Constants::Size::AGENT_EDGE_BADGE_WIDTH - 2.0f,
+            contentRect.bottom - 3.0f);
+        m_agentSessionsComponent->DrawWorkingEdgeBadge(badgeRect, ctx.contentAlpha);
+        primaryRect.left += Constants::Size::AGENT_EDGE_BADGE_WIDTH;
+    }
 
     switch (ctx.mode) {
     case IslandDisplayMode::Alert:
@@ -443,19 +485,21 @@ void RenderEngine::DrawPrimaryContent(const D2D1_RECT_F& contentRect, const Rend
         break;
     case IslandDisplayMode::PomodoroCompact:
         if (m_activePrimaryComponent) {
-            m_activePrimaryComponent->Draw(contentRect, ctx.contentAlpha, ctx.currentTimeMs);
+            m_activePrimaryComponent->Draw(primaryRect, ctx.contentAlpha, ctx.currentTimeMs);
         }
         break;
     case IslandDisplayMode::TodoInputCompact:
     case IslandDisplayMode::TodoListCompact:
     case IslandDisplayMode::TodoExpanded:
+    case IslandDisplayMode::AgentCompact:
+    case IslandDisplayMode::AgentExpanded:
         if (m_activePrimaryComponent) {
-            m_activePrimaryComponent->Draw(contentRect, ctx.contentAlpha, ctx.currentTimeMs);
+            m_activePrimaryComponent->Draw(primaryRect, ctx.contentAlpha, ctx.currentTimeMs);
         }
         break;
     case IslandDisplayMode::MusicCompact:
-        if (m_waveformComponent) m_waveformComponent->Draw(contentRect, ctx.contentAlpha, ctx.currentTimeMs);
-        if (m_musicComponent) m_musicComponent->Draw(contentRect, ctx.contentAlpha, ctx.currentTimeMs);
+        if (m_waveformComponent) m_waveformComponent->Draw(primaryRect, ctx.contentAlpha, ctx.currentTimeMs);
+        if (m_musicComponent) m_musicComponent->Draw(primaryRect, ctx.contentAlpha, ctx.currentTimeMs);
         break;
     case IslandDisplayMode::MusicExpanded:
         if (m_waveformComponent) m_waveformComponent->Draw(contentRect, ctx.contentAlpha, ctx.currentTimeMs);
@@ -476,32 +520,32 @@ void RenderEngine::DrawPrimaryContent(const D2D1_RECT_F& contentRect, const Rend
             }
             break;
         }
-        const D2D1_RECT_F badgeRect = D2D1::RectF(contentRect.left + 8.0f, contentRect.top + 6.0f, contentRect.left + 36.0f, contentRect.bottom - 6.0f);
+        const D2D1_RECT_F todoBadgeRect = D2D1::RectF(primaryRect.left + 8.0f, primaryRect.top + 6.0f, primaryRect.left + 36.0f, primaryRect.bottom - 6.0f);
         const bool todoInputPresentation =
             m_todoComponent && m_todoComponent->GetDisplayMode() == IslandDisplayMode::TodoInputCompact;
         if (todoInputPresentation) {
             m_activePrimaryComponent = m_todoComponent.get();
-            m_todoComponent->Draw(contentRect, ctx.contentAlpha, ctx.currentTimeMs);
+            m_todoComponent->Draw(primaryRect, ctx.contentAlpha, ctx.currentTimeMs);
             break;
         }
         if (m_todoComponent) {
             if (!m_todoComponent->IsLaunchAnimating()) {
-                m_todoComponent->DrawIdleBadge(badgeRect, ctx.contentAlpha, ctx.currentTimeMs);
+                m_todoComponent->DrawIdleBadge(todoBadgeRect, ctx.contentAlpha, ctx.currentTimeMs);
             }
         }
         if (m_clockComponent) {
             const float weatherReserve = 54.0f;
-            const D2D1_RECT_F clockRect = D2D1::RectF(contentRect.left + 42.0f, contentRect.top, contentRect.right - weatherReserve, contentRect.bottom);
+            const D2D1_RECT_F clockRect = D2D1::RectF(primaryRect.left + 42.0f, primaryRect.top, primaryRect.right - weatherReserve, primaryRect.bottom);
             m_clockComponent->Draw(clockRect, ctx.contentAlpha, ctx.currentTimeMs);
         }
         if (m_weatherComponent) {
-            float iconSize = (contentRect.bottom - contentRect.top) * 0.4f;
-            float iconX = contentRect.right - iconSize - 15.0f;
-            float iconY = contentRect.top + ((contentRect.bottom - contentRect.top) - iconSize) / 2.0f;
+            float iconSize = (primaryRect.bottom - primaryRect.top) * 0.4f;
+            float iconX = primaryRect.right - iconSize - 15.0f;
+            float iconY = primaryRect.top + ((primaryRect.bottom - primaryRect.top) - iconSize) / 2.0f;
             m_weatherComponent->DrawCompact(iconX, iconY, iconSize, ctx.contentAlpha, ctx.currentTimeMs);
         }
         if (m_todoComponent && m_todoComponent->IsLaunchAnimating()) {
-            m_todoComponent->DrawIdleLaunchOverlay(contentRect, badgeRect, ctx.contentAlpha, ctx.currentTimeMs);
+            m_todoComponent->DrawIdleLaunchOverlay(primaryRect, todoBadgeRect, ctx.contentAlpha, ctx.currentTimeMs);
         }
         break;
     }
@@ -699,6 +743,7 @@ bool RenderEngine::HasActiveAnimations() const {
         (m_waveformComponent && m_waveformComponent->NeedsRender()) ||
         (m_weatherComponent && m_weatherComponent->NeedsRender()) ||
         (m_pomodoroComponent && m_pomodoroComponent->NeedsRender()) ||
-        (m_todoComponent && m_todoComponent->NeedsRender());
+        (m_todoComponent && m_todoComponent->NeedsRender()) ||
+        (m_agentSessionsComponent && m_agentSessionsComponent->NeedsRender());
 }
 

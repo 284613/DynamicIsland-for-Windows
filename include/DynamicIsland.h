@@ -4,6 +4,11 @@
 #include <queue>
 #include "WindowManager.h"
 #include "RenderEngine.h"
+#include "AgentSessionMonitor.h"
+#include "ClaudeHookBridge.h"
+#include "CodexHookBridge.h"
+#include "ClaudeSessionStore.h"
+#include "CodexSessionStore.h"
 #include "MediaMonitor.h"
 #include "Messages.h"
 #include <shellapi.h>
@@ -40,6 +45,7 @@ enum DirtyFlags : uint32_t {
     Dirty_Weather        = 1 << 10,  // 天气数据更新
     Dirty_Time           = 1 << 11,  // 时间字符串更新
     Dirty_Region         = 1 << 12,  // 窗口区域需更新
+    Dirty_AgentSessions  = 1 << 13,  // 会话中心数据更新
 };
 
 enum class IslandState {
@@ -85,6 +91,7 @@ private:
     bool m_pomodoroExpanded = false;
     bool m_todoInputActive = false;
     bool m_todoExpanded = false;
+    bool m_agentExpanded = false;
 
     void StartAnimation();
     void UpdatePhysics();
@@ -115,6 +122,16 @@ private:
     void CloseTodoInputCompact();
     void OpenTodoPanel();
     void CloseTodoPanel();
+    void OpenAgentPanel();
+    void CloseAgentPanel();
+    void RefreshAgentSessionState(bool preserveSelection);
+    void SelectAgentSession(AgentKind kind, const std::wstring& sessionId);
+    void HandleClaudeHookEvent(const ClaudeHookEvent& event);
+    void HandleCodexHookEvent(const CodexHookEvent& event);
+    void RunClaudeHookAction(int actionId);
+    bool HasWorkingClaudeSession() const;
+    bool ShouldShowClaudeWorkingEdgeBadge(IslandDisplayMode mode) const;
+    float GetCompactTargetWidth(IslandDisplayMode mode) const;
     void PositionActiveImeWindow();
     bool IsTodoTextMode(IslandDisplayMode mode) const;
     bool ShouldKeepCompactOverride() const;
@@ -177,6 +194,11 @@ private:
     NotificationMonitor m_notificationMonitor;
     LyricsMonitor m_lyricsMonitor; // 歌词监听器
     SystemMonitor m_systemMonitor; // 【新增】系统状态（电量）监控器
+    AgentSessionMonitor m_agentSessionMonitor;
+    ClaudeHookBridge m_claudeHookBridge;
+    CodexHookBridge m_codexHookBridge;
+    ClaudeSessionStore m_claudeSessionStore;
+    CodexSessionStore m_codexSessionStore;
     TodoStore m_todoStore;
     std::vector<std::wstring> m_allowedApps;    // 配置中允许通知的软件
     // ============================================
@@ -184,6 +206,13 @@ private:
     bool m_hasCompactOverride = false;
     IslandDisplayMode m_compactOverrideMode = IslandDisplayMode::Idle;
     bool m_isHovering = false;  // 鼠标是否悬停
+    AgentSessionFilter m_agentFilter = AgentSessionFilter::Claude;
+    AgentKind m_selectedAgentKind = AgentKind::Claude;
+    AgentKind m_compactAgentKind = AgentKind::Claude;
+    bool m_agentChooserOpen = false;
+    std::wstring m_selectedAgentSessionId;
+    std::vector<AgentSessionSummary> m_agentSessionSummaries;
+    std::vector<AgentHistoryEntry> m_selectedAgentHistory;
 
     // LayoutController handles size, alpha, springs, and hit testing
     LayoutController m_layoutController;

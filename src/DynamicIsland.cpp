@@ -19,6 +19,8 @@
 
 #include "RenderEngine.h"
 #include "LyricsMonitor.h"
+#include "ClaudeHookInstaller.h"
+#include "CodexHookInstaller.h"
 
 namespace {
 std::wstring GetExeDirectory() {
@@ -123,7 +125,9 @@ bool DynamicIsland::IsFullscreen() {
 DynamicIsland::~DynamicIsland()
 
 {
-
+    m_claudeHookBridge.Stop();
+    m_codexHookBridge.Stop();
+    m_agentSessionMonitor.Shutdown();
 }
 
 DynamicIsland::DynamicIsland()
@@ -293,6 +297,242 @@ void DynamicIsland::CloseTodoPanel() {
     TransitionTo(DetermineDisplayMode());
 }
 
+void DynamicIsland::OpenAgentPanel() {
+    m_agentChooserOpen = false;
+    m_agentFilter = (m_compactAgentKind == AgentKind::Codex) ? AgentSessionFilter::Codex : AgentSessionFilter::Claude;
+    RefreshAgentSessionState(false);
+    m_agentExpanded = true;
+    m_todoInputActive = false;
+    m_todoExpanded = false;
+    m_isWeatherExpanded = false;
+    m_state = IslandState::Expanded;
+    KillTimer(m_window.GetHWND(), m_displayTimerId);
+    TransitionTo(IslandDisplayMode::AgentExpanded);
+}
+
+void DynamicIsland::CloseAgentPanel() {
+    m_agentExpanded = false;
+    m_state = IslandState::Collapsed;
+    TransitionTo(DetermineDisplayMode());
+}
+
+void DynamicIsland::SelectAgentSession(AgentKind kind, const std::wstring& sessionId) {
+    m_selectedAgentKind = kind;
+    m_selectedAgentSessionId = sessionId;
+    m_selectedAgentHistory = sessionId.empty() ? std::vector<AgentHistoryEntry>{} : m_agentSessionMonitor.GetHistory(kind, sessionId);
+    m_renderer.SetAgentSessionState(
+        m_agentSessionSummaries,
+        m_agentFilter,
+        m_selectedAgentKind,
+        m_selectedAgentSessionId,
+        m_selectedAgentHistory,
+        m_compactAgentKind,
+        m_agentChooserOpen);
+}
+
+void DynamicIsland::HandleClaudeHookEvent(const ClaudeHookEvent& event) {
+    m_claudeSessionStore.ProcessEvent(event);
+    PostMessageW(m_window.GetHWND(), WM_AGENT_SESSIONS_UPDATED, 0, 0);
+}
+
+void DynamicIsland::HandleCodexHookEvent(const CodexHookEvent& event) {
+    m_codexSessionStore.ProcessEvent(event);
+    PostMessageW(m_window.GetHWND(), WM_AGENT_SESSIONS_UPDATED, 0, 0);
+}
+
+void DynamicIsland::RunClaudeHookAction(int actionId) {
+    ClaudeHookActionResult result;
+    switch (actionId) {
+    case 1:
+        result = ClaudeHookInstaller::Install();
+        break;
+    case 2:
+        result = ClaudeHookInstaller::Reinstall();
+        break;
+    case 3:
+        result = ClaudeHookInstaller::Uninstall();
+        break;
+    default:
+        return;
+    }
+
+    if (!result.message.empty()) {
+        AlertInfo info{};
+        info.type = 3;
+        info.name = L"Claude Hooks";
+        info.deviceType = result.message;
+        EventBus::GetInstance().PublishNotificationArrived(info);
+    }
+}
+
+bool DynamicIsland::HasWorkingClaudeSession() const {
+    return std::any_of(m_agentSessionSummaries.begin(), m_agentSessionSummaries.end(), [](const AgentSessionSummary& summary) {
+        return summary.phase == AgentSessionPhase::Processing || summary.phase == AgentSessionPhase::Compacting;
+    });
+}
+
+bool DynamicIsland::ShouldShowClaudeWorkingEdgeBadge(IslandDisplayMode mode) const {
+    if (!HasWorkingClaudeSession()) {
+        return false;
+    }
+
+    return mode == IslandDisplayMode::Idle ||
+        mode == IslandDisplayMode::MusicCompact ||
+        mode == IslandDisplayMode::PomodoroCompact ||
+        mode == IslandDisplayMode::TodoListCompact;
+}
+
+float DynamicIsland::GetCompactTargetWidth(IslandDisplayMode mode) const {
+    float width = Constants::Size::COMPACT_WIDTH;
+    if (mode == IslandDisplayMode::PomodoroCompact) {
+        width = Constants::Size::POMODORO_COMPACT_WIDTH;
+    }
+
+    if (ShouldShowClaudeWorkingEdgeBadge(mode)) {
+        width += Constants::Size::AGENT_EDGE_BADGE_WIDTH;
+    }
+    return width;
+}
+
+void DynamicIsland::RefreshAgentSessionState(bool preserveSelection) {
+    const std::vector<AgentSessionSummary> fileSummaries = m_agentSessionMonitor.GetSummaries();
+    m_claudeSessionStore.MergeHistoryFallback(fileSummaries);
+    m_codexSessionStore.MergeHistoryFallback(fileSummaries);
+    const std::vector<AgentSessionSummary> runtimeClaudeSummaries = m_claudeSessionStore.GetSummaries();
+    const std::vector<AgentSessionSummary> runtimeCodexSummaries = m_codexSessionStore.GetSummaries();
+    m_agentSessionSummaries.clear();
+    m_agentSessionSummaries.reserve(fileSummaries.size() + runtimeClaudeSummaries.size() + runtimeCodexSummaries.size());
+
+    for (const auto& summary : fileSummaries) {
+        AgentSessionSummary merged = summary;
+        merged.phase = summary.isLive ? AgentSessionPhase::Processing : AgentSessionPhase::Idle;
+        merged.statusText = summary.kind == AgentKind::Claude
+            ? (summary.isLive ? L"Working" : L"Idle")
+            : (summary.isLive ? L"Active" : L"Idle");
+        merged.providerSupportsHooks = true;
+
+        if (summary.kind == AgentKind::Claude) {
+            auto runtimeIt = std::find_if(runtimeClaudeSummaries.begin(), runtimeClaudeSummaries.end(), [&summary](const AgentSessionSummary& runtimeSummary) {
+                return runtimeSummary.sessionId == summary.sessionId;
+            });
+            if (runtimeIt != runtimeClaudeSummaries.end()) {
+                merged.phase = runtimeIt->phase;
+                merged.statusText = runtimeIt->statusText;
+                merged.pendingToolName = runtimeIt->pendingToolName;
+                merged.pendingToolUseId = runtimeIt->pendingToolUseId;
+                merged.recentActivityText = runtimeIt->recentActivityText;
+                merged.providerSupportsHooks = runtimeIt->providerSupportsHooks;
+                merged.lastActivityTs = (std::max)(merged.lastActivityTs, runtimeIt->lastActivityTs);
+                merged.isLive = runtimeIt->isLive;
+            }
+        } else {
+            auto runtimeIt = std::find_if(runtimeCodexSummaries.begin(), runtimeCodexSummaries.end(), [&summary](const AgentSessionSummary& runtimeSummary) {
+                return runtimeSummary.sessionId == summary.sessionId;
+            });
+            if (runtimeIt != runtimeCodexSummaries.end()) {
+                merged.phase = runtimeIt->phase;
+                merged.statusText = runtimeIt->statusText;
+                merged.recentActivityText = runtimeIt->recentActivityText;
+                merged.providerSupportsHooks = runtimeIt->providerSupportsHooks;
+                merged.lastActivityTs = (std::max)(merged.lastActivityTs, runtimeIt->lastActivityTs);
+                merged.isLive = runtimeIt->isLive;
+            }
+        }
+
+        m_agentSessionSummaries.push_back(std::move(merged));
+    }
+
+    for (const auto& runtimeSummary : runtimeClaudeSummaries) {
+        const bool exists = std::any_of(m_agentSessionSummaries.begin(), m_agentSessionSummaries.end(), [&runtimeSummary](const AgentSessionSummary& summary) {
+            return summary.kind == AgentKind::Claude && summary.sessionId == runtimeSummary.sessionId;
+        });
+        if (!exists) {
+            m_agentSessionSummaries.push_back(runtimeSummary);
+        }
+    }
+
+    for (const auto& runtimeSummary : runtimeCodexSummaries) {
+        const bool exists = std::any_of(m_agentSessionSummaries.begin(), m_agentSessionSummaries.end(), [&runtimeSummary](const AgentSessionSummary& summary) {
+            return summary.kind == AgentKind::Codex && summary.sessionId == runtimeSummary.sessionId;
+        });
+        if (!exists) {
+            m_agentSessionSummaries.push_back(runtimeSummary);
+        }
+    }
+
+    std::sort(m_agentSessionSummaries.begin(), m_agentSessionSummaries.end(), [](const AgentSessionSummary& lhs, const AgentSessionSummary& rhs) {
+        if (lhs.kind != rhs.kind) {
+            return lhs.kind == AgentKind::Claude;
+        }
+        if (lhs.lastActivityTs != rhs.lastActivityTs) {
+            return lhs.lastActivityTs > rhs.lastActivityTs;
+        }
+        return lhs.sessionId < rhs.sessionId;
+    });
+
+    const bool hasClaude = std::any_of(m_agentSessionSummaries.begin(), m_agentSessionSummaries.end(), [](const AgentSessionSummary& summary) {
+        return summary.kind == AgentKind::Claude;
+    });
+    const bool hasCodex = std::any_of(m_agentSessionSummaries.begin(), m_agentSessionSummaries.end(), [](const AgentSessionSummary& summary) {
+        return summary.kind == AgentKind::Codex;
+    });
+    if (m_agentFilter == AgentSessionFilter::Claude && !hasClaude && hasCodex) {
+        m_agentFilter = AgentSessionFilter::Codex;
+    } else if (m_agentFilter == AgentSessionFilter::Codex && !hasCodex && hasClaude) {
+        m_agentFilter = AgentSessionFilter::Claude;
+    }
+
+    if (m_compactAgentKind == AgentKind::Claude && !hasClaude && hasCodex) {
+        m_compactAgentKind = AgentKind::Codex;
+    } else if (m_compactAgentKind == AgentKind::Codex && !hasCodex && hasClaude) {
+        m_compactAgentKind = AgentKind::Claude;
+    }
+    if (!(hasClaude && hasCodex)) {
+        m_agentChooserOpen = false;
+    }
+
+    auto findMatchingSummary = [this](AgentKind kind, const std::wstring& sessionId) -> const AgentSessionSummary* {
+        for (const auto& summary : m_agentSessionSummaries) {
+            if (summary.kind == kind && summary.sessionId == sessionId && AgentSessionMatchesFilter(summary, m_agentFilter)) {
+                return &summary;
+            }
+        }
+        return nullptr;
+    };
+
+    const AgentSessionSummary* selectedSummary = nullptr;
+    if (preserveSelection && !m_selectedAgentSessionId.empty()) {
+        selectedSummary = findMatchingSummary(m_selectedAgentKind, m_selectedAgentSessionId);
+    }
+
+    if (!selectedSummary) {
+        m_selectedAgentSessionId.clear();
+        for (const auto& summary : m_agentSessionSummaries) {
+            if (AgentSessionMatchesFilter(summary, m_agentFilter)) {
+                m_selectedAgentKind = summary.kind;
+                m_selectedAgentSessionId = summary.sessionId;
+                selectedSummary = &summary;
+                break;
+            }
+        }
+    }
+
+    if (selectedSummary) {
+        m_selectedAgentHistory = m_agentSessionMonitor.GetHistory(selectedSummary->kind, selectedSummary->sessionId);
+    } else {
+        m_selectedAgentHistory.clear();
+    }
+
+    m_renderer.SetAgentSessionState(
+        m_agentSessionSummaries,
+        m_agentFilter,
+        m_selectedAgentKind,
+        m_selectedAgentSessionId,
+        m_selectedAgentHistory,
+        m_compactAgentKind,
+        m_agentChooserOpen);
+}
+
 void DynamicIsland::PositionActiveImeWindow() {
     D2D1_RECT_F anchor = D2D1::RectF(0, 0, 0, 0);
     if (auto* todo = m_renderer.GetTodoComponent(); todo && IsTodoTextMode(DetermineDisplayMode())) {
@@ -336,7 +576,7 @@ void DynamicIsland::TransitionTo(IslandDisplayMode mode) {
 				m_hasCompactOverride &&
 				m_compactOverrideMode == IslandDisplayMode::Idle &&
 				CollectAvailableCompactModes().size() > 1) {
-				SetTargetSize(Constants::Size::COMPACT_WIDTH, Constants::Size::COMPACT_HEIGHT);
+				SetTargetSize(GetCompactTargetWidth(IslandDisplayMode::Idle), Constants::Size::COMPACT_HEIGHT);
 			} else {
 				SetTargetSize(Constants::Size::COLLAPSED_WIDTH, Constants::Size::COLLAPSED_HEIGHT);
 			}
@@ -344,16 +584,24 @@ void DynamicIsland::TransitionTo(IslandDisplayMode mode) {
 			break;
 
 		case IslandDisplayMode::TodoInputCompact:
-		case IslandDisplayMode::TodoListCompact:
 			SetTargetSize(Constants::Size::COMPACT_WIDTH, Constants::Size::COMPACT_HEIGHT);
+			break;
+
+		case IslandDisplayMode::TodoListCompact:
+		case IslandDisplayMode::AgentCompact:
+			SetTargetSize(GetCompactTargetWidth(mode), Constants::Size::COMPACT_HEIGHT);
 			break;
 
 		case IslandDisplayMode::TodoExpanded:
 			SetTargetSize(Constants::Size::TODO_EXPANDED_WIDTH, Constants::Size::TODO_EXPANDED_HEIGHT);
 			break;
 
+		case IslandDisplayMode::AgentExpanded:
+			SetTargetSize(Constants::Size::AGENT_EXPANDED_WIDTH, Constants::Size::AGENT_EXPANDED_HEIGHT);
+			break;
+
 		case IslandDisplayMode::PomodoroCompact:
-			SetTargetSize(Constants::Size::POMODORO_COMPACT_WIDTH, Constants::Size::POMODORO_COMPACT_HEIGHT);
+			SetTargetSize(GetCompactTargetWidth(IslandDisplayMode::PomodoroCompact), Constants::Size::POMODORO_COMPACT_HEIGHT);
 			break;
 
 		case IslandDisplayMode::PomodoroExpanded:
@@ -361,8 +609,7 @@ void DynamicIsland::TransitionTo(IslandDisplayMode mode) {
 			break;
 
 		case IslandDisplayMode::MusicCompact:
-
-			SetTargetSize(Constants::Size::COMPACT_WIDTH, Constants::Size::COMPACT_HEIGHT);
+			SetTargetSize(GetCompactTargetWidth(IslandDisplayMode::MusicCompact), Constants::Size::COMPACT_HEIGHT);
 
 			break;
 
@@ -448,6 +695,15 @@ std::vector<IslandDisplayMode> DynamicIsland::CollectAvailableCompactModes() con
 		modes.push_back(IslandDisplayMode::PomodoroCompact);
 	}
 	modes.push_back(IslandDisplayMode::TodoListCompact);
+	const bool hasAgentCompactSession = std::any_of(
+		m_agentSessionSummaries.begin(),
+		m_agentSessionSummaries.end(),
+		[](const AgentSessionSummary& summary) {
+			return summary.kind == AgentKind::Claude || summary.kind == AgentKind::Codex;
+		});
+	if (hasAgentCompactSession) {
+		modes.push_back(IslandDisplayMode::AgentCompact);
+	}
 	modes.push_back(IslandDisplayMode::Idle);
 	return modes;
 }
@@ -460,6 +716,7 @@ void DynamicIsland::ClearCompactOverride() {
 bool DynamicIsland::IsCompactSwitchableMode(IslandDisplayMode mode) {
 	return mode == IslandDisplayMode::Idle ||
 		mode == IslandDisplayMode::TodoListCompact ||
+		mode == IslandDisplayMode::AgentCompact ||
 		mode == IslandDisplayMode::MusicCompact ||
 		mode == IslandDisplayMode::PomodoroCompact;
 }
@@ -562,6 +819,7 @@ bool DynamicIsland::Initialize(HINSTANCE hInstance) {
 	m_priorityTable = {
 		{ IslandDisplayMode::Alert,          100, [this]() { return m_isAlertActive; } },
 		{ IslandDisplayMode::TodoExpanded,    95, [this]() { return m_todoExpanded; } },
+		{ IslandDisplayMode::AgentExpanded,   94, [this]() { return m_agentExpanded; } },
 		{ IslandDisplayMode::TodoInputCompact, 92, [this]() { return m_todoInputActive; } },
 		{ IslandDisplayMode::WeatherExpanded,  90, [this]() { return m_isWeatherExpanded; } },
 		{ IslandDisplayMode::PomodoroExpanded, 80, [this]() { return m_pomodoroExpanded; } },
@@ -610,6 +868,42 @@ bool DynamicIsland::Initialize(HINSTANCE hInstance) {
 		todo->SetOnRequestCloseExpanded([this]() { CloseTodoPanel(); });
 		todo->SetOnLaunchComplete([this]() { OpenTodoInputCompact(); });
 	}
+	if (auto* agent = m_renderer.GetAgentSessionsComponent()) {
+		agent->SetOnRequestOpenExpanded([this]() { OpenAgentPanel(); });
+		agent->SetOnRequestCloseExpanded([this]() { CloseAgentPanel(); });
+		agent->SetOnFilterChanged([this](AgentSessionFilter filter) {
+			m_agentFilter = filter;
+			RefreshAgentSessionState(false);
+			Invalidate(Dirty_AgentSessions | Dirty_Region | Dirty_Hover);
+		});
+		agent->SetOnCompactProviderChanged([this](AgentKind kind) {
+			m_compactAgentKind = kind;
+			m_agentFilter = (kind == AgentKind::Codex) ? AgentSessionFilter::Codex : AgentSessionFilter::Claude;
+			RefreshAgentSessionState(false);
+			Invalidate(Dirty_AgentSessions | Dirty_Region | Dirty_Hover);
+		});
+		agent->SetOnCompactChooserOpenChanged([this](bool open) {
+			m_agentChooserOpen = open;
+			RefreshAgentSessionState(true);
+			Invalidate(Dirty_AgentSessions | Dirty_Region | Dirty_Hover);
+		});
+		agent->SetOnSessionSelected([this](AgentKind kind, const std::wstring& sessionId) {
+			SelectAgentSession(kind, sessionId);
+			Invalidate(Dirty_AgentSessions | Dirty_Region | Dirty_Hover);
+		});
+		agent->SetOnApprovePermission([this](const std::wstring& toolUseId) {
+			if (m_claudeSessionStore.RespondToPermission(m_claudeHookBridge, toolUseId, L"allow")) {
+				RefreshAgentSessionState(true);
+				Invalidate(Dirty_AgentSessions | Dirty_Region | Dirty_Hover);
+			}
+		});
+		agent->SetOnDenyPermission([this](const std::wstring& toolUseId) {
+			if (m_claudeSessionStore.RespondToPermission(m_claudeHookBridge, toolUseId, L"deny", L"Denied by user via DynamicIsland")) {
+				RefreshAgentSessionState(true);
+				Invalidate(Dirty_AgentSessions | Dirty_Region | Dirty_Hover);
+			}
+		});
+	}
 	if (auto* pomodoro = m_renderer.GetPomodoroComponent()) {
 		pomodoro->SetOnFinished([this]() { HandlePomodoroFinished(); });
 	}
@@ -628,6 +922,14 @@ bool DynamicIsland::Initialize(HINSTANCE hInstance) {
 	m_lyricsMonitor.Initialize(m_window.GetHWND());
 
 	m_systemMonitor.Initialize(m_window.GetHWND()); // 【新增】启动电量监控
+	m_agentSessionMonitor.Initialize(m_window.GetHWND());
+	m_claudeHookBridge.Start([this](const ClaudeHookEvent& event) {
+		HandleClaudeHookEvent(event);
+	});
+	m_codexHookBridge.Start([this](const CodexHookEvent& event) {
+		HandleCodexHookEvent(event);
+	});
+	RefreshAgentSessionState(false);
 
 	// 注册 WeatherPlugin 的 fetch 完成通知
 	if (m_systemMonitor.GetWeatherPlugin())
@@ -665,6 +967,14 @@ RegisterHotKey(m_window.GetHWND(), HOTKEY_ID, MOD_CONTROL | MOD_ALT, 'I');
 	m_renderer.SetFileState(SecondaryContentKind::None, m_fileStash.Items(), -1, -1);
 	m_renderer.SetWeatherState(m_weatherLocationText, m_weatherDesc, m_weatherTemp, L"", {}, {}, false, m_weatherViewMode);
 	m_renderer.SetAlertState(false, AlertInfo{});
+	m_renderer.SetAgentSessionState(
+		m_agentSessionSummaries,
+		m_agentFilter,
+		m_selectedAgentKind,
+		m_selectedAgentSessionId,
+		m_selectedAgentHistory,
+		m_compactAgentKind,
+		m_agentChooserOpen);
 
 	m_renderer.DrawCapsule(initCtx);
 
@@ -852,7 +1162,7 @@ void DynamicIsland::UpdatePhysics() {
 
 		if (m_mediaMonitor.IsPlaying() && GetTargetHeight() < Constants::Size::COMPACT_MIN_HEIGHT && !m_fileStash.HasItems()) {
 
-			SetTargetSize(Constants::Size::COMPACT_WIDTH, Constants::Size::COMPACT_HEIGHT);
+			SetTargetSize(GetCompactTargetWidth(DetermineDisplayMode()), Constants::Size::COMPACT_HEIGHT);
 
 			StartAnimation();
 
@@ -1052,6 +1362,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 		Invalidate(Dirty_Weather | Dirty_MediaState | Dirty_Region);
 		return 0;
 
+	case WM_AGENT_SESSIONS_UPDATED:
+		RefreshAgentSessionState(true);
+		Invalidate(Dirty_AgentSessions | Dirty_Region | Dirty_Hover);
+		return 0;
+
 	case WM_WEATHER_UPDATED: {
 		// WeatherPlugin 异步 fetch 完成，刷新岛屿显示
 		m_weatherLocationText = m_systemMonitor.GetWeatherLocationText();
@@ -1119,7 +1434,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 			currentMode == IslandDisplayMode::PomodoroCompact ||
 			currentMode == IslandDisplayMode::TodoInputCompact ||
 			currentMode == IslandDisplayMode::TodoListCompact ||
-			currentMode == IslandDisplayMode::TodoExpanded) &&
+			currentMode == IslandDisplayMode::TodoExpanded ||
+			currentMode == IslandDisplayMode::AgentCompact ||
+			currentMode == IslandDisplayMode::AgentExpanded) &&
 			m_renderer.OnMouseMove((float)pt.x, (float)pt.y)) {
 			Invalidate(Dirty_Hover | Dirty_Time);
 			return 0;
@@ -1162,7 +1479,7 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 				if (GetTargetHeight() < Constants::Size::COMPACT_MIN_HEIGHT) {
 
-					SetTargetSize(Constants::Size::COMPACT_WIDTH, Constants::Size::COMPACT_HEIGHT);
+					SetTargetSize(GetCompactTargetWidth(DetermineDisplayMode()), Constants::Size::COMPACT_HEIGHT);
 
 					StartAnimation();
 
@@ -1360,7 +1677,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 			currentMode == IslandDisplayMode::PomodoroCompact ||
 			currentMode == IslandDisplayMode::TodoInputCompact ||
 			currentMode == IslandDisplayMode::TodoListCompact ||
-			currentMode == IslandDisplayMode::TodoExpanded) &&
+			currentMode == IslandDisplayMode::TodoExpanded ||
+			currentMode == IslandDisplayMode::AgentCompact ||
+			currentMode == IslandDisplayMode::AgentExpanded) &&
 			m_renderer.OnMouseClick((float)pt.x, (float)pt.y)) {
 			if (currentMode != IslandDisplayMode::Idle) {
 				if (currentMode == IslandDisplayMode::PomodoroExpanded || currentMode == IslandDisplayMode::PomodoroCompact) {
@@ -1449,6 +1768,7 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 			m_state = IslandState::Collapsed;
 			m_isWeatherExpanded = false;
+			m_agentExpanded = false;
 
 			// 【修复】点击收缩时，立即关闭副岛音量显示，防止收缩后主岛变成音量条
 			if (m_isVolumeControlActive) {
@@ -1459,7 +1779,7 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 			IslandDisplayMode nextMode = DetermineDisplayMode();
 			if (nextMode == IslandDisplayMode::Idle) {
-				SetTargetSize(Constants::Size::COMPACT_WIDTH, Constants::Size::COMPACT_HEIGHT);
+				SetTargetSize(GetCompactTargetWidth(IslandDisplayMode::Idle), Constants::Size::COMPACT_HEIGHT);
 				StartAnimation();
 				SetTimer(hwnd, m_displayTimerId, 5000, nullptr);
 			} else {
@@ -1878,7 +2198,7 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 				KillTimer(hwnd, m_displayTimerId);
 
 				if (m_compactOverrideMode == IslandDisplayMode::Idle) {
-					SetTargetSize(Constants::Size::COMPACT_WIDTH, Constants::Size::COMPACT_HEIGHT);
+					SetTargetSize(GetCompactTargetWidth(IslandDisplayMode::Idle), Constants::Size::COMPACT_HEIGHT);
 					StartAnimation();
 				} else {
 					TransitionTo(m_compactOverrideMode);
@@ -1891,6 +2211,11 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 		if (currentMode == IslandDisplayMode::TodoExpanded && m_renderer.OnMouseWheel((float)pt.x, (float)pt.y, delta)) {
 			Invalidate(Dirty_Hover | Dirty_Region);
+			return 0;
+		}
+
+		if (currentMode == IslandDisplayMode::AgentExpanded && m_renderer.OnMouseWheel((float)pt.x, (float)pt.y, delta)) {
+			Invalidate(Dirty_AgentSessions | Dirty_Region | Dirty_Hover);
 			return 0;
 		}
 

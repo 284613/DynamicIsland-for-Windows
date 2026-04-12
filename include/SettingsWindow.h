@@ -17,6 +17,7 @@ enum class SettingCategory {
     FilePanel,
     Weather,
     Notifications,
+    Agent,
     Advanced,
     About
 };
@@ -68,6 +69,7 @@ private:
     void BuildFilePanelPage(std::vector<SettingsControl>& controls, float& contentHeight) const;
     void BuildWeatherPage(std::vector<SettingsControl>& controls, float& contentHeight) const;
     void BuildNotificationsPage(std::vector<SettingsControl>& controls, float& contentHeight) const;
+    void BuildAgentPage(std::vector<SettingsControl>& controls, float& contentHeight) const;
     void BuildAdvancedPage(std::vector<SettingsControl>& controls, float& contentHeight) const;
     void BuildAboutPage(std::vector<SettingsControl>& controls, float& contentHeight) const;
     void RebuildFooterControls();
@@ -192,7 +194,7 @@ private:
     float m_activeContentHeight = 0.0f;
     float m_outgoingContentHeight = 0.0f;
 
-    std::array<Spring, 8> m_navHoverSprings;
+    std::array<Spring, 9> m_navHoverSprings;
     std::array<Spring, 3> m_trafficLightHoverSprings;
     Spring m_sidebarSelectionY = SpringFactory::CreateDefault();
     Spring m_contentInAlpha = SpringFactory::CreateDefault();

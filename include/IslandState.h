@@ -13,6 +13,8 @@ enum class IslandDisplayMode
     TodoInputCompact,
     TodoListCompact,
     TodoExpanded,
+    AgentCompact,
+    AgentExpanded,
     PomodoroCompact,
     PomodoroExpanded,
     MusicCompact,

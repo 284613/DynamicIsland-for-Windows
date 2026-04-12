@@ -455,23 +455,27 @@ void TodoComponent::DrawCompactList(const D2D1_RECT_F& rect, float alpha) {
     DrawText(L"TODO", m_res->subFormat ? m_res->subFormat : m_res->titleFormat, labelRect,
         D2D1::ColorF(0.80f, 0.80f, 0.84f, 1.0f), alpha, DWRITE_TEXT_ALIGNMENT_LEADING);
 
-    const D2D1_RECT_F textRect = D2D1::RectF(card.left + 76.0f, card.top + 2.0f, countRect.left - 6.0f, card.bottom - 2.0f);
-    DrawText(SummaryText(), m_res->subFormat ? m_res->subFormat : m_res->titleFormat, textRect,
-        D2D1::ColorF(1, 1, 1, 1), alpha, DWRITE_TEXT_ALIGNMENT_LEADING);
+    const std::wstring summary = SummaryText();
+    if (!summary.empty()) {
+        const D2D1_RECT_F textRect = D2D1::RectF(card.left + 76.0f, card.top + 2.0f, countRect.left - 6.0f, card.bottom - 2.0f);
+        DrawText(summary, m_res->subFormat ? m_res->subFormat : m_res->titleFormat, textRect,
+            D2D1::ColorF(1, 1, 1, 1), alpha, DWRITE_TEXT_ALIGNMENT_LEADING);
+    }
 }
 
 void TodoComponent::DrawExpanded(const D2D1_RECT_F& rect, float alpha) {
     auto* ctx = m_res->d2dContext;
     m_hits.clear();
 
-    const float padding = 16.0f;
-    const D2D1_RECT_F heroCard = D2D1::RectF(rect.left + 12.0f, rect.top + 10.0f, rect.right - 12.0f, rect.top + 70.0f);
-    const D2D1_RECT_F headerRect = D2D1::RectF(heroCard.left + 14.0f, heroCard.top + 10.0f, heroCard.right - 86.0f, heroCard.top + 36.0f);
+    const float outerPad = 14.0f;
+    const D2D1_RECT_F surfaceRect = D2D1::RectF(rect.left + outerPad, rect.top + 8.0f, rect.right - outerPad, rect.bottom - 10.0f);
+    const D2D1_RECT_F heroCard = D2D1::RectF(surfaceRect.left + 4.0f, surfaceRect.top + 4.0f, surfaceRect.right - 4.0f, surfaceRect.top + 62.0f);
+    const D2D1_RECT_F headerRect = D2D1::RectF(heroCard.left + 16.0f, heroCard.top + 10.0f, heroCard.right - 86.0f, heroCard.top + 34.0f);
     m_closeRect = D2D1::RectF(heroCard.right - 38.0f, heroCard.top + 10.0f, heroCard.right - 10.0f, heroCard.top + 36.0f);
 
-    const D2D1_RECT_F editorCard = D2D1::RectF(rect.left + 12.0f, rect.top + 78.0f, rect.right - 12.0f, rect.top + 208.0f);
-    const D2D1_RECT_F listCard = D2D1::RectF(rect.left + 12.0f, rect.top + 216.0f, rect.right - 12.0f, rect.bottom - 12.0f);
-    m_listViewportRect = D2D1::RectF(listCard.left + 8.0f, listCard.top + 8.0f, listCard.right - 8.0f, listCard.bottom - 8.0f);
+    const D2D1_RECT_F editorCard = D2D1::RectF(surfaceRect.left + 4.0f, heroCard.bottom + 10.0f, surfaceRect.right - 4.0f, heroCard.bottom + 144.0f);
+    const D2D1_RECT_F listCard = D2D1::RectF(surfaceRect.left + 4.0f, editorCard.bottom + 10.0f, surfaceRect.right - 4.0f, surfaceRect.bottom - 4.0f);
+    m_listViewportRect = D2D1::RectF(listCard.left + 10.0f, listCard.top + 12.0f, listCard.right - 10.0f, listCard.bottom - 12.0f);
 
     ComPtr<ID2D1SolidColorBrush> brush;
     ctx->CreateSolidColorBrush(SecondaryFill(), &brush);
@@ -479,13 +483,24 @@ void TodoComponent::DrawExpanded(const D2D1_RECT_F& rect, float alpha) {
         return;
     }
 
-    brush->SetOpacity(0.98f * alpha);
+    brush->SetOpacity(0.94f * alpha);
+    ctx->FillRoundedRectangle(D2D1::RoundedRect(surfaceRect, kExpandedCorner + 4.0f, kExpandedCorner + 4.0f), brush.Get());
+
+    brush->SetColor(StrokeColor());
+    brush->SetOpacity(0.85f * alpha);
+    ctx->DrawRoundedRectangle(D2D1::RoundedRect(surfaceRect, kExpandedCorner + 4.0f, kExpandedCorner + 4.0f), brush.Get(), 1.0f);
+
+    brush->SetColor(m_darkMode ? D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.045f) : D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.60f));
+    brush->SetOpacity(alpha);
     ctx->FillRoundedRectangle(D2D1::RoundedRect(heroCard, kExpandedCorner + 2.0f, kExpandedCorner + 2.0f), brush.Get());
+
+    brush->SetColor(m_darkMode ? D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.030f) : D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.52f));
     ctx->FillRoundedRectangle(D2D1::RoundedRect(editorCard, kExpandedCorner, kExpandedCorner), brush.Get());
+    brush->SetColor(m_darkMode ? D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.022f) : D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.46f));
     ctx->FillRoundedRectangle(D2D1::RoundedRect(listCard, kExpandedCorner, kExpandedCorner), brush.Get());
 
     brush->SetColor(StrokeColor());
-    brush->SetOpacity(alpha);
+    brush->SetOpacity(0.55f * alpha);
     ctx->DrawRoundedRectangle(D2D1::RoundedRect(heroCard, kExpandedCorner + 2.0f, kExpandedCorner + 2.0f), brush.Get(), 1.0f);
     ctx->DrawRoundedRectangle(D2D1::RoundedRect(editorCard, kExpandedCorner, kExpandedCorner), brush.Get(), 1.0f);
     ctx->DrawRoundedRectangle(D2D1::RoundedRect(listCard, kExpandedCorner, kExpandedCorner), brush.Get(), 1.0f);
@@ -493,26 +508,29 @@ void TodoComponent::DrawExpanded(const D2D1_RECT_F& rect, float alpha) {
     DrawText(L"TODO", m_res->titleFormat, headerRect, D2D1::ColorF(1, 1, 1, 1), alpha, DWRITE_TEXT_ALIGNMENT_LEADING);
     const std::wstring stats = std::to_wstring(m_store ? m_store->CountIncomplete() : 0) + L" open";
     const std::wstring total = std::to_wstring(m_store ? m_store->Items().size() : 0) + L" total";
-    const D2D1_RECT_F statsRect = D2D1::RectF(headerRect.left, heroCard.top + 34.0f, heroCard.right - 120.0f, heroCard.bottom - 8.0f);
+    const D2D1_RECT_F statsRect = D2D1::RectF(headerRect.left, heroCard.top + 30.0f, heroCard.right - 120.0f, heroCard.bottom - 10.0f);
     DrawText(stats, m_res->subFormat ? m_res->subFormat : m_res->titleFormat, statsRect,
         D2D1::ColorF(0.92f, 0.92f, 0.96f, 1.0f), alpha, DWRITE_TEXT_ALIGNMENT_LEADING);
-    const D2D1_RECT_F totalRect = D2D1::RectF(heroCard.right - 118.0f, heroCard.bottom - 34.0f, heroCard.right - 16.0f, heroCard.bottom - 10.0f);
+    const D2D1_RECT_F totalRect = D2D1::RectF(heroCard.right - 128.0f, heroCard.bottom - 30.0f, heroCard.right - 18.0f, heroCard.bottom - 8.0f);
     DrawText(total, m_res->subFormat ? m_res->subFormat : m_res->titleFormat, totalRect,
         D2D1::ColorF(0.76f, 0.76f, 0.80f, 1.0f), alpha, DWRITE_TEXT_ALIGNMENT_LEADING);
     DrawButton(m_closeRect, L"#close", false, alpha, m_hoveredKind == HitKind::HeaderClose);
     m_hits.push_back({ HitKind::HeaderClose, 0, m_closeRect });
 
-    const D2D1_RECT_F sectionLabelRect = D2D1::RectF(editorCard.left + 12.0f, editorCard.top + 8.0f, editorCard.left + 160.0f, editorCard.top + 28.0f);
+    const D2D1_RECT_F sectionLabelRect = D2D1::RectF(editorCard.left + 14.0f, editorCard.top + 10.0f, editorCard.left + 180.0f, editorCard.top + 30.0f);
     DrawText(m_editingItemId == 0 ? L"Quick Add" : L"Edit Item", m_res->subFormat ? m_res->subFormat : m_res->titleFormat, sectionLabelRect,
         D2D1::ColorF(0.78f, 0.78f, 0.82f, 1.0f), alpha, DWRITE_TEXT_ALIGNMENT_LEADING);
 
-    m_titleFieldRect = D2D1::RectF(editorCard.left + 12.0f, editorCard.top + 34.0f, editorCard.right - 132.0f, editorCard.top + 68.0f);
-    m_noteFieldRect = D2D1::RectF(editorCard.left + 12.0f, editorCard.top + 76.0f, editorCard.right - 132.0f, editorCard.top + 110.0f);
-    const D2D1_RECT_F saveRect = D2D1::RectF(editorCard.right - 108.0f, editorCard.top + 34.0f, editorCard.right - 12.0f, editorCard.top + 68.0f);
-    const D2D1_RECT_F cancelRect = D2D1::RectF(editorCard.right - 108.0f, editorCard.top + 76.0f, editorCard.right - 12.0f, editorCard.top + 110.0f);
-    const D2D1_RECT_F highRect = D2D1::RectF(editorCard.left + 12.0f, editorCard.top + 118.0f, editorCard.left + 74.0f, editorCard.top + 146.0f);
-    const D2D1_RECT_F mediumRect = D2D1::RectF(highRect.right + 8.0f, highRect.top, highRect.right + 66.0f, highRect.bottom);
-    const D2D1_RECT_F lowRect = D2D1::RectF(mediumRect.right + 8.0f, highRect.top, mediumRect.right + 58.0f, highRect.bottom);
+    m_titleFieldRect = D2D1::RectF(editorCard.left + 14.0f, editorCard.top + 38.0f, editorCard.right - 144.0f, editorCard.top + 74.0f);
+    m_noteFieldRect = D2D1::RectF(editorCard.left + 14.0f, editorCard.top + 84.0f, editorCard.right - 144.0f, editorCard.top + 116.0f);
+    const D2D1_RECT_F saveRect = D2D1::RectF(editorCard.right - 118.0f, editorCard.top + 38.0f, editorCard.right - 14.0f, editorCard.top + 74.0f);
+    const D2D1_RECT_F cancelRect = D2D1::RectF(editorCard.right - 118.0f, editorCard.top + 84.0f, editorCard.right - 14.0f, editorCard.top + 116.0f);
+    const D2D1_RECT_F priorityLabelRect = D2D1::RectF(editorCard.left + 14.0f, editorCard.top + 120.0f, editorCard.left + 120.0f, editorCard.top + 138.0f);
+    DrawText(L"Priority", m_res->subFormat ? m_res->subFormat : m_res->titleFormat, priorityLabelRect,
+        D2D1::ColorF(0.74f, 0.74f, 0.78f, 1.0f), alpha, DWRITE_TEXT_ALIGNMENT_LEADING);
+    const D2D1_RECT_F highRect = D2D1::RectF(editorCard.left + 14.0f, editorCard.top + 144.0f, editorCard.left + 78.0f, editorCard.top + 172.0f);
+    const D2D1_RECT_F mediumRect = D2D1::RectF(highRect.right + 10.0f, highRect.top, highRect.right + 74.0f, highRect.bottom);
+    const D2D1_RECT_F lowRect = D2D1::RectF(mediumRect.right + 10.0f, highRect.top, mediumRect.right + 64.0f, highRect.bottom);
 
     DrawField(m_titleFieldRect, m_editorTitle, L"Title", m_activeField == ActiveField::EditorTitle, alpha);
     DrawField(m_noteFieldRect, m_editorNote, L"Note", m_activeField == ActiveField::EditorNote, alpha);
@@ -538,8 +556,8 @@ void TodoComponent::DrawExpanded(const D2D1_RECT_F& rect, float alpha) {
 
     ctx->PushAxisAlignedClip(m_listViewportRect, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
     if (sortedItems.empty()) {
-        const D2D1_RECT_F emptyTitle = D2D1::RectF(m_listViewportRect.left, m_listViewportRect.top + 22.0f, m_listViewportRect.right, m_listViewportRect.top + 56.0f);
-        const D2D1_RECT_F emptySub = D2D1::RectF(m_listViewportRect.left + 24.0f, emptyTitle.bottom + 6.0f, m_listViewportRect.right - 24.0f, emptyTitle.bottom + 42.0f);
+        const D2D1_RECT_F emptyTitle = D2D1::RectF(m_listViewportRect.left, m_listViewportRect.top + 28.0f, m_listViewportRect.right, m_listViewportRect.top + 62.0f);
+        const D2D1_RECT_F emptySub = D2D1::RectF(m_listViewportRect.left + 28.0f, emptyTitle.bottom + 10.0f, m_listViewportRect.right - 28.0f, emptyTitle.bottom + 48.0f);
         DrawText(L"No TODO items yet", m_res->titleFormat, emptyTitle,
             D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f), alpha, DWRITE_TEXT_ALIGNMENT_CENTER);
         DrawText(L"Use the compact input or add one here.", m_res->subFormat ? m_res->subFormat : m_res->titleFormat, emptySub,
@@ -668,20 +686,20 @@ void TodoComponent::DrawRow(const D2D1_RECT_F& rowRect, const TodoItem& item, fl
         return;
     }
 
-    const float rowAlpha = item.completed ? alpha * 0.62f : alpha;
-    brush->SetOpacity((hovered ? 0.96f : 0.88f) * rowAlpha);
-    ctx->FillRoundedRectangle(D2D1::RoundedRect(rowRect, 12.0f, 12.0f), brush.Get());
+    const float rowAlpha = item.completed ? alpha * 0.56f : alpha;
+    brush->SetOpacity((hovered ? 0.90f : 0.80f) * rowAlpha);
+    ctx->FillRoundedRectangle(D2D1::RoundedRect(rowRect, 14.0f, 14.0f), brush.Get());
 
-    brush->SetColor(hovered ? D2D1::ColorF(0.30f, 0.49f, 1.0f, 1.0f) : StrokeColor());
+    brush->SetColor(hovered ? D2D1::ColorF(0.30f, 0.49f, 1.0f, 0.85f) : D2D1::ColorF(1.0f, 1.0f, 1.0f, m_darkMode ? 0.08f : 0.18f));
     brush->SetOpacity(rowAlpha);
-    ctx->DrawRoundedRectangle(D2D1::RoundedRect(rowRect, 12.0f, 12.0f), brush.Get(), hovered ? 1.4f : 1.0f);
+    ctx->DrawRoundedRectangle(D2D1::RoundedRect(rowRect, 14.0f, 14.0f), brush.Get(), hovered ? 1.2f : 0.9f);
 
-    const D2D1_RECT_F toggleRect = D2D1::RectF(rowRect.left + 12.0f, rowRect.top + 16.0f, rowRect.left + 28.0f, rowRect.top + 32.0f);
-    const D2D1_RECT_F editRect = D2D1::RectF(rowRect.right - 114.0f, rowRect.top + 10.0f, rowRect.right - 62.0f, rowRect.top + 34.0f);
-    const D2D1_RECT_F deleteRect = D2D1::RectF(rowRect.right - 56.0f, rowRect.top + 10.0f, rowRect.right - 10.0f, rowRect.top + 34.0f);
-    const D2D1_RECT_F priorityBar = D2D1::RectF(rowRect.left + 38.0f, rowRect.top + 10.0f, rowRect.left + 42.0f, rowRect.bottom - 10.0f);
-    const D2D1_RECT_F titleRect = D2D1::RectF(priorityBar.right + 10.0f, rowRect.top + 8.0f, editRect.left - 8.0f, rowRect.top + 28.0f);
-    const D2D1_RECT_F noteRect = D2D1::RectF(priorityBar.right + 10.0f, rowRect.top + 26.0f, editRect.left - 8.0f, rowRect.bottom - 6.0f);
+    const D2D1_RECT_F toggleRect = D2D1::RectF(rowRect.left + 14.0f, rowRect.top + 18.0f, rowRect.left + 30.0f, rowRect.top + 34.0f);
+    const D2D1_RECT_F editRect = D2D1::RectF(rowRect.right - 116.0f, rowRect.top + 14.0f, rowRect.right - 68.0f, rowRect.top + 38.0f);
+    const D2D1_RECT_F deleteRect = D2D1::RectF(rowRect.right - 60.0f, rowRect.top + 14.0f, rowRect.right - 12.0f, rowRect.top + 38.0f);
+    const D2D1_RECT_F priorityBar = D2D1::RectF(rowRect.left + 40.0f, rowRect.top + 12.0f, rowRect.left + 44.0f, rowRect.bottom - 12.0f);
+    const D2D1_RECT_F titleRect = D2D1::RectF(priorityBar.right + 12.0f, rowRect.top + 10.0f, editRect.left - 12.0f, rowRect.top + 28.0f);
+    const D2D1_RECT_F noteRect = D2D1::RectF(priorityBar.right + 12.0f, rowRect.top + 28.0f, editRect.left - 12.0f, rowRect.bottom - 10.0f);
 
     brush->SetColor(item.completed ? D2D1::ColorF(0.45f, 0.80f, 0.55f, 1.0f) : PriorityColor(item.priority));
     brush->SetOpacity(rowAlpha);
@@ -692,9 +710,18 @@ void TodoComponent::DrawRow(const D2D1_RECT_F& rowRect, const TodoItem& item, fl
         ctx->DrawLine(D2D1::Point2F(toggleRect.left + 7.0f, toggleRect.bottom - 4.0f), D2D1::Point2F(toggleRect.right - 3.0f, toggleRect.top + 4.0f), brush.Get(), 1.4f);
     }
 
-    DrawText(item.title, m_res->subFormat ? m_res->subFormat : m_res->titleFormat, titleRect, D2D1::ColorF(1, 1, 1, 1), rowAlpha);
+    DrawText(item.title, m_res->subFormat ? m_res->subFormat : m_res->titleFormat, titleRect,
+        item.completed ? D2D1::ColorF(0.82f, 0.82f, 0.86f, 1.0f) : D2D1::ColorF(1, 1, 1, 1), rowAlpha);
     DrawText(item.note.empty() ? TodoPriorityLabel(item.priority) : item.note, m_res->subFormat ? m_res->subFormat : m_res->titleFormat, noteRect,
-        D2D1::ColorF(0.72f, 0.72f, 0.76f, 1.0f), rowAlpha);
+        item.completed ? D2D1::ColorF(0.58f, 0.62f, 0.66f, 1.0f) : D2D1::ColorF(0.72f, 0.72f, 0.76f, 1.0f), rowAlpha);
+    if (item.completed) {
+        ComPtr<ID2D1SolidColorBrush> strikeBrush;
+        ctx->CreateSolidColorBrush(D2D1::ColorF(0.76f, 0.80f, 0.84f, rowAlpha * 0.75f), &strikeBrush);
+        if (strikeBrush) {
+            const float strikeY = titleRect.top + 12.0f;
+            ctx->DrawLine(D2D1::Point2F(titleRect.left, strikeY), D2D1::Point2F(titleRect.right - 6.0f, strikeY), strikeBrush.Get(), 1.0f);
+        }
+    }
     DrawButton(editRect, L"#edit", false, rowAlpha, hovered && m_hoveredKind == HitKind::RowEdit && m_hoveredItemId == item.id);
     DrawButton(deleteRect, L"#delete", false, rowAlpha, hovered && m_hoveredKind == HitKind::RowDelete && m_hoveredItemId == item.id);
 
@@ -760,12 +787,12 @@ D2D1_COLOR_F TodoComponent::StrokeColor() const {
 
 std::wstring TodoComponent::SummaryText() const {
     if (!m_store) {
-        return L"TODO";
+        return {};
     }
     if (const TodoItem* top = m_store->GetTopIncomplete()) {
         return top->title;
     }
-    return m_store->HasItems() ? L"All done" : L"No TODOs";
+    return m_store->HasItems() ? L"All done" : L"";
 }
 
 void TodoComponent::DrawTodoIcon(const D2D1_RECT_F& rect, const D2D1_COLOR_F& accent, float alpha, bool compact) const {

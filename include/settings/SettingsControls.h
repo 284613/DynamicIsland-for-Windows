@@ -36,6 +36,12 @@ namespace SettingID {
     constexpr int ADV_LOW_BAT      = 62;
     constexpr int ADV_FILE_MAX     = 63;
     constexpr int ADV_MEDIA_POLL   = 64;
+    constexpr int CLAUDE_INSTALL   = 70;
+    constexpr int CLAUDE_REINSTALL = 71;
+    constexpr int CLAUDE_UNINSTALL = 72;
+    constexpr int CODEX_INSTALL    = 73;
+    constexpr int CODEX_REINSTALL  = 74;
+    constexpr int CODEX_UNINSTALL  = 75;
     constexpr int BTN_RESET        = 99;
     constexpr int BTN_SAVE         = 100;
     constexpr int BTN_APPLY        = 101;
