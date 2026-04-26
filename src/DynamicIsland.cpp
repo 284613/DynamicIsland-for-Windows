@@ -19,6 +19,7 @@
 #include <chrono>
 
 #include "RenderEngine.h"
+#include "AutoStartManager.h"
 #include "LyricsMonitor.h"
 #include "ClaudeHookInstaller.h"
 #include "CodexHookInstaller.h"
@@ -223,6 +224,7 @@ bool DynamicIsland::IsFullscreen() {
 DynamicIsland::~DynamicIsland()
 
 {
+    m_faceUnlockBridge.Stop();
     m_claudeHookBridge.Stop();
     m_codexHookBridge.Stop();
     m_agentSessionMonitor.Shutdown();
@@ -271,26 +273,7 @@ bool DynamicIsland::GetSystemDarkMode() const {
 }
 
 void DynamicIsland::UpdateAutoStart(bool enabled) {
-    HKEY hKey = nullptr;
-    if (RegCreateKeyExW(HKEY_CURRENT_USER,
-        L"Software\\Microsoft\\Windows\\CurrentVersion\\Run",
-        0, nullptr, 0, KEY_SET_VALUE, nullptr, &hKey, nullptr) != ERROR_SUCCESS) {
-        return;
-    }
-
-    if (enabled) {
-        wchar_t exePath[MAX_PATH] = {};
-        if (GetModuleFileNameW(nullptr, exePath, MAX_PATH)) {
-            const std::wstring value = L"\"" + std::wstring(exePath) + L"\"";
-            RegSetValueExW(hKey, L"DynamicIsland", 0, REG_SZ,
-                reinterpret_cast<const BYTE*>(value.c_str()),
-                DWORD((value.size() + 1) * sizeof(wchar_t)));
-        }
-    } else {
-        RegDeleteValueW(hKey, L"DynamicIsland");
-    }
-
-    RegCloseKey(hKey);
+    AutoStart::SetEnabled(enabled);
 }
 
 void DynamicIsland::ApplyRuntimeSettings() {
@@ -368,7 +351,7 @@ bool DynamicIsland::IsExpandedMode(ActiveExpandedMode mode) const {
 bool DynamicIsland::ShouldUseShrunkMode() const {
     if (m_state != IslandState::Collapsed) return false;
     if (!m_manualShrunk) return false;
-    if (m_isAlertActive || m_isDragHovering || m_todoInputActive || m_isVolumeControlActive) return false;
+    if (m_isAlertActive || m_isDragHovering || m_todoInputActive || m_isVolumeControlActive || m_faceUnlockFeedbackActive) return false;
     if (m_activeExpandedMode != ActiveExpandedMode::None) return false;
     if (auto* pomodoro = m_renderer.GetPomodoroComponent(); pomodoro && pomodoro->HasActiveSession()) return false;
     return true;
@@ -580,6 +563,62 @@ void DynamicIsland::HandleCodexHookEvent(const CodexHookEvent& event) {
     m_codexSessionStore.ProcessEvent(event);
     m_agentSessionMonitor.RequestRefresh();
     PostMessageW(m_window.GetHWND(), WM_AGENT_SESSIONS_UPDATED, 0, 0);
+}
+
+void DynamicIsland::HandleFaceUnlockEvent(const FaceUnlockEvent& event) {
+    switch (event.kind) {
+    case FaceUnlockEventKind::ScanStarted:
+        ShowFaceUnlockFeedback(FaceIdState::Scanning, L"正在识别");
+        break;
+    case FaceUnlockEventKind::Success:
+        ShowFaceUnlockFeedback(
+            FaceIdState::Success,
+            event.user.empty() ? L"欢迎回来" : (L"欢迎回来 " + event.user));
+        break;
+    case FaceUnlockEventKind::Failed:
+        ShowFaceUnlockFeedback(
+            FaceIdState::Failed,
+            event.reason.empty() ? L"识别失败" : (L"识别失败: " + event.reason));
+        break;
+    }
+}
+
+void DynamicIsland::ShowFaceUnlockFeedback(FaceIdState state, const std::wstring& text) {
+    KillTimer(m_window.GetHWND(), m_faceUnlockTimerId);
+    ClearCompactOverride();
+    m_faceUnlockFeedbackActive = state != FaceIdState::Hidden;
+    m_faceUnlockState = state;
+    m_faceUnlockText = text;
+    m_renderer.SetFaceUnlockState(state, text);
+
+    if (!m_faceUnlockFeedbackActive) {
+        TransitionTo(DetermineDisplayMode());
+        Invalidate(Dirty_FaceUnlock | Dirty_Region);
+        return;
+    }
+
+    m_state = IslandState::Collapsed;
+    TransitionTo(IslandDisplayMode::FaceUnlockFeedback);
+    if (state == FaceIdState::Success) {
+        SetTimer(m_window.GetHWND(), m_faceUnlockTimerId, 1000, nullptr);
+    } else if (state == FaceIdState::Failed) {
+        SetTimer(m_window.GetHWND(), m_faceUnlockTimerId, 1500, nullptr);
+    }
+    Invalidate(Dirty_FaceUnlock | Dirty_Region | Dirty_Hover);
+}
+
+void DynamicIsland::ClearFaceUnlockFeedback() {
+    KillTimer(m_window.GetHWND(), m_faceUnlockTimerId);
+    m_faceUnlockFeedbackActive = false;
+    m_faceUnlockState = FaceIdState::Hidden;
+    m_faceUnlockText.clear();
+    m_renderer.SetFaceUnlockState(FaceIdState::Hidden, L"");
+    if (m_state == IslandState::Collapsed) {
+        TransitionTo(DetermineDisplayMode());
+    } else {
+        StartAnimation();
+    }
+    Invalidate(Dirty_FaceUnlock | Dirty_Region);
 }
 
 void DynamicIsland::RunClaudeHookAction(int actionId) {
@@ -886,6 +925,10 @@ void DynamicIsland::TransitionTo(IslandDisplayMode mode) {
 
 			break;
 
+		case IslandDisplayMode::FaceUnlockFeedback:
+			SetTargetSize(Constants::Size::FACE_UNLOCK_WIDTH, Constants::Size::FACE_UNLOCK_HEIGHT);
+			break;
+
 		case IslandDisplayMode::Volume:
 
 			SetTargetSize(Constants::Size::ALERT_WIDTH, Constants::Size::ALERT_HEIGHT);
@@ -1131,7 +1174,7 @@ void DynamicIsland::LoadConfig() {
 	m_springDamping = (float)getInt(L"Advanced", L"SpringDamping", 30);
 	m_fileStashMaxItems = getInt(L"Advanced", L"FileStashMaxItems", 5);
 	m_mediaPollIntervalMs = getInt(L"Advanced", L"MediaPollIntervalMs", 1000);
-	m_autoStart = getInt(L"Settings", L"AutoStart", 0) != 0;
+	m_autoStart = AutoStart::IsEnabled();
 	m_darkMode = getInt(L"Settings", L"DarkMode", 1) != 0;
 	m_followSystemTheme = getInt(L"Settings", L"FollowSystemTheme", 1) != 0;
 	wchar_t compactOrderBuf[256] = {};
@@ -1178,6 +1221,7 @@ bool DynamicIsland::Initialize(HINSTANCE hInstance) {
 
 	// PR6: 初始化显示模式优先级调度表
 	m_priorityTable = {
+		{ IslandDisplayMode::FaceUnlockFeedback, 110, [this]() { return m_faceUnlockFeedbackActive; } },
 		{ IslandDisplayMode::Alert,          100, [this]() { return m_isAlertActive; } },
 		{ IslandDisplayMode::TodoExpanded,    95, [this]() { return IsExpandedMode(ActiveExpandedMode::Todo); } },
 		{ IslandDisplayMode::AgentExpanded,   94, [this]() { return IsExpandedMode(ActiveExpandedMode::Agent); } },
@@ -1281,6 +1325,7 @@ bool DynamicIsland::Initialize(HINSTANCE hInstance) {
     // 初始化文件面板窗口
     m_mediaMonitor.SetTargetWindow(m_window.GetHWND());
     m_settingsWindow.Create(hInstance, m_window.GetHWND());
+    m_faceUnlockBridge.Start(m_window.GetHWND());
 
 	m_mediaMonitor.Initialize();
 
@@ -1338,6 +1383,7 @@ RegisterHotKey(m_window.GetHWND(), HOTKEY_ID, MOD_CONTROL | MOD_ALT, 'I');
 	const bool weatherAvailable = m_systemMonitor.GetWeatherPlugin() ? m_systemMonitor.GetWeatherPlugin()->IsAvailable() : false;
 	m_renderer.SetWeatherState(m_weatherLocationText, m_weatherDesc, m_weatherTemp, L"", {}, {}, false, m_weatherViewMode, weatherAvailable);
 	m_renderer.SetAlertState(false, AlertInfo{});
+	m_renderer.SetFaceUnlockState(FaceIdState::Hidden, L"");
 	m_renderer.SetAgentSessionState(
 		m_agentSessionSummaries,
 		m_agentFilter,
@@ -1453,6 +1499,7 @@ bool DynamicIsland::ShouldKeepRendering() const {
     if (m_renderer.HasActiveAnimations()) return true;      // 组件动画/滚动中
     if (m_isVolumeControlActive) return true;               // 音量条显示中
     if (m_isAlertActive) return true;                       // 通知显示中
+    if (m_faceUnlockFeedbackActive) return true;
     if (m_isDraggingProgress) return true;                  // 拖动进度条
     if (m_isDragHovering) return true;                      // 文件拖拽悬停
     if (IsExpandedMode(ActiveExpandedMode::Weather)) return true;                   // 天气展开面板动画持续运行
@@ -1748,6 +1795,15 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 		m_dirtyFlags |= (uint32_t)wParam;
 		EnsureRenderLoopRunning();
 		return 0;
+
+	case WM_FACE_UNLOCK_EVENT: {
+		FaceUnlockEvent* event = reinterpret_cast<FaceUnlockEvent*>(lParam);
+		if (event) {
+			HandleFaceUnlockEvent(*event);
+			delete event;
+		}
+		return 0;
+	}
 
 	case WM_SETTINGS_APPLY:
 		LoadConfig();
@@ -2693,6 +2749,9 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 			}
 
+		}
+		else if (wParam == m_faceUnlockTimerId) {
+			ClearFaceUnlockFeedback();
 		}
 		else if (wParam == m_fullscreenTimerId) {
 			bool isNowFullscreen = IsFullscreen();

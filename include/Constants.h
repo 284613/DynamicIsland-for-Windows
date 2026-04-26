@@ -56,6 +56,8 @@ namespace Size {
     // 提示弹窗尺寸
     constexpr float ALERT_WIDTH = 220.0f;
     constexpr float ALERT_HEIGHT = 40.0f;
+    constexpr float FACE_UNLOCK_WIDTH = 240.0f;
+    constexpr float FACE_UNLOCK_HEIGHT = 52.0f;
     
     // 副岛（音量/静音等）尺寸
     constexpr float SECONDARY_WIDTH = 220.0f;

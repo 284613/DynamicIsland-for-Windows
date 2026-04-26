@@ -103,16 +103,21 @@
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <AdditionalIncludeDirectories>include;C:\Users\28443\.openclaw\workspace\temp\zlib-install;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalIncludeDirectories>include;face_core\include;third_party\onnxruntime\include;C:\Users\28443\.openclaw\workspace\temp\zlib-install;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>/utf-8 /FS %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>C:\Users\28443\.openclaw\workspace\temp\zlib-install;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>zlib.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>third_party\onnxruntime\lib;C:\Users\28443\.openclaw\workspace\temp\zlib-install;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>zlib.lib;onnxruntime.lib;crypt32.lib;shell32.lib;mfplat.lib;mf.lib;mfreadwrite.lib;mfuuid.lib;ole32.lib;advapi32.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalOptions>/NODEFAULTLIB:MSVCRT %(AdditionalOptions)</AdditionalOptions>
     </Link>
+    <PostBuildEvent>
+      <Command>if exist "$(ProjectDir)third_party\onnxruntime\lib\onnxruntime.dll" copy /Y "$(ProjectDir)third_party\onnxruntime\lib\onnxruntime.dll" "$(OutDir)" &gt;nul
+if exist "$(ProjectDir)third_party\onnxruntime\lib\onnxruntime_providers_shared.dll" copy /Y "$(ProjectDir)third_party\onnxruntime\lib\onnxruntime_providers_shared.dll" "$(OutDir)" &gt;nul
+if exist "$(ProjectDir)models" xcopy /Y /I /S "$(ProjectDir)models\*" "$(OutDir)models\" &gt;nul</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
@@ -124,18 +129,24 @@
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <AdditionalOptions>/utf-8 /FS</AdditionalOptions>
-      <AdditionalIncludeDirectories>include;C:\Users\28443\.openclaw\workspace\temp\zlib-install;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>include;face_core\include;third_party\onnxruntime\include;C:\Users\28443\.openclaw\workspace\temp\zlib-install;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>C:\Users\28443\.openclaw\workspace\temp\zlib-install;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>zlib.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>third_party\onnxruntime\lib;C:\Users\28443\.openclaw\workspace\temp\zlib-install;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>zlib.lib;onnxruntime.lib;crypt32.lib;shell32.lib;mfplat.lib;mf.lib;mfreadwrite.lib;mfuuid.lib;ole32.lib;advapi32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
+    <PostBuildEvent>
+      <Command>if exist "$(ProjectDir)third_party\onnxruntime\lib\onnxruntime.dll" copy /Y "$(ProjectDir)third_party\onnxruntime\lib\onnxruntime.dll" "$(OutDir)" &gt;nul
+if exist "$(ProjectDir)third_party\onnxruntime\lib\onnxruntime_providers_shared.dll" copy /Y "$(ProjectDir)third_party\onnxruntime\lib\onnxruntime_providers_shared.dll" "$(OutDir)" &gt;nul
+if exist "$(ProjectDir)models" xcopy /Y /I /S "$(ProjectDir)models\*" "$(OutDir)models\" &gt;nul</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="include\AgentSessionModel.h" />
     <ClInclude Include="include\AgentSessionMonitor.h" />
+    <ClInclude Include="include\AutoStartManager.h" />
     <ClInclude Include="include\ClaudeHookBridge.h" />
     <ClInclude Include="include\ClaudeHookInstaller.h" />
     <ClInclude Include="include\ClaudeSessionStore.h" />
@@ -144,6 +155,7 @@
     <ClInclude Include="include\CodexSessionStore.h" />
     <ClInclude Include="include\components\AlertComponent.h" />
     <ClInclude Include="include\components\AgentSessionsComponent.h" />
+    <ClInclude Include="include\components\FaceIdComponent.h" />
     <ClInclude Include="include\components\MusicPlayerComponent.h" />
     <ClInclude Include="include\components\VolumeComponent.h" />
     <ClInclude Include="include\components\FilePanelComponent.h" />
@@ -160,6 +172,8 @@
     <ClInclude Include="include\DropManager.h" />
     <ClInclude Include="include\DynamicIsland.h" />
     <ClInclude Include="include\EventBus.h" />
+    <ClInclude Include="include\FaceEnrollWindow.h" />
+    <ClInclude Include="include\FaceUnlockBridge.h" />
     <ClInclude Include="include\FilePanelWindow.h" />
     <ClInclude Include="include\IMessageHandler.h" />
     <ClInclude Include="include\IslandManager.h" />
@@ -190,6 +204,7 @@
   <ItemGroup>
     <ClCompile Include="src\AgentSessionMonitor.cpp" />
     <ClCompile Include="src\AgentSessionModel.cpp" />
+    <ClCompile Include="src\AutoStartManager.cpp" />
     <ClCompile Include="src\ClaudeHookBridge.cpp" />
     <ClCompile Include="src\ClaudeHookInstaller.cpp" />
     <ClCompile Include="src\ClaudeSessionStore.cpp" />
@@ -198,6 +213,7 @@
     <ClCompile Include="src\CodexSessionStore.cpp" />
     <ClCompile Include="src\components\AlertComponent.cpp" />
     <ClCompile Include="src\components\AgentSessionsComponent.cpp" />
+    <ClCompile Include="src\components\FaceIdComponent.cpp" />
     <ClCompile Include="src\components\MusicPlayerComponent.cpp" />
     <ClCompile Include="src\components\VolumeComponent.cpp" />
     <ClCompile Include="src\components\FilePanelComponent.cpp" />
@@ -209,6 +225,8 @@
     <ClCompile Include="src\components\PomodoroComponent.cpp" />
     <ClCompile Include="src\ConnectionMonitor.cpp" />
     <ClCompile Include="src\DynamicIsland.cpp" />
+    <ClCompile Include="src\FaceEnrollWindow.cpp" />
+    <ClCompile Include="src\FaceUnlockBridge.cpp" />
     <ClCompile Include="src\FileSecondaryInput.cpp" />
     <ClCompile Include="src\FilePanelWindow.cpp" />
     <ClCompile Include="src\LyricsMonitor.cpp" />
@@ -226,6 +244,11 @@
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="resources\Dynamic Island.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="face_core\face_core.vcxproj">
+      <Project>{8F3A7B12-9E4C-4D5A-B6E1-1C2D3E4F5A6B}</Project>
+    </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

@@ -24,6 +24,9 @@
     <ClInclude Include="include\components\AlertComponent.h">
       <Filter>Header Files\components</Filter>
     </ClInclude>
+    <ClInclude Include="include\components\FaceIdComponent.h">
+      <Filter>Header Files\components</Filter>
+    </ClInclude>
     <ClInclude Include="include\components\MusicPlayerComponent.h">
       <Filter>Header Files\components</Filter>
     </ClInclude>
@@ -39,6 +42,9 @@
     <ClInclude Include="include\ConnectionMonitor.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="include\AutoStartManager.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="include\IslandState.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -52,6 +58,12 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="include\EventBus.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="include\FaceEnrollWindow.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="include\FaceUnlockBridge.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="include\FilePanelWindow.h">
@@ -140,6 +152,9 @@
     <ClCompile Include="src\components\AlertComponent.cpp">
       <Filter>Source Files\components</Filter>
     </ClCompile>
+    <ClCompile Include="src\components\FaceIdComponent.cpp">
+      <Filter>Source Files\components</Filter>
+    </ClCompile>
     <ClCompile Include="src\components\MusicPlayerComponent.cpp">
       <Filter>Source Files\components</Filter>
     </ClCompile>
@@ -155,7 +170,16 @@
     <ClCompile Include="src\ConnectionMonitor.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\AutoStartManager.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="src\DynamicIsland.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\FaceEnrollWindow.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\FaceUnlockBridge.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="src\FileSecondaryInput.cpp">

@@ -17,6 +17,7 @@ enum class SettingCategory {
     FilePanel,
     Weather,
     Notifications,
+    FaceUnlock,
     Agent,
     Advanced,
     About
@@ -69,6 +70,7 @@ private:
     void BuildFilePanelPage(std::vector<SettingsControl>& controls, float& contentHeight) const;
     void BuildWeatherPage(std::vector<SettingsControl>& controls, float& contentHeight) const;
     void BuildNotificationsPage(std::vector<SettingsControl>& controls, float& contentHeight) const;
+    void BuildFaceUnlockPage(std::vector<SettingsControl>& controls, float& contentHeight) const;
     void BuildAgentPage(std::vector<SettingsControl>& controls, float& contentHeight) const;
     void BuildAdvancedPage(std::vector<SettingsControl>& controls, float& contentHeight) const;
     void BuildAboutPage(std::vector<SettingsControl>& controls, float& contentHeight) const;
@@ -80,6 +82,8 @@ private:
     bool IsCompactModeEnabled(const std::wstring& modeKey) const;
     void ToggleCompactMode(const std::wstring& modeKey);
     void MoveCompactMode(const std::wstring& modeKey, int delta);
+    std::wstring GetFaceUnlockStatusText() const;
+    size_t GetFaceTemplateCount() const;
 
     void Render();
     void DrawWindowBackground();
@@ -201,7 +205,7 @@ private:
     float m_activeContentHeight = 0.0f;
     float m_outgoingContentHeight = 0.0f;
 
-    std::array<Spring, 9> m_navHoverSprings;
+    std::array<Spring, 10> m_navHoverSprings;
     std::array<Spring, 3> m_trafficLightHoverSprings;
     Spring m_sidebarSelectionY = SpringFactory::CreateDefault();
     Spring m_contentInAlpha = SpringFactory::CreateDefault();
@@ -254,6 +258,7 @@ private:
     std::wstring m_weatherLocationId = L"101010100";
     std::wstring m_allowedApps = L"微信,QQ";
     bool m_autoStart = false;
+    bool m_facePerformanceMode = false;
     float m_springStiffness = 100.0f;
     float m_springDamping = 10.0f;
     float m_lowBatteryThreshold = 20.0f;

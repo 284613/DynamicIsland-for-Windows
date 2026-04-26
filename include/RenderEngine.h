@@ -23,6 +23,7 @@
 #include "components/AlertComponent.h"
 #include "components/VolumeComponent.h"
 #include "components/FilePanelComponent.h"
+#include "components/FaceIdComponent.h"
 #include "components/ClockComponent.h"
 #include "components/PomodoroComponent.h"
 #include "components/TodoComponent.h"
@@ -68,6 +69,7 @@ public:
     void SetWaveformState(const std::array<float, 3>& bandLevels, float islandHeight, WaveformDisplayStyle style);
     void SetTimeData(bool showTime, const std::wstring& timeText);
     void SetVolumeState(bool active, float volumeLevel);
+    void SetFaceUnlockState(FaceIdState state, const std::wstring& text);
     void SetFileState(SecondaryContentKind mode, const std::vector<FileStashItem>& storedFiles, int selectedIndex, int hoveredIndex);
     void SetWeatherState(const std::wstring& locationText, const std::wstring& desc, float temp, const std::wstring& iconId,
                          const std::vector<HourlyForecast>& hourly, const std::vector<DailyForecast>& daily,
@@ -86,6 +88,7 @@ public:
     PomodoroComponent* GetPomodoroComponent() const { return m_pomodoroComponent.get(); }
     TodoComponent* GetTodoComponent() const { return m_todoComponent.get(); }
     AgentSessionsComponent* GetAgentSessionsComponent() const { return m_agentSessionsComponent.get(); }
+    FaceIdComponent* GetFaceIdComponent() const { return m_faceIdComponent.get(); }
 
     bool LoadAlbumArt(const std::wstring& file);
     bool LoadAlbumArtFromMemory(const std::vector<uint8_t>& data);
@@ -111,6 +114,7 @@ private:
     std::unique_ptr<AlertComponent> m_alertComponent;
     std::unique_ptr<VolumeComponent> m_volumeComponent;
     std::unique_ptr<FilePanelComponent> m_fileStorageComponent;
+    std::unique_ptr<FaceIdComponent> m_faceIdComponent;
     std::unique_ptr<ClockComponent> m_clockComponent;
     std::unique_ptr<PomodoroComponent> m_pomodoroComponent;
     std::unique_ptr<TodoComponent> m_todoComponent;

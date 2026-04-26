@@ -22,11 +22,24 @@
 #define WM_CODEX_HOOK_EVENT (WM_USER + 212)
 #define WM_CODEX_PHASE_UPDATED (WM_USER + 213)
 #define WM_CODEX_INSTALL_STATUS (WM_USER + 214)
+#define WM_FACE_UNLOCK_EVENT (WM_USER + 215)
 #define WM_APP_INVALIDATE (WM_APP + 50)  // wParam = DirtyFlags
 
 // 内存图像数据结构
 struct ImageData {
     std::vector<uint8_t> data;  // 图像字节数据（改为值类型）
+};
+
+enum class FaceUnlockEventKind {
+    ScanStarted,
+    Success,
+    Failed,
+};
+
+struct FaceUnlockEvent {
+    FaceUnlockEventKind kind = FaceUnlockEventKind::ScanStarted;
+    std::wstring user;
+    std::wstring reason;
 };
 
 // 【OPT-03】优先级调度系统

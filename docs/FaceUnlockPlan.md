@@ -205,22 +205,34 @@ Phase 2 wiring) the main app + Credential Provider:
    Photo-attack check: hold a printed/displayed photo of the enrolled face
    to the camera; pipeline should fail with `Passive liveness failed`.
 
-### ⏳ Phase 2 — Main app integration
+### ✅ Phase 2 — Main app integration (done)
 
-- `src/AutoStartManager.cpp` — read/write `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\DynamicIsland`.
-- `src/FaceEnrollWindow.cpp` — Direct2D-drawn 3-step wizard
-  (front/left/right, 2 captures each).
-- `src/components/FaceIdComponent.cpp` — three states:
-  - **Scanning**: narrow capsule, rotating scan ring (Face ID-like)
-  - **Success**: green checkmark + pulse, 1 s
-  - **Failed**: red X shake, 1.5 s
-- `src/DynamicIsland.cpp` — add mode `ModeFaceUnlockFeedback` (highest priority).
-- `src/FaceUnlockBridge.cpp` — listen on named pipe
-  `\\.\pipe\DynamicIsland.FaceUnlock`, dispatch events to component.
-- `src/SettingsWindow.cpp` — add "人脸解锁" group: enable toggle, enroll button,
-  delete button, autostart toggle.
-- Enrollment flow includes a one-time Windows password prompt → DPAPI-encrypted
-  into the same `faces.bin` (or a sibling file) for CP DLL to use later.
+Implemented desktop-only integration. Phase 2 deliberately does **not** register
+the Credential Provider DLL, does **not** elevate/UAC, and does **not** store a
+Windows password. Those remain Phase 3 work.
+
+- `AutoStartManager` owns `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\DynamicIsland`
+  and writes `"<exe>" --autostart`.
+- `FaceEnrollWindow` provides a Direct2D modal enrollment wizard. It captures
+  front/left/right ×2 templates for the current Windows user, falling back to
+  `local_user` when the username is non-ASCII or too long.
+- `FaceIdComponent` adds island feedback states:
+  - **Scanning**: 240×52 capsule with rotating scan arcs.
+  - **Success**: green checkmark/pulse, auto-dismiss after 1 s.
+  - **Failed**: red X/shake, auto-dismiss after 1.5 s.
+- `FaceUnlockBridge` listens on `\\.\pipe\DynamicIsland.FaceUnlock` for one-line
+  UTF-8 JSON events: `scan_started`, `success`, `failed`.
+- Settings now includes a "人脸解锁" category with enrollment status, enroll,
+  delete, autostart, performance mode, and a disabled Phase 3 enable toggle.
+- `DynamicIsland.vcxproj` references `face_core`, links ORT/MF/Crypt32 libs,
+  and copies ONNX Runtime DLLs plus `models/` to the app output directory.
+
+Verified:
+
+```powershell
+MSBuild.exe DynamicIsland.sln /p:Configuration=Debug /p:Platform=x64 /m /nologo /v:minimal
+.\x64\Debug\face_console.exe selftest
+```
 
 ### ⏳ Phase 3 — Credential Provider DLL
 
@@ -290,37 +302,23 @@ toolset, C++17, Unicode, static CRT (`/NODEFAULTLIB:MSVCRT` on the main app).
 
 ## Next session — start here
 
-Phase 1 is closed. Pick up Phase 2 (main app integration). Order:
+Phase 2 is closed. Pick up Phase 3 (Credential Provider DLL), keeping the Phase
+2 boundary intact: the desktop app already has enrollment, template management,
+autostart, pipe events, and island feedback. Phase 3 owns CP registration,
+elevation, lock-screen UI, and password/secret strategy.
 
-1. `src/AutoStartManager.cpp` — read/write
-   `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\DynamicIsland`.
-2. `src/FaceEnrollWindow.cpp` — Direct2D 3-step wizard (front/left/right
-   ×2 each). Reuse the enrollment loop from
-   `tools/face_console/main.cpp::RunEnroll` — same logic, just D2D
-   rendering instead of console output. Active liveness ON during enroll.
-3. `src/components/FaceIdComponent.cpp` — three island states:
-   Scanning (rotating arc), Success (green check + pulse, 1 s),
-   Failed (red X shake, 1.5 s). All inside the existing island geometry.
-4. `src/DynamicIsland.cpp` — add mode `ModeFaceUnlockFeedback`, top
-   priority, auto-dismiss after the visual finishes.
-5. `src/FaceUnlockBridge.cpp` — listen on
-   `\\.\pipe\DynamicIsland.FaceUnlock`, dispatch JSON events to the
-   FaceIdComponent (this is where Phase 3's CP DLL will publish events
-   after lock-screen unlock).
-6. `src/SettingsWindow.cpp` — new "人脸解锁" group:
-   - 启用人脸解锁 (toggle, no-op until Phase 3)
-   - 录入人脸… (opens FaceEnrollWindow)
-   - 删除已录入
-   - 开机自启动 (AutoStartManager)
-   - 性能模式 / 跳过 3DDFA(stays off by default)
+Start Phase 3 with:
 
-Phase 2 success looks like: open settings → click "录入人脸" → enroll
-through the wizard → see the island flash a Face ID success animation.
-No lock-screen integration yet (that's Phase 3).
+1. Decide credential secret storage: machine-scope DPAPI MVP vs LSA secret.
+2. Wire `FaceUnlockProvider` to `face_core::FacePipeline`.
+3. Write pipe events from the CP (`scan_started`, `success`, `failed`) to the
+   Phase 2 bridge after unlock/failure.
+4. Add an elevated enable/disable flow in settings only when CP registration is
+   ready.
 
 Resume in any new session with:
 ```
-读 docs/FaceUnlockPlan.md 继续 Phase 2
+读 docs/FaceUnlockPlan.md 继续 Phase 3
 ```
 
 ---
@@ -552,8 +550,8 @@ New section "人脸解锁" between the existing Pomodoro and Agent groups:
 ```
 [ 人脸解锁 ]
   ☐ 启用人脸解锁
-        (toggling on triggers admin-elevated regsvr32 of the CP DLL;
-         off → unregister)
+        (disabled placeholder; lock-screen Credential Provider enablement
+         starts in Phase 3)
   [录入人脸…]   →  opens FaceEnrollWindow
   [删除已录入]  →  clears faces.bin (with confirmation)
   状态: 已录入 6 个模板 | 未录入
@@ -563,7 +561,8 @@ New section "人脸解锁" between the existing Pomodoro and Agent groups:
          Run\DynamicIsland)
 
   ☐ 性能模式 (跳过 3DDFA)
-        (degrades to A-tier; recommended only on low-end CPUs)
+        (saved for later runtime use; Phase 2 enrollment still forces 3DDFA
+         pose checks)
 ```
 
 ### Enrollment flow (`FaceEnrollWindow.cpp`)
@@ -578,12 +577,10 @@ Direct2D-rendered modal owned by the main app HWND.
    - 微微向右 (target: yaw > 12°)
    For each step, the wizard waits for the pose to hold for ~500 ms with
    liveness passing, then captures **2 embeddings** spaced 250 ms apart.
-3. Password prompt:
-   - "请输入您的 Windows 密码以完成录入"
-   - Stores DPAPI-encrypted blob at
-     `%LOCALAPPDATA%\DynamicIsland\unlock_secret.bin` (separate from
-     faces.bin so we can rotate independently).
-4. Done screen with summary and "完成" button.
+3. Done screen with summary and "完成" button.
+
+Phase 2 does not prompt for or save a Windows password. The credential secret
+strategy belongs to Phase 3.
 
 ### Pipe protocol (main app ↔ CP DLL)
 
@@ -777,10 +774,9 @@ each `Advise/UnAdvise` cycle.
 
 These need user input or research before the relevant phase:
 
-1. **Phase 2 — admin elevation UX**: should toggling "启用人脸解锁" trigger a
-   UAC prompt in-app, or pop a separate elevated helper EXE? In-app prompt
-   is cleaner but requires the main app to ship a manifest with
-   `requestedExecutionLevel="asInvoker"` and re-launch self with `runas`.
+1. **Phase 3 — admin elevation UX**: should toggling "启用人脸解锁" trigger a
+   UAC prompt in-app, or pop a separate elevated helper EXE? This starts only
+   after CP registration is implemented.
 
 2. **Phase 3 — multi-user**: do we filter the CP by SID so it only shows
    for users who have enrolled? Required if the machine has multiple

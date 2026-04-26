@@ -228,6 +228,9 @@ void RenderEngine::RegisterComponents() {
     m_volumeComponent = std::make_unique<VolumeComponent>();
     m_volumeComponent->OnAttach(&m_sharedRes);
 
+    m_faceIdComponent = std::make_unique<FaceIdComponent>();
+    m_faceIdComponent->OnAttach(&m_sharedRes);
+
     m_musicComponent = std::make_unique<MusicPlayerComponent>();
     m_musicComponent->OnAttach(&m_sharedRes);
 
@@ -268,7 +271,8 @@ void RenderEngine::Resize(int width, int height) {
     for (IIslandComponent* component : { static_cast<IIslandComponent*>(m_weatherComponent.get()), static_cast<IIslandComponent*>(m_lyricsComponent.get()),
         static_cast<IIslandComponent*>(m_waveformComponent.get()), static_cast<IIslandComponent*>(m_alertComponent.get()),
         static_cast<IIslandComponent*>(m_volumeComponent.get()), static_cast<IIslandComponent*>(m_musicComponent.get()),
-        static_cast<IIslandComponent*>(m_fileStorageComponent.get()), static_cast<IIslandComponent*>(m_clockComponent.get()),
+        static_cast<IIslandComponent*>(m_faceIdComponent.get()), static_cast<IIslandComponent*>(m_fileStorageComponent.get()),
+        static_cast<IIslandComponent*>(m_clockComponent.get()),
         static_cast<IIslandComponent*>(m_pomodoroComponent.get()), static_cast<IIslandComponent*>(m_todoComponent.get()),
         static_cast<IIslandComponent*>(m_agentSessionsComponent.get()) }) {
         if (component) {
@@ -328,6 +332,12 @@ void RenderEngine::SetVolumeState(bool active, float volumeLevel) {
     if (m_volumeComponent) {
         m_volumeComponent->SetActive(active);
         m_volumeComponent->SetVolumeLevel(volumeLevel);
+    }
+}
+
+void RenderEngine::SetFaceUnlockState(FaceIdState state, const std::wstring& text) {
+    if (m_faceIdComponent) {
+        m_faceIdComponent->SetState(state, text);
     }
 }
 
@@ -472,6 +482,7 @@ void RenderEngine::UpdateComponents(float deltaTime, const RenderContext& ctx) {
     if (m_weatherComponent) m_weatherComponent->Update(deltaTime);
     if (m_alertComponent) m_alertComponent->Update(deltaTime);
     if (m_volumeComponent) m_volumeComponent->Update(deltaTime);
+    if (m_faceIdComponent) m_faceIdComponent->Update(deltaTime);
     if (m_fileStorageComponent) m_fileStorageComponent->Update(deltaTime);
     if (m_clockComponent) m_clockComponent->Update(deltaTime);
     if (m_pomodoroComponent) m_pomodoroComponent->Update(deltaTime);
@@ -491,6 +502,8 @@ IIslandComponent* RenderEngine::ResolvePrimaryComponent(IslandDisplayMode mode) 
         return nullptr;
     case IslandDisplayMode::Alert:
         return m_alertComponent.get();
+    case IslandDisplayMode::FaceUnlockFeedback:
+        return m_faceIdComponent.get();
     case IslandDisplayMode::TodoInputCompact:
     case IslandDisplayMode::TodoListCompact:
     case IslandDisplayMode::TodoExpanded:
@@ -552,6 +565,7 @@ void RenderEngine::DrawPrimaryContent(const D2D1_RECT_F& contentRect, const Rend
     case IslandDisplayMode::Shrunk:
         break;
     case IslandDisplayMode::Alert:
+    case IslandDisplayMode::FaceUnlockFeedback:
     case IslandDisplayMode::PomodoroExpanded:
     case IslandDisplayMode::WeatherExpanded:
     case IslandDisplayMode::Volume:
@@ -1082,6 +1096,7 @@ bool RenderEngine::HasActiveAnimations() const {
         (m_lyricsComponent && m_lyricsComponent->NeedsRender()) ||
         (m_waveformComponent && m_waveformComponent->NeedsRender()) ||
         (m_weatherComponent && m_weatherComponent->NeedsRender()) ||
+        (m_faceIdComponent && m_faceIdComponent->NeedsRender()) ||
         (m_pomodoroComponent && m_pomodoroComponent->NeedsRender()) ||
         (m_todoComponent && m_todoComponent->NeedsRender()) ||
         (m_agentSessionsComponent && m_agentSessionsComponent->NeedsRender());

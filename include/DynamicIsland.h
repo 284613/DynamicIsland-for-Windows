@@ -7,6 +7,7 @@
 #include "AgentSessionMonitor.h"
 #include "ClaudeHookBridge.h"
 #include "CodexHookBridge.h"
+#include "FaceUnlockBridge.h"
 #include "ClaudeSessionStore.h"
 #include "CodexSessionStore.h"
 #include "MediaMonitor.h"
@@ -47,6 +48,7 @@ enum DirtyFlags : uint32_t {
     Dirty_Time           = 1 << 11,  // 时间字符串更新
     Dirty_Region         = 1 << 12,  // 窗口区域需更新
     Dirty_AgentSessions  = 1 << 13,  // 会话中心数据更新
+    Dirty_FaceUnlock     = 1 << 14,
 };
 
 enum class IslandState {
@@ -138,6 +140,9 @@ private:
     void SelectAgentSession(AgentKind kind, const std::wstring& sessionId);
     void HandleClaudeHookEvent(const ClaudeHookEvent& event);
     void HandleCodexHookEvent(const CodexHookEvent& event);
+    void HandleFaceUnlockEvent(const FaceUnlockEvent& event);
+    void ShowFaceUnlockFeedback(FaceIdState state, const std::wstring& text);
+    void ClearFaceUnlockFeedback();
     void RunClaudeHookAction(int actionId);
     bool HasWorkingClaudeSession() const;
     bool ShouldShowClaudeWorkingEdgeBadge(IslandDisplayMode mode) const;
@@ -208,6 +213,7 @@ private:
     AgentSessionMonitor m_agentSessionMonitor;
     ClaudeHookBridge m_claudeHookBridge;
     CodexHookBridge m_codexHookBridge;
+    FaceUnlockBridge m_faceUnlockBridge;
     ClaudeSessionStore m_claudeSessionStore;
     CodexSessionStore m_codexSessionStore;
     TodoStore m_todoStore;
@@ -237,6 +243,10 @@ private:
     std::vector<IslandDisplayMode> m_compactModeOrder;
     MusicArtworkStyle m_compactArtworkStyle = MusicArtworkStyle::Vinyl;
     MusicArtworkStyle m_expandedArtworkStyle = MusicArtworkStyle::Square;
+    bool m_faceUnlockFeedbackActive = false;
+    FaceIdState m_faceUnlockState = FaceIdState::Hidden;
+    std::wstring m_faceUnlockText;
+    UINT_PTR m_faceUnlockTimerId = 6;
 
     // LayoutController handles size, alpha, springs, and hit testing
     LayoutController m_layoutController;

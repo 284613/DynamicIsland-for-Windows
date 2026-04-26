@@ -21,6 +21,7 @@ enum class IslandDisplayMode
     MusicCompact,
     MusicExpanded,
 	WeatherExpanded,
+    FaceUnlockFeedback,
     Alert,
     Volume,
     FileDrop

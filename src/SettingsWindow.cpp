@@ -8,10 +8,14 @@
 #include "ClaudeHookBridge.h"
 #include "CodexHookInstaller.h"
 #include "CodexHookBridge.h"
+#include "AutoStartManager.h"
+#include "FaceEnrollWindow.h"
+#include "face_core/FaceTemplateStore.h"
 #include <dwmapi.h>
 #include <windowsx.h>
 #include <algorithm>
 #include <cmath>
+#include <exception>
 #include <fstream>
 #include <shlobj.h>
 #include <sstream>
@@ -47,11 +51,12 @@ static const CatMeta kCats[] = {
     { L"\uE8B7", L"文件副岛", L"文件副岛", L"微调文件寄存面板的尺寸与通透感" },
     { L"\uE9CA", L"天气",     L"天气",     L"和风天气 API 与城市配置" },
     { L"\uEA8F", L"通知",     L"通知",     L"允许接管通知的应用列表" },
+    { L"\uE8D7", L"人脸解锁", L"人脸解锁", L"录入、模板管理与桌面端反馈" },
     { L"\uE71D", L"Agent",    L"Agent Hooks",  L"安装 Claude / Codex hooks，并检测运行态监听状态" },
     { L"\uE90F", L"高级",     L"高级",     L"物理参数与系统行为调优" },
     { L"\uE946", L"关于",     L"关于",     L"项目版本与设计说明" },
 };
-static constexpr int kCatCount = 9;
+static constexpr int kCatCount = 10;
 
 // ---- 常量（DIP 基准） -----------------------------------------------
 namespace {
@@ -724,7 +729,8 @@ void SettingsWindow::LoadSettings() {
     m_filePanelTransparency = getI(L"FilePanel", L"Transparency",  90,  sp) / 100.f;
     m_springStiffness   = getF(L"Advanced",  L"SpringStiffness",   100, sp);
     m_springDamping     = getF(L"Advanced",  L"SpringDamping",     10,  sp);
-    m_autoStart           = getI(L"Settings",  L"AutoStart",          0,   cp) != 0;
+    m_autoStart           = AutoStart::IsEnabled();
+    m_facePerformanceMode = getI(L"FaceUnlock", L"PerformanceMode",   0,   cp) != 0;
     m_lowBatteryThreshold = getF(L"Advanced",  L"LowBatteryThreshold",20,  cp);
     m_fileStashMaxItems   = getF(L"Advanced",  L"FileStashMaxItems",  5,   cp);
     m_mediaPollIntervalMs = getF(L"Advanced",  L"MediaPollIntervalMs",1000,cp);
@@ -755,6 +761,8 @@ void SettingsWindow::SaveSettings() {
     wI(L"Settings",  L"DarkMode",          m_darkMode ? 1 : 0,              sp);
     wI(L"Settings",  L"FollowSystemTheme",  m_followSystemTheme ? 1 : 0,     sp);
     wI(L"Settings",  L"AutoStart",         m_autoStart ? 1 : 0,             sp);
+    wI(L"Settings",  L"AutoStart",         m_autoStart ? 1 : 0,             cp);
+    wI(L"FaceUnlock", L"PerformanceMode",  m_facePerformanceMode ? 1 : 0,   cp);
     wI(L"MainUI",    L"Width",              int(m_mainUIWidth),               sp);
     wI(L"MainUI",    L"Height",             int(m_mainUIHeight),              sp);
     wI(L"MainUI",    L"Transparency",       int(m_mainUITransparency * 100),  sp);
@@ -786,8 +794,27 @@ void SettingsWindow::SaveSettings() {
 
 void SettingsWindow::ApplySettings() {
     SaveSettings();
+    AutoStart::SetEnabled(m_autoStart);
     if (m_parentHwnd)
         PostMessageW(m_parentHwnd, WM_SETTINGS_APPLY, 0, 0);
+}
+
+size_t SettingsWindow::GetFaceTemplateCount() const {
+    try {
+        face_core::FaceTemplateStore store;
+        store.Load();
+        return store.Count();
+    } catch (...) {
+        return 0;
+    }
+}
+
+std::wstring SettingsWindow::GetFaceUnlockStatusText() const {
+    const size_t count = GetFaceTemplateCount();
+    if (count == 0) {
+        return L"未录入";
+    }
+    return L"已录入 " + std::to_wstring(count) + L" 个模板";
 }
 
 std::wstring SettingsWindow::SerializeCompactModeOrder() const {
@@ -970,6 +997,10 @@ void SettingsWindow::ResetToDefaults() {
     case SettingCategory::Notifications:
         m_allowedApps = L"微信,QQ";
         break;
+    case SettingCategory::FaceUnlock:
+        m_autoStart = false;
+        m_facePerformanceMode = false;
+        break;
     case SettingCategory::Agent:
         changed = false;
         break;
@@ -1069,6 +1100,7 @@ void SettingsWindow::BuildPage(SettingCategory cat,
     case SettingCategory::FilePanel:     BuildFilePanelPage    (ctrls, contentH); break;
     case SettingCategory::Weather:       BuildWeatherPage      (ctrls, contentH); break;
     case SettingCategory::Notifications: BuildNotificationsPage(ctrls, contentH); break;
+    case SettingCategory::FaceUnlock:    BuildFaceUnlockPage   (ctrls, contentH); break;
     case SettingCategory::Agent:         BuildAgentPage        (ctrls, contentH); break;
     case SettingCategory::Advanced:      BuildAdvancedPage     (ctrls, contentH); break;
     case SettingCategory::About:         BuildAboutPage        (ctrls, contentH); break;
@@ -1410,6 +1442,58 @@ void SettingsWindow::BuildNotificationsPage(std::vector<SettingsControl>& ctrls,
     h = y;
 }
 
+void SettingsWindow::BuildFaceUnlockPage(std::vector<SettingsControl>& ctrls,
+                                         float& h) const {
+    float y = 0.0f;
+    const size_t templateCount = GetFaceTemplateCount();
+
+    float statusCardH = CARD_PAD + ROW_H + 1.0f + ROW_H + CARD_PAD;
+    ctrls.push_back(mkCard(y, statusCardH));
+    mkToggle(ctrls, SettingID::FACE_ENABLE, L"启用人脸解锁",
+        L"锁屏 Credential Provider 将在 Phase 3 接入", false, y + CARD_PAD);
+    if (!ctrls.empty()) {
+        ctrls.back().enabled = false;
+    }
+    ctrls.push_back(mkSep(y + CARD_PAD + ROW_H));
+    SettingsControl status;
+    status.kind = ControlKind::Label;
+    status.text = L"录入状态: " + GetFaceUnlockStatusText();
+    status.bounds = D2D1::RectF(16.0f, y + CARD_PAD + ROW_H + 14.0f, CONT_W - 16.0f,
+        y + CARD_PAD + ROW_H + 14.0f + 24.0f);
+    ctrls.push_back(status);
+    y += statusCardH + CARD_GAP;
+
+    float actionCardH = CARD_PAD + INPUT_H + 1.0f + INPUT_H + CARD_PAD;
+    ctrls.push_back(mkCard(y, actionCardH));
+    float ry = y + CARD_PAD;
+    mkButton(ctrls, SettingID::FACE_ENROLL, templateCount > 0 ? L"重新录入人脸" : L"录入人脸", L"", ry);
+    ry += INPUT_H + 1.0f;
+    mkButton(ctrls, SettingID::FACE_DELETE, L"删除已录入人脸", L"", ry);
+    if (!ctrls.empty()) {
+        ctrls.back().enabled = templateCount > 0;
+    }
+    y += actionCardH + CARD_GAP;
+
+    float optionsCardH = CARD_PAD + ROW_H + 1.0f + ROW_H + CARD_PAD;
+    ctrls.push_back(mkCard(y, optionsCardH));
+    ry = y + CARD_PAD;
+    mkToggle(ctrls, SettingID::FACE_AUTOSTART, L"开机自启动",
+        L"写入当前用户 Run 项，命令带 --autostart", m_autoStart, ry);
+    ctrls.push_back(mkSep(y + CARD_PAD + ROW_H));
+    ry += ROW_H + 1.0f;
+    mkToggle(ctrls, SettingID::FACE_PERF_MODE, L"性能模式",
+        L"默认关闭；录入仍强制执行 Silent-Face 与 3DDFA 姿态检查", m_facePerformanceMode, ry);
+    y += optionsCardH + CARD_GAP;
+
+    SettingsControl note;
+    note.kind = ControlKind::SubLabel;
+    note.text = L"Phase 2 不注册锁屏组件、不弹 UAC、不保存 Windows 密码。";
+    note.bounds = D2D1::RectF(16.0f, y, CONT_W - 16.0f, y + 44.0f);
+    ctrls.push_back(note);
+    y += 44.0f + CARD_GAP;
+    h = y;
+}
+
 // ====================================================================
 // 页面: Claude / Agent
 // ====================================================================
@@ -1569,6 +1653,12 @@ void SettingsWindow::SyncStateFromControl(int id) {
         break;
     case SettingID::AUTOSTART:
         m_autoStart = ctrl->value > 0.5f;
+        break;
+    case SettingID::FACE_AUTOSTART:
+        m_autoStart = ctrl->value > 0.5f;
+        break;
+    case SettingID::FACE_PERF_MODE:
+        m_facePerformanceMode = ctrl->value > 0.5f;
         break;
     case SettingID::MAIN_WIDTH:       m_mainUIWidth          = ctrl->GetRawValue(); break;
     case SettingID::MAIN_HEIGHT:      m_mainUIHeight         = ctrl->GetRawValue(); break;
@@ -1849,6 +1939,43 @@ void SettingsWindow::HandleControlActivation(int id) {
         }
         SwitchCategory(m_currentCategory);
         MarkDirty(true, L"Compact mode order updated");
+        return;
+    }
+
+    if (id == SettingID::FACE_ENROLL) {
+        FaceEnrollWindow enrollWindow;
+        const FaceEnrollWindow::Result result = enrollWindow.ShowModal(m_hInstance, m_hwnd);
+        SwitchCategory(m_currentCategory);
+        if (result == FaceEnrollWindow::Result::Completed) {
+            MarkDirty(false, L"人脸录入完成");
+            if (m_parentHwnd) {
+                auto* event = new FaceUnlockEvent();
+                event->kind = FaceUnlockEventKind::Success;
+                event->user = L"local_user";
+                PostMessageW(m_parentHwnd, WM_FACE_UNLOCK_EVENT, 0, reinterpret_cast<LPARAM>(event));
+            }
+        } else if (result == FaceEnrollWindow::Result::Failed) {
+            MarkDirty(false, L"人脸录入失败");
+        } else {
+            MarkDirty(false, L"已取消人脸录入");
+        }
+        return;
+    }
+
+    if (id == SettingID::FACE_DELETE) {
+        if (MessageBoxW(m_hwnd, L"删除当前用户已录入的人脸模板？", L"人脸解锁",
+                MB_ICONQUESTION | MB_YESNO | MB_DEFBUTTON2) == IDYES) {
+            try {
+                face_core::FaceTemplateStore store;
+                store.Load();
+                store.Clear();
+                store.Save();
+                SwitchCategory(m_currentCategory);
+                MarkDirty(false, L"已删除已录入人脸");
+            } catch (const std::exception&) {
+                MarkDirty(false, L"删除人脸模板失败");
+            }
+        }
         return;
     }
 
@@ -2333,14 +2460,15 @@ void SettingsWindow::DrawControl(const SettingsControl& c,
 
 void SettingsWindow::DrawToggleControl(const SettingsControl& c,
                                        const D2D1_RECT_F& sr, float alpha) {
+    const float visualAlpha = c.enabled ? alpha : alpha * 0.45f;
     float cx = sr.left + 16.f;
     float midY = (sr.top + sr.bottom) / 2.f;
     DrawTextBlock(c.text, m_bodyFormat.Get(),
         D2D1::RectF(cx, midY - 18.f, sr.right - 80.f, midY - 2.f),
-        m_textColor, alpha);
+        m_textColor, visualAlpha);
     DrawTextBlock(c.subtitle, m_captionFormat.Get(),
         D2D1::RectF(cx, midY - 1.f, sr.right - 80.f, midY + 14.f),
-        m_secondaryTextColor, alpha);
+        m_secondaryTextColor, visualAlpha);
 
     float tw = 52.f;
     float th = 28.f;
@@ -2349,9 +2477,9 @@ void SettingsWindow::DrawToggleControl(const SettingsControl& c,
     float t = c.animatedValue;
     D2D1_COLOR_F offCol = m_darkMode ? CF(0.31f, 0.31f, 0.35f) : CF(0.84f, 0.84f, 0.87f);
     D2D1_COLOR_F trackCol = LerpCF(offCol, m_accentColor, t);
-    FillRoundedRect(D2D1::RectF(tx, ty, tx + tw, ty + th), th / 2.f, WithAlpha(trackCol, alpha));
+    FillRoundedRect(D2D1::RectF(tx, ty, tx + tw, ty + th), th / 2.f, WithAlpha(trackCol, visualAlpha));
     float knobX = tx + 2.f + t * (tw - 26.f);
-    FillEllipse(D2D1::Ellipse(D2D1::Point2F(knobX + 12.f, ty + 14.f), 12.f, 12.f), WithAlpha(CF(1.f, 1.f, 1.f), alpha));
+    FillEllipse(D2D1::Ellipse(D2D1::Point2F(knobX + 12.f, ty + 14.f), 12.f, 12.f), WithAlpha(CF(1.f, 1.f, 1.f), visualAlpha));
 }
 
 // ====================================================================
