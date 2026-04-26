@@ -37,6 +37,18 @@ config.ini
 *.swp
 *~
 
+# Face unlock — third-party SDK and model blobs (fetched via scripts/)
+third_party/onnxruntime/include/
+third_party/onnxruntime/lib/
+models/*.onnx
+models/*.pkl
+models/*.bin
+
+# Per-project build dirs created by face_core / FaceUnlockProvider
+face_core/x64/
+FaceUnlockProvider/x64/
+tools/face_console/x64/
+
 # Plugin DLLs (if any)
 *.dll
 *.exe
