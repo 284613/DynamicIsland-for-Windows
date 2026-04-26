@@ -7,10 +7,18 @@
 #include <thread>
 #include <atomic>
 #include <memory>
+#include "IslandState.h"
 
 struct LyricLine {
     int64_t timestamp;  // 毫秒
     std::wstring text;
+    std::vector<LyricWord> words;
+};
+
+enum class DynamicLyricFormat {
+    None,
+    Yrc,
+    Klyric
 };
 
 class LyricsMonitor {
@@ -27,13 +35,6 @@ public:
     // 根据播放位置（毫秒）获取当前歌词
     std::wstring GetCurrentLyric(int64_t positionMs);
 
-    // 获取歌词完整数据（含当前行和下一行时间戳）
-    struct LyricData {
-        std::wstring text;
-        int64_t currentMs;
-        int64_t nextMs;
-        int64_t positionMs;
-    };
     LyricData GetLyricData(int64_t positionMs);
 
     std::vector<LyricLine> GetAllLyrics() const;
@@ -41,15 +42,25 @@ public:
     void ClearLyrics();
 
 private:
+    struct FetchedLyrics {
+        std::wstring lineLyric;
+        std::wstring yrcLyric;
+        std::wstring klyricLyric;
+        DynamicLyricFormat dynamicFormat = DynamicLyricFormat::None;
+    };
+
     // 异步获取线程
     void FetchLyricsThread(std::wstring title, std::wstring artist);
 
     // 网络请求函数（私有，但可在类内访问）
     std::wstring SearchSong(const std::wstring& keyword, const std::wstring& searchArtist);
-    std::wstring FetchLyricsFromNetEase(const std::wstring& songId);
+    FetchedLyrics FetchLyricsFromNetEase(const std::wstring& songId);
 
     // 解析LRC（静态）
     static std::vector<LyricLine> ParseLrc(const std::string& lrcContent);
+    static std::vector<LyricLine> ParseYrcLyrics(const std::wstring& lyricContent);
+    static std::vector<LyricLine> ParseKlyricLyrics(const std::wstring& lyricContent);
+    static void AttachFallbackWordTiming(std::vector<LyricLine>& lyrics);
 
     // 本地文件辅助（静态）
     static std::wstring GetExeDirectory();

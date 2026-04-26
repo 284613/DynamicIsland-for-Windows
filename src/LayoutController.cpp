@@ -8,18 +8,18 @@ LayoutController::LayoutController()
     , m_currentAlpha(1.0f)
 {
     // Spring parameters tuned for snappy expand/collapse:
-    m_widthSpring.SetStiffness(400.0f);
-    m_widthSpring.SetDamping(30.0f);
-    m_heightSpring.SetStiffness(400.0f);
-    m_heightSpring.SetDamping(30.0f);
-    m_alphaSpring.SetStiffness(200.0f);  // Alpha fades slower
-    m_alphaSpring.SetDamping(15.0f);
+    m_widthSpring.SetStiffness(470.0f);
+    m_widthSpring.SetDamping(34.0f);
+    m_heightSpring.SetStiffness(470.0f);
+    m_heightSpring.SetDamping(34.0f);
+    m_alphaSpring.SetStiffness(230.0f);  // Alpha fades slower
+    m_alphaSpring.SetDamping(18.0f);
     
     // 副岛弹簧 [新增]
-    m_secHeightSpring.SetStiffness(180.0f); // 降低劲度，让动画更慢、更优雅
-    m_secHeightSpring.SetDamping(18.0f);    // 相应降低阻尼，保持自然的弹簧质感
-    m_secAlphaSpring.SetStiffness(150.0f);
-    m_secAlphaSpring.SetDamping(15.0f);
+    m_secHeightSpring.SetStiffness(145.0f); // 降低劲度，让动画更慢、更优雅
+    m_secHeightSpring.SetDamping(16.0f);    // 相应降低阻尼，保持自然的弹簧质感
+    m_secAlphaSpring.SetStiffness(125.0f);
+    m_secAlphaSpring.SetDamping(13.0f);
 
     m_widthSpring.SetTarget(Constants::Size::COLLAPSED_WIDTH);
     m_heightSpring.SetTarget(Constants::Size::COLLAPSED_HEIGHT);
@@ -58,10 +58,10 @@ void LayoutController::SetSpringParams(float stiffness, float damping) {
 
     m_alphaSpring.SetStiffness(stiffness * 0.5f);
     m_alphaSpring.SetDamping((std::max)(1.0f, damping * 0.5f));
-    m_secHeightSpring.SetStiffness(stiffness * 0.45f);
-    m_secHeightSpring.SetDamping((std::max)(1.0f, damping * 0.6f));
-    m_secAlphaSpring.SetStiffness(stiffness * 0.375f);
-    m_secAlphaSpring.SetDamping((std::max)(1.0f, damping * 0.5f));
+    m_secHeightSpring.SetStiffness(stiffness * 0.34f);
+    m_secHeightSpring.SetDamping((std::max)(1.0f, damping * 0.48f));
+    m_secAlphaSpring.SetStiffness(stiffness * 0.28f);
+    m_secAlphaSpring.SetDamping((std::max)(1.0f, damping * 0.42f));
 }
 
 void LayoutController::StartAnimation() {

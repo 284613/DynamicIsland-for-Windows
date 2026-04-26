@@ -5,14 +5,23 @@
 #include <shlobj.h>
 #include <shlwapi.h>
 #include <objidl.h>
+
+#include <algorithm>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <sstream>
 #include <string>
 #include <vector>
-#include <algorithm>
+
+#include <winrt/base.h>
+#include <winrt/Windows.Foundation.Collections.h>
+#include <winrt/Windows.Data.Json.h>
 
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "shlwapi.lib")
 #pragma comment(lib, "ole32.lib")
+#pragma comment(lib, "windowsapp.lib")
 
 struct FileStashItem {
     std::wstring stagedPath;
@@ -25,18 +34,30 @@ struct FileStashItem {
 
 namespace FileStashDetail {
 
-inline std::filesystem::path GetStashDirectory() {
+inline std::filesystem::path GetAppDirectory() {
     wchar_t localAppData[MAX_PATH] = {};
     if (SUCCEEDED(SHGetFolderPathW(nullptr, CSIDL_LOCAL_APPDATA, nullptr, SHGFP_TYPE_CURRENT, localAppData))) {
-        std::filesystem::path dir = std::filesystem::path(localAppData) / L"DynamicIsland" / L"FileStash";
+        std::filesystem::path dir = std::filesystem::path(localAppData) / L"DynamicIsland";
         std::error_code ec;
         std::filesystem::create_directories(dir, ec);
         return dir;
     }
-    std::filesystem::path dir = std::filesystem::temp_directory_path() / L"DynamicIsland_FileStash";
+
+    std::filesystem::path fallback = std::filesystem::temp_directory_path() / L"DynamicIsland";
+    std::error_code ec;
+    std::filesystem::create_directories(fallback, ec);
+    return fallback;
+}
+
+inline std::filesystem::path GetStashDirectory() {
+    std::filesystem::path dir = GetAppDirectory() / L"FileStash";
     std::error_code ec;
     std::filesystem::create_directories(dir, ec);
     return dir;
+}
+
+inline std::filesystem::path GetIndexPath() {
+    return GetAppDirectory() / L"file_stash.json";
 }
 
 inline std::filesystem::path MakeUniqueDestination(const std::filesystem::path& directory, const std::filesystem::path& sourcePath) {
@@ -53,19 +74,87 @@ inline std::filesystem::path MakeUniqueDestination(const std::filesystem::path& 
 inline bool MovePathRobust(const std::filesystem::path& source, const std::filesystem::path& destination) {
     std::error_code ec;
     std::filesystem::rename(source, destination, ec);
-    if (!ec) return true;
+    if (!ec) {
+        return true;
+    }
 
     ec.clear();
     std::filesystem::copy_file(source, destination, std::filesystem::copy_options::overwrite_existing, ec);
-    if (ec) return false;
+    if (ec) {
+        return false;
+    }
     std::filesystem::remove(source, ec);
     return !ec;
+}
+
+inline std::string WideToUtf8(const std::wstring& wide) {
+    if (wide.empty()) {
+        return {};
+    }
+
+    const int len = WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), nullptr, 0, nullptr, nullptr);
+    if (len <= 0) {
+        return {};
+    }
+
+    std::string utf8(len, '\0');
+    WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), utf8.data(), len, nullptr, nullptr);
+    return utf8;
+}
+
+inline std::wstring Utf8ToWide(const std::string& utf8) {
+    if (utf8.empty()) {
+        return {};
+    }
+
+    const int len = MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), nullptr, 0);
+    if (len <= 0) {
+        return {};
+    }
+
+    std::wstring wide(len, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), wide.data(), len);
+    return wide;
+}
+
+inline std::wstring EscapeJson(const std::wstring& value) {
+    std::wstring escaped;
+    escaped.reserve(value.size() + 8);
+    for (wchar_t ch : value) {
+        switch (ch) {
+        case L'\\': escaped += L"\\\\"; break;
+        case L'"': escaped += L"\\\""; break;
+        case L'\n': escaped += L"\\n"; break;
+        case L'\r': escaped += L"\\r"; break;
+        case L'\t': escaped += L"\\t"; break;
+        default: escaped += ch; break;
+        }
+    }
+    return escaped;
+}
+
+inline uint64_t FileTimeToUInt64(const FILETIME& fileTime) {
+    ULARGE_INTEGER value{};
+    value.LowPart = fileTime.dwLowDateTime;
+    value.HighPart = fileTime.dwHighDateTime;
+    return value.QuadPart;
+}
+
+inline FILETIME UInt64ToFileTime(uint64_t rawValue) {
+    ULARGE_INTEGER value{};
+    value.QuadPart = rawValue;
+    FILETIME fileTime{};
+    fileTime.dwLowDateTime = value.LowPart;
+    fileTime.dwHighDateTime = value.HighPart;
+    return fileTime;
 }
 
 inline HGLOBAL CreateHDropData(const std::wstring& filePath) {
     const SIZE_T bytes = sizeof(DROPFILES) + ((filePath.size() + 2) * sizeof(wchar_t));
     HGLOBAL hMem = GlobalAlloc(GHND | GMEM_SHARE, bytes);
-    if (!hMem) return nullptr;
+    if (!hMem) {
+        return nullptr;
+    }
 
     auto* dropFiles = static_cast<DROPFILES*>(GlobalLock(hMem));
     if (!dropFiles) {
@@ -241,11 +330,128 @@ public:
     bool HasItems() const { return !m_items.empty(); }
     size_t Count() const { return m_items.size(); }
     void SetMaxItems(size_t maxItems) { SetGlobalMaxItems(maxItems); }
+    std::filesystem::path GetStoragePath() const { return FileStashDetail::GetIndexPath(); }
+
+    bool Load() {
+        m_items.clear();
+
+        const std::filesystem::path path = GetStoragePath();
+        std::ifstream in(path, std::ios::binary);
+        if (!in.is_open()) {
+            return true;
+        }
+
+        std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        if (bytes.empty()) {
+            return true;
+        }
+
+        bool removedMissingItems = false;
+        try {
+            const auto root = winrt::Windows::Data::Json::JsonObject::Parse(winrt::hstring(FileStashDetail::Utf8ToWide(bytes)));
+            if (root.HasKey(L"items")) {
+                const auto items = root.GetNamedArray(L"items");
+                for (const auto& value : items) {
+                    const auto object = value.GetObject();
+                    FileStashItem item;
+                    if (object.HasKey(L"stagedPath")) item.stagedPath = object.GetNamedString(L"stagedPath").c_str();
+                    if (object.HasKey(L"originalSourcePath")) item.originalSourcePath = object.GetNamedString(L"originalSourcePath").c_str();
+                    if (object.HasKey(L"displayName")) item.displayName = object.GetNamedString(L"displayName").c_str();
+                    if (object.HasKey(L"extension")) item.extension = object.GetNamedString(L"extension").c_str();
+                    if (object.HasKey(L"sizeBytes")) item.sizeBytes = static_cast<uintmax_t>(object.GetNamedValue(L"sizeBytes").GetNumber());
+                    if (object.HasKey(L"storedAt")) item.storedAt = FileStashDetail::UInt64ToFileTime(static_cast<uint64_t>(object.GetNamedValue(L"storedAt").GetNumber()));
+
+                    if (item.stagedPath.empty()) {
+                        continue;
+                    }
+
+                    std::error_code ec;
+                    const std::filesystem::path stagedPath(item.stagedPath);
+                    if (!std::filesystem::exists(stagedPath, ec) || std::filesystem::is_directory(stagedPath, ec)) {
+                        removedMissingItems = true;
+                        continue;
+                    }
+
+                    if (item.displayName.empty()) {
+                        item.displayName = stagedPath.filename().wstring();
+                    }
+                    if (item.extension.empty()) {
+                        item.extension = stagedPath.extension().wstring();
+                    }
+                    if (item.sizeBytes == 0) {
+                        item.sizeBytes = std::filesystem::file_size(stagedPath, ec);
+                    }
+
+                    m_items.push_back(std::move(item));
+                }
+            }
+        } catch (...) {
+            m_items.clear();
+            return false;
+        }
+
+        if (removedMissingItems) {
+            Save();
+        }
+        return true;
+    }
+
+    bool Save() const {
+        std::wostringstream out;
+        out << L"{\n";
+        out << L"  \"version\": 1,\n";
+        out << L"  \"items\": [\n";
+        for (size_t i = 0; i < m_items.size(); ++i) {
+            const FileStashItem& item = m_items[i];
+            out << L"    {\n";
+            out << L"      \"stagedPath\": \"" << FileStashDetail::EscapeJson(item.stagedPath) << L"\",\n";
+            out << L"      \"originalSourcePath\": \"" << FileStashDetail::EscapeJson(item.originalSourcePath) << L"\",\n";
+            out << L"      \"displayName\": \"" << FileStashDetail::EscapeJson(item.displayName) << L"\",\n";
+            out << L"      \"extension\": \"" << FileStashDetail::EscapeJson(item.extension) << L"\",\n";
+            out << L"      \"sizeBytes\": " << item.sizeBytes << L",\n";
+            out << L"      \"storedAt\": " << FileStashDetail::FileTimeToUInt64(item.storedAt) << L"\n";
+            out << L"    }";
+            if (i + 1 < m_items.size()) {
+                out << L",";
+            }
+            out << L"\n";
+        }
+        out << L"  ]\n";
+        out << L"}\n";
+
+        const std::filesystem::path path = GetStoragePath();
+        std::filesystem::create_directories(path.parent_path());
+        const std::filesystem::path tempPath = path.wstring() + L".tmp";
+        {
+            std::ofstream file(tempPath, std::ios::binary | std::ios::trunc);
+            if (!file.is_open()) {
+                return false;
+            }
+            const std::string utf8 = FileStashDetail::WideToUtf8(out.str());
+            file.write(utf8.data(), static_cast<std::streamsize>(utf8.size()));
+            if (!file.good()) {
+                return false;
+            }
+        }
+
+        std::error_code ec;
+        std::filesystem::rename(tempPath, path, ec);
+        if (ec) {
+            std::filesystem::remove(path, ec);
+            ec.clear();
+            std::filesystem::rename(tempPath, path, ec);
+            if (ec) {
+                return false;
+            }
+        }
+        return true;
+    }
 
     bool AddPaths(const std::vector<std::wstring>& sourcePaths, std::wstring* errorMessage = nullptr) {
+        bool addedAny = false;
         for (const auto& sourcePathStr : sourcePaths) {
             if (m_items.size() >= GetMaxItems()) {
-                if (errorMessage) *errorMessage = L"最多暂存 " + std::to_wstring(GetMaxItems()) + L" 个文件";
+                if (errorMessage) *errorMessage = L"File stash limit reached: " + std::to_wstring(GetMaxItems());
                 return false;
             }
 
@@ -258,7 +464,7 @@ public:
             std::filesystem::path stashDir = FileStashDetail::GetStashDirectory();
             std::filesystem::path destination = FileStashDetail::MakeUniqueDestination(stashDir, sourcePath);
             if (!FileStashDetail::MovePathRobust(sourcePath, destination)) {
-                if (errorMessage) *errorMessage = L"文件暂存失败";
+                if (errorMessage) *errorMessage = L"Failed to stash file";
                 return false;
             }
 
@@ -270,8 +476,10 @@ public:
             item.sizeBytes = std::filesystem::file_size(destination, ec);
             GetSystemTimeAsFileTime(&item.storedAt);
             m_items.push_back(std::move(item));
+            addedAny = true;
         }
-        return true;
+
+        return !addedAny || Save();
     }
 
     bool RemoveIndex(size_t index) {
@@ -279,7 +487,7 @@ public:
         std::error_code ec;
         std::filesystem::remove(std::filesystem::path(m_items[index].stagedPath), ec);
         m_items.erase(m_items.begin() + index);
-        return true;
+        return Save();
     }
 
     bool PreviewIndex(size_t index) const {
@@ -293,6 +501,7 @@ public:
     }
 
     bool BeginMoveDrag(HWND owner, size_t index, bool& moveCompleted) const {
+        (void)owner;
         moveCompleted = false;
         if (index >= m_items.size()) return false;
 

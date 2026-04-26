@@ -1,5 +1,6 @@
 #pragma once
 #include "IIslandComponent.h"
+#include "IslandState.h"
 #include <string>
 #include <vector>
 
@@ -9,8 +10,12 @@ public:
     void Update(float deltaTime) override;
     void Draw(const D2D1_RECT_F& rect, float contentAlpha, ULONGLONG currentTimeMs) override;
     bool IsActive() const override { return m_hasSession; }
-    bool NeedsRender() const override { return m_isCompact && m_titleScrolling; }
+    bool NeedsRender() const override { return m_isCompact && (m_titleScrolling || m_isPlaying); }
     void SetCompactMode(bool isCompact) { m_isCompact = isCompact; }
+    void SetArtworkStyles(MusicArtworkStyle compactStyle, MusicArtworkStyle expandedStyle) {
+        m_compactArtworkStyle = compactStyle;
+        m_expandedArtworkStyle = expandedStyle;
+    }
 
     void SetPlaybackState(bool hasSession, bool isPlaying, float progress,
                           const std::wstring& title, const std::wstring& artist);
@@ -20,12 +25,23 @@ public:
     bool LoadAlbumArtFromMemory(const std::vector<uint8_t>& data);
 
 private:
+    struct MusicVisualLayout {
+        D2D1_RECT_F artRect = D2D1::RectF();
+        D2D1_RECT_F titleRect = D2D1::RectF();
+        D2D1_RECT_F artistRect = D2D1::RectF();
+    };
+
     void RenderExpanded(float left, float top, float width, float height, float contentAlpha);
     void RenderCompact(float left, float top, float width, float height, float contentAlpha);
+    MusicVisualLayout BuildVisualLayout(float left, float top, float width, float height, float expansion) const;
     void RenderAlbumArt(float left, float top, float size, float alpha);
+    void RenderVinylRecord(float left, float top, float size, float alpha);
+    void RenderVinylTonearm(float left, float top, float size, float alpha);
     void RenderProgressBar(float left, float top, float width, float height, float alpha);
     void RenderPlaybackButtons(float left, float top, float buttonSize, float alpha);
     void RenderCompactText(const std::wstring& text, float left, float top, float textRight, float height, float alpha);
+    void RenderTextLine(const std::wstring& text, IDWriteTextFormat* format, ID2D1Brush* brush,
+                        const D2D1_RECT_F& rect, float alpha, bool center);
 
     SharedResources* m_res = nullptr;
     ComPtr<ID2D1Bitmap> m_albumBitmap;
@@ -45,8 +61,11 @@ private:
     float m_titleScrollOffset = 0.0f;
     bool m_titleScrolling = false;
     std::wstring m_lastDrawnFullText;
+    float m_vinylAngle = 0.0f;
+    MusicArtworkStyle m_compactArtworkStyle = MusicArtworkStyle::Vinyl;
+    MusicArtworkStyle m_expandedArtworkStyle = MusicArtworkStyle::Square;
 
-    static constexpr float COMPACT_THRESHOLD = 60.0f;
+    static constexpr float COMPACT_THRESHOLD = 80.0f;
     static constexpr float BUTTON_SIZE = 30.0f;
     static constexpr float BUTTON_SPACING = 5.0f;
     static constexpr float ALBUM_ART_SIZE = 60.0f;

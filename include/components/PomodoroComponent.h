@@ -22,6 +22,9 @@ public:
     bool IsPaused() const { return m_state == State::Paused; }
     int GetRemainingSeconds() const;
     bool HasActiveSession() const;
+    bool LoadSnapshot();
+    bool SaveSnapshot() const;
+    void ClearSnapshot();
 
     void SetOnFinished(std::function<void()> callback) { m_onFinished = std::move(callback); }
 
@@ -77,6 +80,7 @@ private:
     std::wstring GetCompactText() const;
     std::wstring GetStatusText() const;
     std::wstring GetDurationText() const;
+    std::wstring SnapshotStateLabel() const;
 
     SharedResources* m_res = nullptr;
     ComPtr<ID2D1SolidColorBrush> m_pulseBrush;
@@ -92,6 +96,7 @@ private:
     float m_handAngleCurrent = 0.0f;
     float m_handAngleTarget = 0.0f;
     bool m_handAnimating = false;
+    float m_snapshotElapsed = 0.0f;
     D2D1_RECT_F m_lastRect = D2D1::RectF(0, 0, 0, 0);
     std::vector<ButtonRect> m_buttons;
     std::function<void()> m_onFinished;

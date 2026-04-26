@@ -13,6 +13,7 @@
 #include <chrono>
 #include <fstream>
 #include <algorithm>
+#include <cmath>
 
 #pragma comment(lib, "windowsapp.lib") // 链接 WinRT 库
 #pragma comment(lib, "shlwapi.lib")
@@ -20,6 +21,32 @@
 // 加上 winrt:: 前缀，防止和 Win32 的 Windows 宏发生冲突
 using namespace winrt;
 using namespace winrt::Windows::Media::Control;
+
+namespace {
+float Clamp01(float value) {
+	if (value < 0.0f) return 0.0f;
+	if (value > 1.0f) return 1.0f;
+	return value;
+}
+
+float ByteToSample(const BYTE* frame, WORD bitsPerSample) {
+	switch (bitsPerSample) {
+	case 8:
+		return (static_cast<float>(*frame) - 128.0f) / 128.0f;
+	case 16:
+		return static_cast<float>(*reinterpret_cast<const int16_t*>(frame)) / 32768.0f;
+	case 24: {
+		int32_t sample = (frame[0] | (frame[1] << 8) | (frame[2] << 16));
+		if (sample & 0x800000) sample |= ~0xFFFFFF;
+		return static_cast<float>(sample) / 8388608.0f;
+	}
+	case 32:
+		return static_cast<float>(*reinterpret_cast<const int32_t*>(frame)) / 2147483648.0f;
+	default:
+		return 0.0f;
+	}
+}
+}
 
 // 辅助函数：获取 EXE 所在目录
 std::wstring GetAppDirectory() {
@@ -34,9 +61,12 @@ MediaMonitor::MediaMonitor() : m_running(false) {}
 MediaMonitor::~MediaMonitor()
 {
 	m_running = false;
+	m_waitCv.notify_all();
 
 	if (m_workerThread.joinable())
 		m_workerThread.join();
+	if (m_audioThread.joinable())
+		m_audioThread.join();
 
 	// 清理内存中的专辑封面数据
 	if (m_albumArtData)
@@ -61,6 +91,7 @@ bool MediaMonitor::Initialize() {
 	// 2. 启动后台线程抓取歌名 (防止 WinRT 阻塞主 UI 线程的物理动画)
 	m_running = true;
 	m_workerThread = std::thread(&MediaMonitor::BackgroundMediaWorker, this);
+	m_audioThread = std::thread(&MediaMonitor::AudioCaptureWorker, this);
 
 	return true;
 }
@@ -70,6 +101,11 @@ float MediaMonitor::GetAudioLevel() {
 	float peak = 0.0f;
 	m_audioMeter->GetPeakValue(&peak); // 获取 0.0 到 1.0 之间的音量峰值
 	return peak;
+}
+
+std::array<float, 3> MediaMonitor::GetWaveformBands() const {
+	std::lock_guard<std::mutex> lock(m_mutex);
+	return m_waveformBands;
 }
 
 std::wstring MediaMonitor::GetTitle() {
@@ -140,6 +176,150 @@ int MediaMonitor::ComputePollIntervalMs() const {
     return (std::max)(1500, m_basePollIntervalMs * 4);
 }
 
+void MediaMonitor::AudioCaptureWorker() {
+	HRESULT initHr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+	if (FAILED(initHr) && initHr != RPC_E_CHANGED_MODE) {
+		return;
+	}
+
+	Microsoft::WRL::ComPtr<IMMDeviceEnumerator> deviceEnumerator;
+	Microsoft::WRL::ComPtr<IMMDevice> audioDevice;
+	Microsoft::WRL::ComPtr<IAudioClient> audioClient;
+	Microsoft::WRL::ComPtr<IAudioCaptureClient> captureClient;
+	WAVEFORMATEX* mixFormat = nullptr;
+
+	auto resetBands = [this]() {
+		std::lock_guard<std::mutex> lock(m_mutex);
+		m_waveformBands = { 0.0f, 0.0f, 0.0f };
+	};
+
+	do {
+		if (FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL, __uuidof(IMMDeviceEnumerator), reinterpret_cast<void**>(deviceEnumerator.GetAddressOf())))) {
+			break;
+		}
+
+		if (FAILED(deviceEnumerator->GetDefaultAudioEndpoint(eRender, eConsole, &audioDevice))) {
+			break;
+		}
+
+		if (FAILED(audioDevice->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr, reinterpret_cast<void**>(audioClient.GetAddressOf())))) {
+			break;
+		}
+
+		if (FAILED(audioClient->GetMixFormat(&mixFormat)) || !mixFormat) {
+			break;
+		}
+
+		const REFERENCE_TIME requestedDuration = 1000000; // 100 ms
+		if (FAILED(audioClient->Initialize(AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_LOOPBACK, requestedDuration, 0, mixFormat, nullptr))) {
+			break;
+		}
+
+		if (FAILED(audioClient->GetService(__uuidof(IAudioCaptureClient), reinterpret_cast<void**>(captureClient.GetAddressOf())))) {
+			break;
+		}
+
+		if (FAILED(audioClient->Start())) {
+			break;
+		}
+
+		const bool isFloat =
+			(mixFormat->wFormatTag == WAVE_FORMAT_IEEE_FLOAT) ||
+			(mixFormat->wFormatTag == WAVE_FORMAT_EXTENSIBLE &&
+			 reinterpret_cast<WAVEFORMATEXTENSIBLE*>(mixFormat)->SubFormat == KSDATAFORMAT_SUBTYPE_IEEE_FLOAT);
+		const float sampleRate = static_cast<float>(mixFormat->nSamplesPerSec);
+		const WORD channelCount = (std::max)(static_cast<WORD>(1), mixFormat->nChannels);
+		const WORD sampleBytes = (std::max)(static_cast<WORD>(1), static_cast<WORD>(mixFormat->nBlockAlign / channelCount));
+		const WORD frameBytes = mixFormat->nBlockAlign;
+
+		const float lowAlpha = 1.0f - std::exp(-2.0f * 3.14159265f * 220.0f / sampleRate);
+		const float midAlpha = 1.0f - std::exp(-2.0f * 3.14159265f * 1800.0f / sampleRate);
+		float lowState = 0.0f;
+		float midState = 0.0f;
+
+		while (m_running) {
+			UINT32 packetLength = 0;
+			if (FAILED(captureClient->GetNextPacketSize(&packetLength))) {
+				break;
+			}
+
+			std::array<float, 3> energy = { 0.0f, 0.0f, 0.0f };
+			uint64_t sampleCount = 0;
+
+			while (packetLength != 0) {
+				BYTE* data = nullptr;
+				UINT32 numFrames = 0;
+				DWORD flags = 0;
+				if (FAILED(captureClient->GetBuffer(&data, &numFrames, &flags, nullptr, nullptr))) {
+					packetLength = 0;
+					break;
+				}
+
+				if (!(flags & AUDCLNT_BUFFERFLAGS_SILENT) && data) {
+					for (UINT32 frameIndex = 0; frameIndex < numFrames; ++frameIndex) {
+						const BYTE* frameBase = data + frameIndex * frameBytes;
+						float monoSample = 0.0f;
+						for (WORD channel = 0; channel < channelCount; ++channel) {
+							const BYTE* sampleBase = frameBase + channel * sampleBytes;
+							if (isFloat) {
+								monoSample += *reinterpret_cast<const float*>(sampleBase);
+							} else {
+								monoSample += ByteToSample(sampleBase, mixFormat->wBitsPerSample);
+							}
+						}
+						monoSample /= static_cast<float>(channelCount);
+
+						lowState += (monoSample - lowState) * lowAlpha;
+						midState += (monoSample - midState) * midAlpha;
+						const float lowBand = lowState;
+						const float midBand = midState - lowState;
+						const float highBand = monoSample - midState;
+
+						energy[0] += lowBand * lowBand;
+						energy[1] += midBand * midBand;
+						energy[2] += highBand * highBand;
+					}
+					sampleCount += numFrames;
+				}
+
+				captureClient->ReleaseBuffer(numFrames);
+				if (FAILED(captureClient->GetNextPacketSize(&packetLength))) {
+					packetLength = 0;
+					break;
+				}
+			}
+
+			std::array<float, 3> nextBands = { 0.0f, 0.0f, 0.0f };
+			if (sampleCount > 0) {
+				nextBands[0] = Clamp01(std::sqrt(energy[0] / static_cast<float>(sampleCount)) * 7.5f);
+				nextBands[1] = Clamp01(std::sqrt(energy[1] / static_cast<float>(sampleCount)) * 11.0f);
+				nextBands[2] = Clamp01(std::sqrt(energy[2] / static_cast<float>(sampleCount)) * 15.0f);
+			}
+
+			{
+				std::lock_guard<std::mutex> lock(m_mutex);
+				for (size_t i = 0; i < m_waveformBands.size(); ++i) {
+					const float blend = nextBands[i] > m_waveformBands[i] ? 0.65f : 0.22f;
+					m_waveformBands[i] += (nextBands[i] - m_waveformBands[i]) * blend;
+					if (sampleCount == 0) {
+						m_waveformBands[i] *= 0.88f;
+					}
+				}
+			}
+
+			Sleep(10);
+		}
+
+		audioClient->Stop();
+	} while (false);
+
+	resetBands();
+	if (mixFormat) {
+		CoTaskMemFree(mixFormat);
+	}
+	CoUninitialize();
+}
+
 void MediaMonitor::SyncCurrentSession() {
 	bool wasPlaying = m_isPlaying.load();
 	bool hadSession = m_hasSession.load();
@@ -169,8 +349,8 @@ void MediaMonitor::SyncCurrentSession() {
 			if (timelineProperties) {
 				auto position = timelineProperties.Position();
 				auto duration = timelineProperties.EndTime();
-				m_position = std::chrono::duration_cast<std::chrono::seconds>(position).count();
-				m_duration = std::chrono::duration_cast<std::chrono::seconds>(duration).count();
+				m_positionMs = std::chrono::duration_cast<std::chrono::milliseconds>(position).count();
+				m_durationMs = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
 			}
 
 			auto props = session.TryGetMediaPropertiesAsync().get();
@@ -443,11 +623,19 @@ void MediaMonitor::Previous() {
 }
 
 std::chrono::seconds MediaMonitor::GetPosition() const {
-	return std::chrono::seconds(m_position.load());
+	return std::chrono::duration_cast<std::chrono::seconds>(GetPositionMs());
 }
 
 std::chrono::seconds MediaMonitor::GetDuration() const {
-	return std::chrono::seconds(m_duration.load());
+	return std::chrono::duration_cast<std::chrono::seconds>(GetDurationMs());
+}
+
+std::chrono::milliseconds MediaMonitor::GetPositionMs() const {
+	return std::chrono::milliseconds(m_positionMs.load());
+}
+
+std::chrono::milliseconds MediaMonitor::GetDurationMs() const {
+	return std::chrono::milliseconds(m_durationMs.load());
 }
 
 void MediaMonitor::SetPosition(std::chrono::seconds position) {

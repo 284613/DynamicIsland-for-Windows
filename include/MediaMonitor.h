@@ -1,5 +1,6 @@
 ﻿//MediaMonitor.h
 #pragma once
+#include <array>
 #include <windows.h>
 #include <string>
 #include <mutex>
@@ -7,6 +8,7 @@
 #include <atomic>
 #include <vector>
 #include <cstdint>
+#include <audioclient.h>
 #include <mmdeviceapi.h>
 #include <endpointvolume.h>
 #include <wrl.h>
@@ -33,6 +35,7 @@ public:
 
     // 获取实时音频峰值 (0.0f 到 1.0f)
     float GetAudioLevel();
+    std::array<float, 3> GetWaveformBands() const;
 
     // 获取当前歌名和歌手
     std::wstring GetTitle();
@@ -52,6 +55,8 @@ public:
     // 音乐进度相关
     std::chrono::seconds GetPosition() const;  // 当前播放位置（秒）
     std::chrono::seconds GetDuration() const;  // 总时长（秒）
+    std::chrono::milliseconds GetPositionMs() const;
+    std::chrono::milliseconds GetDurationMs() const;
     void SetPosition(std::chrono::seconds position);  // 设置播放位置
     float GetVolume();               // 【新增】获取当前音量 (0.0 ~ 1.0)
     void SetVolume(float volume);    // 【新增】设置当前音量 (0.0 ~ 1.0)
@@ -64,6 +69,7 @@ private:
     void AttachSessionHandlers(const GlobalSystemMediaTransportControlsSession& session);
     void DetachSessionHandlers();
     int ComputePollIntervalMs() const;
+    void AudioCaptureWorker();
     void BackgroundMediaWorker(); // 后台拉取媒体信息的线程
     std::vector<uint8_t>* ReadThumbnailToMemory(const IRandomAccessStreamReference& thumbnail);
     void ClearAlbumArt();
@@ -80,13 +86,14 @@ private:
     Microsoft::WRL::ComPtr<IAudioMeterInformation> m_audioMeter;
     Microsoft::WRL::ComPtr<IAudioEndpointVolume> m_endpointVolume;
     // 线程安全的数据
-    std::mutex m_mutex;
+    mutable std::mutex m_mutex;
     std::wstring m_title = L"暂无播放";
     std::wstring m_artist = L"系统";
     std::vector<uint8_t>* m_albumArtData = nullptr; // 内存中的专辑封面数据
     HWND m_targetHwnd = nullptr;
     // 后台线程控制
     std::thread m_workerThread;
+    std::thread m_audioThread;
     std::atomic<bool> m_isPlaying{ false };  // 新增原子变量，无需额外加锁
     std::atomic<bool> m_running;
     std::atomic<bool> m_hasSession{ false };
@@ -96,8 +103,8 @@ private:
     std::atomic<bool> m_needAlbumArtUpdate{ false }; // 【新增】标记是否需要重试封面抓取
 
     // 音乐进度
-    std::atomic<std::chrono::seconds::rep> m_position{ 0 };  // 当前位置（秒）
-    std::atomic<std::chrono::seconds::rep> m_duration{ 0 };  // 总时长（秒）
+    std::atomic<int64_t> m_positionMs{ 0 };
+    std::atomic<int64_t> m_durationMs{ 0 };
     std::mutex m_controlMutex; // 控制操作的互斥锁，防止同时调用多个控制函数导致状态混乱
     event_token m_sessionChangedToken; // 【OPT-02】会话变更事件订阅
     event_token m_playbackInfoChangedToken{};
@@ -111,6 +118,7 @@ private:
     std::atomic<bool> m_eventWakeRequested{ false };
     std::mutex m_waitMutex;
     std::condition_variable m_waitCv;
+    std::array<float, 3> m_waveformBands{ 0.0f, 0.0f, 0.0f };
    
 
     

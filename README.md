@@ -1,121 +1,67 @@
 # Dynamic Island for Windows
 
-> 将 iPhone Dynamic Island 体验移植到 Windows 桌面
+一个基于 C++17、Win32 API、Direct2D、DirectComposition 和 D3D11 的 Windows 桌面灵动岛应用。它把音乐播放、逐字歌词、天气、通知、Todo、Pomodoro、Agent 会话和文件暂存整合到顶部主岛与轻量副岛中。
 
-## 项目简介
+## 功能概览
 
-Dynamic Island for Windows 是一个基于 C++ / Win32 API / Direct2D 构建的桌面应用。它贴附在屏幕顶部，以 macOS 风格刘海主岛 + 独立胶囊副岛的方式承载音乐、通知、天气、文件暂存等交互。
-
-当前代码已经完成组件化收尾：
-- `RenderEngine` 只负责壳体、共享资源和组件调度
-- 业务 UI 主要位于 `src/components/`
-- `DynamicIsland.cpp` 已做一轮 slim，当前约 `1831` 行
-- 文件副岛输入已拆到 `src/FileSecondaryInput.cpp`
-- 天气设置页已支持搜索全国城市、地区筛选与自动定位
-- 番茄时钟主岛已接入 `PomodoroComponent`
-- TODO 主岛工作流已接入 `TodoComponent` + `TodoStore`
-
-## 核心能力
-
-- 按需渲染：基于 `DirtyFlags`，空闲态停止定时器，减少 CPU 占用
-- 主岛壳体：顶部平直贴顶，仅底部圆角；副岛保持独立胶囊
-- mini / collapsed 形态：默认更扁的 `96x24`
-- 主岛交互：固定贴顶，不支持鼠标拖拽移动
-- 音乐主岛：封面、标题、歌手、进度条、播放控制
-- 多岛交互：音乐、音量、文件副岛可以协同出现
-- 媒体监控：SMTC 事件优先，轮询兜底
-- 歌词显示：滚动歌词与弹簧动画
-- 天气面板：动态天气背景 + 小时 / 逐日预报
-- 天气设置：城市搜索、LocationId 自动回填、当前位置自动定位
-- 提示弹窗：WiFi、蓝牙、充电、低电量等优先级调度
-- 文件副岛：mini / expanded / drop target，支持真实移动语义
-- 设置窗口：Direct2D 全自绘，支持类别切换、滚动、保存并应用
-- 番茄时钟：点击空闲态时钟进入设置面板，支持开始 / 暂停 / 终止 / 收缩
-- 音量调节：仅在展开态下允许滚轮调整；紧凑态不再响应音量滚轮
-- TODO：Idle 左侧入口、紧凑态快速输入、滚轮切换到列表页、展开 TODO 管理面板
+- 音乐岛：支持紧凑态和展开态，包含封面、黑胶唱片样式、唱臂、进度、控制按钮和波形律动。
+- 逐字歌词：优先使用网易云 YRC 动态歌词，缺失时回退 KLYRIC/LRC 近似逐字高亮。
+- 收缩态：紧凑态可手动收缩到顶部细线，点击细线恢复；收缩 HUD 只显示摘要并尽量保持点击穿透。
+- 天气：天气 API Key 只从配置读取，未配置时显示 unavailable 状态，不再使用内置 fallback。
+- Todo：支持紧凑态列表、快速输入、简化展开态和本地持久化。
+- Pomodoro：支持紧凑/展开态、暂停恢复和本地快照。
+- 文件暂存：拖入主岛时显示吞食动效，右侧显示单文件圆圈；暂存索引支持启动恢复。
+- Agent：支持 Claude/Codex 会话面板、hook 事件刷新和空闲降频轮询。
+- 通知：监听系统通知并限制已处理缓存增长。
+- 设置页：Direct2D 自绘设置窗口，支持主题、透明度、天气、紧凑态顺序、专辑样式等配置热更新。
 
 ## 技术栈
 
 - 语言：C++17
-- 图形渲染：Direct2D 1.1 + DirectComposition + D3D11
-- 系统接口：Win32 API、WinRT、WASAPI
-- 构建系统：MSBuild / Visual Studio 2022
+- 图形：Direct2D 1.1、DirectComposition、D3D11
+- 系统接口：Win32 API、WinRT、WASAPI、SMTC
+- 构建：Visual Studio 2022 / MSBuild
 
-## 架构概览
+## 架构
 
 ```text
-输入层  MediaMonitor / NotificationMonitor / WeatherPlugin / SystemMonitor
-调度层  DynamicIsland -> LayoutController
-渲染层  RenderEngine + src/components/
+输入层: MediaMonitor / NotificationMonitor / WeatherPlugin / SystemMonitor / AgentSessionMonitor
+调度层: DynamicIsland -> LayoutController
+渲染层: RenderEngine -> src/components/
 ```
 
-职责边界：
-- `DynamicIsland`：窗口消息、状态机、输入分发、配置回流
-- `LayoutController`：尺寸、透明度、弹簧目标、命中测试
-- `RenderEngine`：D2D 生命周期、壳体绘制、组件调度
-- `src/components/`：天气、音乐、音量、歌词、文件、时钟、番茄时钟等具体 UI
+- `DynamicIsland`：窗口消息、状态机、输入分发、配置热更新和模式切换。
+- `LayoutController`：尺寸、透明度、弹簧动画和命中测试。
+- `RenderEngine`：Direct2D/DirectComposition 生命周期、壳体绘制和组件调度。
+- `src/components/`：音乐、歌词、天气、Todo、Pomodoro、文件圆圈、Agent 等具体 UI。
 
-## 项目结构
+## 目录结构
 
 ```text
 DynamicIsland/
-├── src/
-│   ├── components/             # 独立 UI 组件
-│   ├── DynamicIsland.cpp       # 主窗口逻辑与状态调度
-│   ├── FileSecondaryInput.cpp  # 文件副岛输入交互
-│   ├── RenderEngine.cpp        # 渲染引擎壳体与调度
-│   ├── LayoutController.cpp    # 弹簧布局与命中测试
-│   ├── SettingsWindow.cpp      # D2D 自绘设置窗口
-│   └── ...
-├── include/
-│   ├── components/             # 组件头文件
-│   ├── settings/               # 设置控件模型
-│   ├── FileStashStore.h        # 文件暂存存储层
-│   ├── EventBus.h              # 事件总线
-│   └── ...
-├── resources/
-│   ├── cities.json             # 天气设置城市数据（3000+ 城市）
-│   └── ...
-├── docs/
-│   ├── plans/                  # 计划与阶段执行记录
-│   │   ├── REFACTOR_PLAN.md
-│   │   ├── SLIM_PLAN.md
-│   │   ├── NOTCH_PLAN.md
-│   │   ├── PLAN_SETTINGS_POMODORO.md
-│   │   ├── PLAN_WEATHER_SETTINGS.md
-│   │   └── ...
-│   └── ...
-├── DynamicIsland.sln
-└── DynamicIsland.vcxproj
+├─ src/
+│  ├─ components/             # 独立 UI 组件
+│  ├─ DynamicIsland.cpp       # 主窗口消息与状态调度
+│  ├─ FileSecondaryInput.cpp  # 文件圆圈/拖拽输入
+│  ├─ RenderEngine.cpp        # 渲染壳体与组件调度
+│  ├─ LayoutController.cpp    # 弹簧布局与命中测试
+│  ├─ LyricsMonitor.cpp       # 歌词获取与解析
+│  └─ SettingsWindow.cpp      # D2D 自绘设置窗口
+├─ include/
+│  ├─ components/
+│  ├─ settings/
+│  └─ *.h
+├─ resources/
+├─ docs/
+│  └─ plans/
+├─ DynamicIsland.sln
+└─ DynamicIsland.vcxproj
 ```
-
-## 开发者速览
-
-优先看这些文件：
-- `src/DynamicIsland.cpp`：主窗口消息与模式切换
-- `src/FileSecondaryInput.cpp`：文件副岛点击 / 悬停 / 拖拽 / 双击
-- `src/LayoutController.cpp`：布局和命中测试
-- `src/RenderEngine.cpp`：壳体和组件调度
-- `src/SettingsWindow.cpp`：设置窗口
-- `resources/cities.json`：天气设置页城市搜索数据
-- `src/components/PomodoroComponent.cpp`：番茄时钟 UI、命中和倒计时显示
-- `src/components/TodoComponent.cpp`：TODO 紧凑态输入/列表、展开态列表与交互
-- `src/TodoStore.cpp`：TODO 持久化与排序
-
-修改时的约束：
-- 新功能优先放到对应组件，不要把业务状态重新塞回 `RenderEngine`
-- 所有输入命中和布局坐标都要考虑 `m_dpiScale`
-- DPI 坐标转换保持 `std::round` 语义，不要改成截断
-- 天气请求必须异步，不能阻塞 UI 线程
-- 天气设置页继续保持 D2D 自绘搜索与下拉面板，不要回退到 Win32 菜单 / 子控件
-- 文件暂存保持真实移动语义，目录在 `%LOCALAPPDATA%\\DynamicIsland\\FileStash\\`
-- 设置窗口继续保持自绘模型，不要重新引入 Win32 子控件
 
 ## 配置
 
-应用统一读取 exe 同目录的 `config.ini`；不存在时使用内置默认值。
+应用读取 exe 同目录下的 `config.ini`。常用配置节：
 
-常用配置节：
 - `[Settings]`
 - `[MainUI]`
 - `[FilePanel]`
@@ -123,50 +69,59 @@ DynamicIsland/
 - `[Notifications]`
 - `[Advanced]`
 
-`保存并应用` 会通过 `WM_SETTINGS_APPLY` 回流，当前会刷新：
-- 通知白名单
-- 天气配置
-- 低电量阈值
-- 主题与透明度
-- 主岛展开尺寸
-- 弹簧参数
-- 文件暂存上限
-- 媒体轮询间隔
-- 开机自启
+关键配置说明：
 
-## 当前状态
+- `Weather.ApiKey` 需要用户自行配置；未配置时天气模块不会发起请求。
+- `MainUI.CompactModeOrder` 控制紧凑态轮播顺序，`Idle` 始终作为兜底模式。
+- `CompactAlbumArtStyle` / `ExpandedAlbumArtStyle` 支持 `Square` 或 `Vinyl`。
 
-- 组件化重构已完成
-- 主岛已切换为 macOS 刘海形态，顶部无间距
-- 主岛已固定贴顶，默认不支持拖拽移动
-- 文件暂存已完全迁入副岛体系
-- 设置窗口已切换到 Direct2D 全自绘
-- 文件副岛输入已独立拆分
-- `RenderEngine.cpp` 已瘦身为壳体 + 调度
-- `保存并应用` 已能热回流主要运行时配置，不必重启应用
-- `WeatherPlugin` 配置已支持重新读取，修改 API Key / City / LocationId 后可刷新
-- 天气设置页已支持全国城市搜索、地区联动筛选、自动定位和 `LocationId` 自动回填
-- 番茄时钟已接入 `Idle / PomodoroExpanded / PomodoroCompact` 模式流转
-- 紧凑态下的滚轮音量调整已禁用，仅保留展开态调整
-- TODO 已接入 `Idle / TodoInputCompact / TodoListCompact / TodoExpanded` 流转
-- TODO 数据持久化到 `%LOCALAPPDATA%\\DynamicIsland\\todos.json`
-- Idle → TODO 输入支持同屏过渡动画：图标移动、时间天气退场、输入框揭示
-- 番茄时钟当前仍在做视觉细化，布局与图标可继续微调
+## 本地数据
 
-## 编译与运行
+- Todo：`%LOCALAPPDATA%\DynamicIsland\todos.json`
+- Pomodoro 快照：`%LOCALAPPDATA%\DynamicIsland\pomodoro.json`
+- 文件暂存索引：`%LOCALAPPDATA%\DynamicIsland\file_stash.json`
+- 文件暂存目录：`%LOCALAPPDATA%\DynamicIsland\FileStash\`
+
+## 构建与运行
 
 环境要求：
+
 - Windows 10/11 x64
-- Visual Studio 2022 (v143)
+- Visual Studio 2022
+- MSVC v143
 - Windows SDK 10.0
 
 构建命令：
 
 ```powershell
+msbuild DynamicIsland.sln /p:Configuration=Debug /p:Platform=x64
 msbuild DynamicIsland.sln /p:Configuration=Release /p:Platform=x64
+```
+
+运行：
+
+```powershell
 x64\Release\DynamicIsland.exe
 ```
 
-## 许可证
+如果构建 Release 时提示 exe 被占用，先关闭正在运行的 `DynamicIsland.exe`。
+
+## 开发入口
+
+- 改显示模式：先看 `DetermineDisplayMode()`、`TransitionTo()` 和 `ActiveExpandedMode`。
+- 改布局/命中：先看 `LayoutController`，同时确认 DPI 缩放。
+- 改音乐视觉：看 `MusicPlayerComponent`、`WaveformComponent`、`LyricsComponent`。
+- 改歌词解析：看 `LyricsMonitor`。
+- 改文件圆圈和拖拽：看 `FileSecondaryInput.cpp` 与 `FilePanelComponent`。
+- 改 Todo：看 `TodoComponent` 与 `TodoStore`。
+- 改天气：看 `WeatherPlugin` 与 `WeatherComponent`。
+- 改设置页：看 `SettingsWindow.cpp`。
+
+## 文档
+
+- 当前优化状态：`docs/OPT_STATUS.md`
+- 下一批功能路线图：`docs/plans/2026-04-23-next-batch-roadmap.md`
+
+## 许可
 
 本项目仅供学习与研究使用。

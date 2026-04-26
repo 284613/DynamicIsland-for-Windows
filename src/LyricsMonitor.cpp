@@ -7,6 +7,8 @@
 #include <fstream>
 #include <sstream>
 #include <regex>
+#include <algorithm>
+#include <cwctype>
 #include <shlwapi.h>
 #include <shellapi.h>
 #include <winrt/Windows.Foundation.Collections.h>
@@ -39,6 +41,220 @@ static std::wstring UTF8ToWide(const std::string& str) {
     std::wstring result(size, 0);
     MultiByteToWideChar(CP_UTF8, 0, str.data(), (int)str.size(), &result[0], size);
     return result;
+}
+
+static bool IsCjkChar(wchar_t ch) {
+    return (ch >= 0x3400 && ch <= 0x9FFF) ||
+        (ch >= 0xF900 && ch <= 0xFAFF) ||
+        (ch >= 0x3040 && ch <= 0x30FF) ||
+        (ch >= 0xAC00 && ch <= 0xD7AF);
+}
+
+static std::vector<std::wstring> SplitLyricTokens(const std::wstring& text) {
+    std::vector<std::wstring> tokens;
+    std::wstring current;
+
+    auto flush = [&]() {
+        if (!current.empty()) {
+            tokens.push_back(current);
+            current.clear();
+        }
+    };
+
+    for (wchar_t ch : text) {
+        if (std::iswspace(ch)) {
+            flush();
+            if (!tokens.empty()) {
+                tokens.back().push_back(ch);
+            }
+            continue;
+        }
+
+        if (IsCjkChar(ch)) {
+            flush();
+            tokens.emplace_back(1, ch);
+            continue;
+        }
+
+        if (std::iswalnum(ch) || ch == L'\'' || ch == L'-') {
+            current.push_back(ch);
+        } else {
+            flush();
+            tokens.emplace_back(1, ch);
+        }
+    }
+
+    flush();
+    if (tokens.empty() && !text.empty()) {
+        tokens.push_back(text);
+    }
+    return tokens;
+}
+
+static int64_t LyricTokenWeight(const std::wstring& token) {
+    int64_t weight = 0;
+    for (wchar_t ch : token) {
+        if (std::iswspace(ch)) {
+            weight += 1;
+        } else if (IsCjkChar(ch)) {
+            weight += 2;
+        } else {
+            weight += 1;
+        }
+    }
+    return (std::max)(int64_t{ 1 }, weight);
+}
+
+struct RawDynamicWord {
+    std::wstring text;
+    int64_t rawStart = 0;
+    int64_t durationMs = 0;
+    int flag = 0;
+};
+
+static bool HasCjkChar(const std::wstring& text) {
+    return std::any_of(text.begin(), text.end(), IsCjkChar);
+}
+
+static bool EndsWithSpace(const std::wstring& text) {
+    return !text.empty() && std::iswspace(text.back()) != 0;
+}
+
+static bool IsPunctuationOrSpaceOnly(const std::wstring& text) {
+    if (text.empty()) {
+        return true;
+    }
+    for (wchar_t ch : text) {
+        if (!std::iswspace(ch) && !std::iswpunct(ch)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static std::vector<std::wstring> SplitDynamicWordPreservingSpaces(const std::wstring& text) {
+    std::vector<std::wstring> runs;
+    std::wstring current;
+    const bool leadingSpace = !text.empty() && std::iswspace(text.front()) != 0;
+    const bool trailingSpace = !text.empty() && std::iswspace(text.back()) != 0;
+
+    for (wchar_t ch : text) {
+        if (std::iswspace(ch)) {
+            if (!current.empty()) {
+                runs.push_back(current);
+                current.clear();
+            }
+        } else {
+            current.push_back(ch);
+        }
+    }
+    if (!current.empty()) {
+        runs.push_back(current);
+    }
+
+    if (runs.empty()) {
+        return {};
+    }
+
+    for (size_t i = 0; i < runs.size(); ++i) {
+        if (i == 0 && leadingSpace) {
+            runs[i].insert(runs[i].begin(), L' ');
+        }
+        if (i + 1 < runs.size() || (i + 1 == runs.size() && trailingSpace)) {
+            runs[i].push_back(L' ');
+        }
+    }
+    return runs;
+}
+
+static void MarkLyricWordMetadata(LyricWord& word) {
+    word.isCjk = HasCjkChar(word.text);
+    word.endsWithSpace = EndsWithSpace(word.text);
+}
+
+static void MarkTrailingWords(std::vector<LyricWord>& words) {
+    if (words.empty()) {
+        return;
+    }
+
+    std::vector<int> boundaries;
+    boundaries.push_back(-1);
+    for (size_t i = 0; i + 1 < words.size(); ++i) {
+        if (words[i].endsWithSpace || IsPunctuationOrSpaceOnly(words[i].text)) {
+            boundaries.push_back(static_cast<int>(i));
+        }
+    }
+    boundaries.push_back(static_cast<int>(words.size() - 1));
+
+    for (size_t segment = 1; segment < boundaries.size(); ++segment) {
+        const int begin = boundaries[segment - 1];
+        const int end = boundaries[segment];
+        for (int i = end; i > begin; --i) {
+            if (i >= 0 && i < static_cast<int>(words.size()) &&
+                !IsPunctuationOrSpaceOnly(words[i].text)) {
+                if (words[i].durationMs >= 1000) {
+                    words[i].trailing = true;
+                }
+                break;
+            }
+        }
+    }
+}
+
+static std::wstring GetLyricCacheFormatMarker(DynamicLyricFormat format) {
+    switch (format) {
+    case DynamicLyricFormat::Yrc:
+        return L"#DynamicIslandLyricFormat=Yrc\n";
+    case DynamicLyricFormat::Klyric:
+        return L"#DynamicIslandLyricFormat=Klyric\n";
+    case DynamicLyricFormat::None:
+    default:
+        return L"";
+    }
+}
+
+static DynamicLyricFormat DetectLyricCacheFormat(const std::wstring& text) {
+    if (text.rfind(L"#DynamicIslandLyricFormat=Yrc", 0) == 0) {
+        return DynamicLyricFormat::Yrc;
+    }
+    if (text.rfind(L"#DynamicIslandLyricFormat=Klyric", 0) == 0) {
+        return DynamicLyricFormat::Klyric;
+    }
+    return DynamicLyricFormat::None;
+}
+
+static bool ShouldUseRelativeDynamicTimes(
+    int64_t lineStart,
+    int64_t lineDuration,
+    const std::vector<RawDynamicWord>& words) {
+    if (words.empty() || lineStart <= 0) {
+        return true;
+    }
+
+    const int64_t lineEnd = lineStart + lineDuration;
+    int absoluteFit = 0;
+    int relativeFit = 0;
+    for (const auto& word : words) {
+        if (word.rawStart >= lineStart - 500 && word.rawStart <= lineEnd + 1000) {
+            ++absoluteFit;
+        }
+        if (word.rawStart >= -250 && word.rawStart <= lineDuration + 1000) {
+            ++relativeFit;
+        }
+    }
+
+    if (absoluteFit > relativeFit) {
+        return false;
+    }
+    if (relativeFit > absoluteFit) {
+        return true;
+    }
+
+    const int64_t firstRawStart = words.front().rawStart;
+    if (firstRawStart >= lineStart - 500 && firstRawStart <= lineStart + 1000) {
+        return false;
+    }
+    return firstRawStart + 1000 < lineStart;
 }
 
 // ---------- Pimpl 实现结构 ----------
@@ -107,9 +323,8 @@ std::wstring LyricsMonitor::GetCurrentLyric(int64_t positionMs) {
     if (m_lyrics.empty())
         return L"";
 
-    // 添加时间偏移量：提前500毫秒显示歌词，解决慢半拍问题
-    // 你可以根据实际情况调整这个值（比如300ms, 500ms, 800ms）
-    const int64_t offsetMs = 1000;
+    // 只让整行歌词轻微提前出现；逐字高亮必须使用真实播放位置。
+    const int64_t offsetMs = 250;
     int64_t adjustedPosition = positionMs + offsetMs;
 
     // 确保调整后的位置不会小于0
@@ -178,15 +393,16 @@ static bool IsArtistMatch(const std::wstring& searchArtist, const std::wstring& 
 }
 
 
-LyricsMonitor::LyricData LyricsMonitor::GetLyricData(int64_t positionMs) {
+LyricData LyricsMonitor::GetLyricData(int64_t positionMs) {
     LyricData data = {L"", -1, -1, positionMs};
     std::lock_guard<std::mutex> lock(m_lyricsMutex);
     if (m_lyrics.empty())
         return data;
 
-    const int64_t offsetMs = 1000;
+    const int64_t offsetMs = 250;
     int64_t adjustedPosition = positionMs + offsetMs;
     if (adjustedPosition < 0) adjustedPosition = 0;
+    data.positionMs = (std::max)(int64_t{ 0 }, positionMs);
 
     auto it = std::upper_bound(m_lyrics.begin(), m_lyrics.end(), adjustedPosition,
         [](int64_t ts, const LyricLine& line) { return ts < line.timestamp; });
@@ -195,10 +411,15 @@ LyricsMonitor::LyricData LyricsMonitor::GetLyricData(int64_t positionMs) {
         --it;
         data.text = it->text;
         data.currentMs = it->timestamp;
+        data.words = it->words;
         // 下一行
         auto nextIt = std::next(it);
-        if (nextIt != m_lyrics.end())
+        if (nextIt != m_lyrics.end()) {
             data.nextMs = nextIt->timestamp;
+        } else if (!it->words.empty()) {
+            const auto& lastWord = it->words.back();
+            data.nextMs = lastWord.startMs + (std::max)(int64_t{ 250 }, lastWord.durationMs);
+        }
     }
     return data;
 }
@@ -270,10 +491,11 @@ std::wstring LyricsMonitor::SearchSong(const std::wstring& keyword, const std::w
     return L"";
 }
 
-std::wstring LyricsMonitor::FetchLyricsFromNetEase(const std::wstring& songId) {
+LyricsMonitor::FetchedLyrics LyricsMonitor::FetchLyricsFromNetEase(const std::wstring& songId) {
+    FetchedLyrics result;
     try {
         HttpClient httpClient;
-        std::wstring url = L"https://music.163.com/api/song/lyric?id=" + songId + L"&lv=1&kv=1&tv=-1";
+        std::wstring url = L"https://music.163.com/api/song/lyric?id=" + songId + L"&lv=1&kv=1&yv=1&tv=-1";
         Uri uri(url);
         HttpRequestMessage request(HttpMethod::Get(), uri);
 
@@ -286,28 +508,37 @@ std::wstring LyricsMonitor::FetchLyricsFromNetEase(const std::wstring& songId) {
 
         JsonObject json = JsonObject::Parse(responseBody);
 
-        // 先检查是否有lrc字段
-        if (json.HasKey(L"lrc")) {
-            auto lrc = json.GetNamedObject(L"lrc");
-            if (lrc.HasKey(L"lyric")) {
-                auto lyric = lrc.GetNamedString(L"lyric");
-                return lyric.c_str();
+        if (json.HasKey(L"yrc")) {
+            auto yrc = json.GetNamedObject(L"yrc");
+            if (yrc.HasKey(L"lyric")) {
+                result.yrcLyric = yrc.GetNamedString(L"lyric").c_str();
+                if (!result.yrcLyric.empty()) {
+                    result.dynamicFormat = DynamicLyricFormat::Yrc;
+                }
             }
         }
 
-        // 如果没有lrc，检查是否有klyric（逐字歌词）
         if (json.HasKey(L"klyric")) {
             auto klyric = json.GetNamedObject(L"klyric");
             if (klyric.HasKey(L"lyric")) {
-                auto lyric = klyric.GetNamedString(L"lyric");
-                return lyric.c_str();
+                result.klyricLyric = klyric.GetNamedString(L"lyric").c_str();
+                if (result.dynamicFormat == DynamicLyricFormat::None && !result.klyricLyric.empty()) {
+                    result.dynamicFormat = DynamicLyricFormat::Klyric;
+                }
+            }
+        }
+
+        if (json.HasKey(L"lrc")) {
+            auto lrc = json.GetNamedObject(L"lrc");
+            if (lrc.HasKey(L"lyric")) {
+                result.lineLyric = lrc.GetNamedString(L"lyric").c_str();
             }
         }
     }
     catch (winrt::hresult_error const& e) {
         OutputDebugStringW((L"FetchLyrics error: " + std::wstring(e.message().c_str()) + L"\n").c_str());
     }
-    return L"";
+    return result;
 }
 
 // ---------- 解析LRC ----------
@@ -360,7 +591,154 @@ std::vector<LyricLine> LyricsMonitor::ParseLrc(const std::string& lrcContent) {
 
     std::sort(result.begin(), result.end(),
         [](const LyricLine& a, const LyricLine& b) { return a.timestamp < b.timestamp; });
+    AttachFallbackWordTiming(result);
     return result;
+}
+
+static std::vector<LyricLine> ParseTimedDynamicLyrics(const std::wstring& lyricContent, bool wordTimesAreAbsolute) {
+    std::vector<LyricLine> result;
+    std::wistringstream iss(lyricContent);
+    std::wstring line;
+    std::wregex headerRegex(LR"(^\[(\d+),(\d+)\])");
+    std::wregex wordRegex(LR"(\((\d+),(\d+)(,(\d+))?\)([^\(]*))");
+
+    while (std::getline(iss, line)) {
+        if (!line.empty() && line.back() == L'\r') {
+            line.pop_back();
+        }
+
+        std::wsmatch headerMatch;
+        if (!std::regex_search(line, headerMatch, headerRegex)) {
+            continue;
+        }
+
+        int64_t lineStart = _wtoi64(headerMatch[1].str().c_str());
+        int64_t lineDuration = (std::max)(int64_t{ 1 }, _wtoi64(headerMatch[2].str().c_str()));
+        std::wstring wordPart = headerMatch.suffix().str();
+        std::vector<RawDynamicWord> rawWords;
+        std::wstring lineText;
+
+        auto begin = std::wsregex_iterator(wordPart.begin(), wordPart.end(), wordRegex);
+        auto end = std::wsregex_iterator();
+        for (auto it = begin; it != end; ++it) {
+            const std::wsmatch& match = *it;
+            std::wstring wordText = match[5].str();
+            if (wordText.empty()) {
+                continue;
+            }
+
+            int64_t rawStart = _wtoi64(match[1].str().c_str());
+            int64_t wordDuration = (std::max)(int64_t{ 1 }, _wtoi64(match[2].str().c_str()));
+            int flag = 0;
+            if (match[4].matched) {
+                flag = _wtoi(match[4].str().c_str());
+            }
+
+            const auto tokens = SplitDynamicWordPreservingSpaces(wordText);
+            if (tokens.empty()) {
+                continue;
+            }
+            for (size_t tokenIndex = 0; tokenIndex < tokens.size(); ++tokenIndex) {
+                const int64_t tokenStartOffset = (wordDuration * static_cast<int64_t>(tokenIndex)) /
+                    static_cast<int64_t>(tokens.size());
+                const int64_t tokenEndOffset = (wordDuration * static_cast<int64_t>(tokenIndex + 1)) /
+                    static_cast<int64_t>(tokens.size());
+
+                RawDynamicWord word;
+                word.text = tokens[tokenIndex];
+                word.rawStart = rawStart + tokenStartOffset;
+                word.durationMs = (std::max)(int64_t{ 1 }, tokenEndOffset - tokenStartOffset);
+                word.flag = flag;
+                rawWords.push_back(word);
+                lineText += word.text;
+            }
+        }
+
+        if (rawWords.empty() || lineText.empty()) {
+            continue;
+        }
+
+        const bool useRelativeTimes = wordTimesAreAbsolute
+            ? false
+            : ShouldUseRelativeDynamicTimes(lineStart, lineDuration, rawWords);
+        std::vector<LyricWord> words;
+        words.reserve(rawWords.size());
+        for (size_t i = 0; i < rawWords.size(); ++i) {
+            LyricWord word;
+            word.text = rawWords[i].text;
+            word.startMs = useRelativeTimes ? lineStart + rawWords[i].rawStart : rawWords[i].rawStart;
+            word.durationMs = rawWords[i].durationMs;
+            word.flag = rawWords[i].flag;
+            word.durationMs = (std::max)(int64_t{ 1 }, word.durationMs);
+            MarkLyricWordMetadata(word);
+            words.push_back(std::move(word));
+        }
+        MarkTrailingWords(words);
+
+        LyricLine parsedLine;
+        parsedLine.timestamp = lineStart;
+        parsedLine.text = lineText;
+        parsedLine.words = std::move(words);
+        result.push_back(std::move(parsedLine));
+    }
+
+    std::sort(result.begin(), result.end(),
+        [](const LyricLine& a, const LyricLine& b) { return a.timestamp < b.timestamp; });
+    return result;
+}
+
+std::vector<LyricLine> LyricsMonitor::ParseYrcLyrics(const std::wstring& lyricContent) {
+    return ParseTimedDynamicLyrics(lyricContent, true);
+}
+
+std::vector<LyricLine> LyricsMonitor::ParseKlyricLyrics(const std::wstring& lyricContent) {
+    return ParseTimedDynamicLyrics(lyricContent, false);
+}
+
+void LyricsMonitor::AttachFallbackWordTiming(std::vector<LyricLine>& lyrics) {
+    for (size_t i = 0; i < lyrics.size(); ++i) {
+        if (!lyrics[i].words.empty() || lyrics[i].text.empty()) {
+            continue;
+        }
+
+        const int64_t lineStart = lyrics[i].timestamp;
+        int64_t lineEnd = lineStart + 4000;
+        if (i + 1 < lyrics.size() && lyrics[i + 1].timestamp > lineStart) {
+            lineEnd = lyrics[i + 1].timestamp;
+        }
+
+        const auto tokens = SplitLyricTokens(lyrics[i].text);
+        if (tokens.empty()) {
+            continue;
+        }
+
+        const int64_t lineDuration = (std::max)(int64_t{ 500 }, lineEnd - lineStart);
+        int64_t totalWeight = 0;
+        for (const auto& token : tokens) {
+            totalWeight += LyricTokenWeight(token);
+        }
+        totalWeight = (std::max)(int64_t{ 1 }, totalWeight);
+        int64_t consumedWeight = 0;
+
+        lyrics[i].words.clear();
+        lyrics[i].words.reserve(tokens.size());
+        for (size_t tokenIndex = 0; tokenIndex < tokens.size(); ++tokenIndex) {
+            const int64_t tokenWeight = LyricTokenWeight(tokens[tokenIndex]);
+            const int64_t startOffset = (lineDuration * consumedWeight) / totalWeight;
+            consumedWeight += tokenWeight;
+            const int64_t endOffset = (tokenIndex + 1 == tokens.size())
+                ? lineDuration
+                : (lineDuration * consumedWeight) / totalWeight;
+
+            LyricWord word;
+            word.text = tokens[tokenIndex];
+            word.startMs = lineStart + startOffset;
+            word.durationMs = (std::max)(int64_t{ 1 }, endOffset - startOffset);
+            MarkLyricWordMetadata(word);
+            lyrics[i].words.push_back(std::move(word));
+        }
+        MarkTrailingWords(lyrics[i].words);
+    }
 }
 
 // ---------- 本地文件 ----------
@@ -380,7 +758,18 @@ bool LyricsMonitor::LoadLrcFromFile(const std::wstring& filePath, std::vector<Ly
     buffer << file.rdbuf();
     file.close();
 
-    outLyrics = ParseLrc(buffer.str());
+    const std::wstring wideLyrics = UTF8ToWide(buffer.str());
+    const DynamicLyricFormat cacheFormat = DetectLyricCacheFormat(wideLyrics);
+    if (cacheFormat == DynamicLyricFormat::Yrc) {
+        outLyrics = ParseYrcLyrics(wideLyrics);
+    } else if (cacheFormat == DynamicLyricFormat::Klyric) {
+        outLyrics = ParseKlyricLyrics(wideLyrics);
+    } else {
+        outLyrics = ParseKlyricLyrics(wideLyrics);
+    }
+    if (outLyrics.empty()) {
+        outLyrics = ParseLrc(buffer.str());
+    }
     return !outLyrics.empty();
 }
 
@@ -469,12 +858,35 @@ void LyricsMonitor::FetchLyricsThread(std::wstring title, std::wstring artist) {
                 if (!songId.empty()) {
                     // OutputDebugStringW((L"Found song ID: " + songId + L"\n").c_str());
 
-                    std::wstring lrcText = FetchLyricsFromNetEase(songId);
-                    if (!lrcText.empty()) {
-                        std::string utf8Lrc = WideToUTF8(lrcText);
-                        newLyrics = ParseLrc(utf8Lrc);
+                    FetchedLyrics fetchedLyrics = FetchLyricsFromNetEase(songId);
+                    std::vector<LyricLine> lineLyrics;
+                    if (!fetchedLyrics.lineLyric.empty()) {
+                        lineLyrics = ParseLrc(WideToUTF8(fetchedLyrics.lineLyric));
+                    }
+
+                    if (!fetchedLyrics.yrcLyric.empty()) {
+                        std::vector<LyricLine> yrcLyrics = ParseYrcLyrics(fetchedLyrics.yrcLyric);
+                        const bool yrcLooksComplete = lineLyrics.empty() ||
+                            yrcLyrics.size() * 10 >= lineLyrics.size() * 3;
+                        if (!yrcLyrics.empty() && yrcLooksComplete) {
+                            newLyrics = std::move(yrcLyrics);
+                            lrcTextToSave = GetLyricCacheFormatMarker(DynamicLyricFormat::Yrc) + fetchedLyrics.yrcLyric;
+                            break;
+                        }
+                    }
+
+                    if (!fetchedLyrics.klyricLyric.empty()) {
+                        newLyrics = ParseKlyricLyrics(fetchedLyrics.klyricLyric);
                         if (!newLyrics.empty()) {
-                            lrcTextToSave = lrcText;
+                            lrcTextToSave = GetLyricCacheFormatMarker(DynamicLyricFormat::Klyric) + fetchedLyrics.klyricLyric;
+                            break;
+                        }
+                    }
+
+                    if (!lineLyrics.empty()) {
+                        newLyrics = std::move(lineLyrics);
+                        if (!newLyrics.empty()) {
+                            lrcTextToSave = fetchedLyrics.lineLyric;
                             // std::wstring msg = L"Lyrics loaded successfully!\n";
                             // OutputDebugStringW(msg.c_str());
                             break; // 找到歌词了，停止搜索
@@ -492,9 +904,9 @@ void LyricsMonitor::FetchLyricsThread(std::wstring title, std::wstring artist) {
                 CreateDirectoryW(cacheDir.c_str(), nullptr);
 
                 // 保存歌词到缓存文件
-                std::wofstream file(cacheFile);
+                std::ofstream file(cacheFile, std::ios::binary);
                 if (file.is_open()) {
-                    file << lrcTextToSave;
+                    file << WideToUTF8(lrcTextToSave);
                     file.close();
                     // std::wstring msg = (L"Saved lyrics to cache: " + cacheFile + L"\n");
                     // OutputDebugStringW(msg.c_str());

@@ -183,22 +183,17 @@ bool TodoComponent::OnMouseClick(float x, float y) {
         SetActiveField(ActiveField::EditorTitle);
         return true;
     case HitKind::NoteField:
-        SetActiveField(ActiveField::EditorNote);
         return true;
     case HitKind::PriorityHigh:
-        m_editorPriority = TodoPriority::High;
         return true;
     case HitKind::PriorityMedium:
-        m_editorPriority = TodoPriority::Medium;
         return true;
     case HitKind::PriorityLow:
-        m_editorPriority = TodoPriority::Low;
         return true;
     case HitKind::SaveButton:
         SaveEditor();
         return true;
     case HitKind::CancelButton:
-        ResetExpandedEditor();
         return true;
     case HitKind::RowToggle:
         if (m_store) {
@@ -208,7 +203,6 @@ bool TodoComponent::OnMouseClick(float x, float y) {
         }
         return true;
     case HitKind::RowEdit:
-        BeginEdit(hit.itemId);
         return true;
     case HitKind::RowDelete:
         if (m_store) {
@@ -261,13 +255,12 @@ bool TodoComponent::OnKeyDown(WPARAM key) {
         switch (key) {
         case VK_ESCAPE:
             if (m_activeField != ActiveField::None) SetActiveField(ActiveField::None);
-            else if (!m_editorTitle.empty() || !m_editorNote.empty() || m_editingItemId != 0) ResetExpandedEditor();
+            else if (!m_editorTitle.empty()) ResetExpandedEditor();
             else if (m_onRequestCloseExpanded) m_onRequestCloseExpanded();
             return true;
         case VK_RETURN: SaveEditor(); return true;
         case VK_TAB:
-            if (m_activeField == ActiveField::EditorTitle) SetActiveField(ActiveField::EditorNote);
-            else SetActiveField(ActiveField::EditorTitle);
+            SetActiveField(ActiveField::EditorTitle);
             return true;
         case VK_LEFT: MoveCursorLeft(); return true;
         case VK_RIGHT: MoveCursorRight(); return true;
@@ -469,13 +462,16 @@ void TodoComponent::DrawExpanded(const D2D1_RECT_F& rect, float alpha) {
 
     const float outerPad = 14.0f;
     const D2D1_RECT_F surfaceRect = D2D1::RectF(rect.left + outerPad, rect.top + 8.0f, rect.right - outerPad, rect.bottom - 10.0f);
-    const D2D1_RECT_F heroCard = D2D1::RectF(surfaceRect.left + 4.0f, surfaceRect.top + 4.0f, surfaceRect.right - 4.0f, surfaceRect.top + 62.0f);
-    const D2D1_RECT_F headerRect = D2D1::RectF(heroCard.left + 16.0f, heroCard.top + 10.0f, heroCard.right - 86.0f, heroCard.top + 34.0f);
-    m_closeRect = D2D1::RectF(heroCard.right - 38.0f, heroCard.top + 10.0f, heroCard.right - 10.0f, heroCard.top + 36.0f);
+    const D2D1_RECT_F headerCard = D2D1::RectF(surfaceRect.left + 4.0f, surfaceRect.top + 4.0f, surfaceRect.right - 4.0f, surfaceRect.top + 54.0f);
+    const D2D1_RECT_F headerRect = D2D1::RectF(headerCard.left + 16.0f, headerCard.top + 9.0f, headerCard.right - 120.0f, headerCard.top + 32.0f);
+    m_closeRect = D2D1::RectF(headerCard.right - 38.0f, headerCard.top + 9.0f, headerCard.right - 10.0f, headerCard.top + 35.0f);
 
-    const D2D1_RECT_F editorCard = D2D1::RectF(surfaceRect.left + 4.0f, heroCard.bottom + 10.0f, surfaceRect.right - 4.0f, heroCard.bottom + 144.0f);
-    const D2D1_RECT_F listCard = D2D1::RectF(surfaceRect.left + 4.0f, editorCard.bottom + 10.0f, surfaceRect.right - 4.0f, surfaceRect.bottom - 4.0f);
-    m_listViewportRect = D2D1::RectF(listCard.left + 10.0f, listCard.top + 12.0f, listCard.right - 10.0f, listCard.bottom - 12.0f);
+    const D2D1_RECT_F quickCard = D2D1::RectF(surfaceRect.left + 4.0f, headerCard.bottom + 8.0f, surfaceRect.right - 4.0f, headerCard.bottom + 56.0f);
+    const D2D1_RECT_F listCard = D2D1::RectF(surfaceRect.left + 4.0f, quickCard.bottom + 8.0f, surfaceRect.right - 4.0f, surfaceRect.bottom - 4.0f);
+    m_titleFieldRect = D2D1::RectF(quickCard.left + 12.0f, quickCard.top + 7.0f, quickCard.right - 92.0f, quickCard.bottom - 7.0f);
+    m_noteFieldRect = D2D1::RectF(0, 0, 0, 0);
+    const D2D1_RECT_F saveRect = D2D1::RectF(quickCard.right - 82.0f, quickCard.top + 7.0f, quickCard.right - 12.0f, quickCard.bottom - 7.0f);
+    m_listViewportRect = D2D1::RectF(listCard.left + 10.0f, listCard.top + 10.0f, listCard.right - 10.0f, listCard.bottom - 10.0f);
 
     ComPtr<ID2D1SolidColorBrush> brush;
     ctx->CreateSolidColorBrush(SecondaryFill(), &brush);
@@ -492,61 +488,36 @@ void TodoComponent::DrawExpanded(const D2D1_RECT_F& rect, float alpha) {
 
     brush->SetColor(m_darkMode ? D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.045f) : D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.60f));
     brush->SetOpacity(alpha);
-    ctx->FillRoundedRectangle(D2D1::RoundedRect(heroCard, kExpandedCorner + 2.0f, kExpandedCorner + 2.0f), brush.Get());
+    ctx->FillRoundedRectangle(D2D1::RoundedRect(headerCard, kExpandedCorner + 2.0f, kExpandedCorner + 2.0f), brush.Get());
 
-    brush->SetColor(m_darkMode ? D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.030f) : D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.52f));
-    ctx->FillRoundedRectangle(D2D1::RoundedRect(editorCard, kExpandedCorner, kExpandedCorner), brush.Get());
+    brush->SetColor(m_darkMode ? D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.034f) : D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.52f));
+    ctx->FillRoundedRectangle(D2D1::RoundedRect(quickCard, kExpandedCorner, kExpandedCorner), brush.Get());
     brush->SetColor(m_darkMode ? D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.022f) : D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.46f));
     ctx->FillRoundedRectangle(D2D1::RoundedRect(listCard, kExpandedCorner, kExpandedCorner), brush.Get());
 
     brush->SetColor(StrokeColor());
     brush->SetOpacity(0.55f * alpha);
-    ctx->DrawRoundedRectangle(D2D1::RoundedRect(heroCard, kExpandedCorner + 2.0f, kExpandedCorner + 2.0f), brush.Get(), 1.0f);
-    ctx->DrawRoundedRectangle(D2D1::RoundedRect(editorCard, kExpandedCorner, kExpandedCorner), brush.Get(), 1.0f);
+    ctx->DrawRoundedRectangle(D2D1::RoundedRect(headerCard, kExpandedCorner + 2.0f, kExpandedCorner + 2.0f), brush.Get(), 1.0f);
+    ctx->DrawRoundedRectangle(D2D1::RoundedRect(quickCard, kExpandedCorner, kExpandedCorner), brush.Get(), 1.0f);
     ctx->DrawRoundedRectangle(D2D1::RoundedRect(listCard, kExpandedCorner, kExpandedCorner), brush.Get(), 1.0f);
 
     DrawText(L"TODO", m_res->titleFormat, headerRect, D2D1::ColorF(1, 1, 1, 1), alpha, DWRITE_TEXT_ALIGNMENT_LEADING);
     const std::wstring stats = std::to_wstring(m_store ? m_store->CountIncomplete() : 0) + L" open";
     const std::wstring total = std::to_wstring(m_store ? m_store->Items().size() : 0) + L" total";
-    const D2D1_RECT_F statsRect = D2D1::RectF(headerRect.left, heroCard.top + 30.0f, heroCard.right - 120.0f, heroCard.bottom - 10.0f);
+    const D2D1_RECT_F statsRect = D2D1::RectF(headerRect.left, headerCard.top + 28.0f, headerCard.right - 124.0f, headerCard.bottom - 7.0f);
     DrawText(stats, m_res->subFormat ? m_res->subFormat : m_res->titleFormat, statsRect,
         D2D1::ColorF(0.92f, 0.92f, 0.96f, 1.0f), alpha, DWRITE_TEXT_ALIGNMENT_LEADING);
-    const D2D1_RECT_F totalRect = D2D1::RectF(heroCard.right - 128.0f, heroCard.bottom - 30.0f, heroCard.right - 18.0f, heroCard.bottom - 8.0f);
+    const D2D1_RECT_F totalRect = D2D1::RectF(headerCard.right - 128.0f, headerCard.bottom - 30.0f, headerCard.right - 46.0f, headerCard.bottom - 8.0f);
     DrawText(total, m_res->subFormat ? m_res->subFormat : m_res->titleFormat, totalRect,
         D2D1::ColorF(0.76f, 0.76f, 0.80f, 1.0f), alpha, DWRITE_TEXT_ALIGNMENT_LEADING);
     DrawButton(m_closeRect, L"#close", false, alpha, m_hoveredKind == HitKind::HeaderClose);
     m_hits.push_back({ HitKind::HeaderClose, 0, m_closeRect });
 
-    const D2D1_RECT_F sectionLabelRect = D2D1::RectF(editorCard.left + 14.0f, editorCard.top + 10.0f, editorCard.left + 180.0f, editorCard.top + 30.0f);
-    DrawText(m_editingItemId == 0 ? L"Quick Add" : L"Edit Item", m_res->subFormat ? m_res->subFormat : m_res->titleFormat, sectionLabelRect,
-        D2D1::ColorF(0.78f, 0.78f, 0.82f, 1.0f), alpha, DWRITE_TEXT_ALIGNMENT_LEADING);
-
-    m_titleFieldRect = D2D1::RectF(editorCard.left + 14.0f, editorCard.top + 38.0f, editorCard.right - 144.0f, editorCard.top + 74.0f);
-    m_noteFieldRect = D2D1::RectF(editorCard.left + 14.0f, editorCard.top + 84.0f, editorCard.right - 144.0f, editorCard.top + 116.0f);
-    const D2D1_RECT_F saveRect = D2D1::RectF(editorCard.right - 118.0f, editorCard.top + 38.0f, editorCard.right - 14.0f, editorCard.top + 74.0f);
-    const D2D1_RECT_F cancelRect = D2D1::RectF(editorCard.right - 118.0f, editorCard.top + 84.0f, editorCard.right - 14.0f, editorCard.top + 116.0f);
-    const D2D1_RECT_F priorityLabelRect = D2D1::RectF(editorCard.left + 14.0f, editorCard.top + 120.0f, editorCard.left + 120.0f, editorCard.top + 138.0f);
-    DrawText(L"Priority", m_res->subFormat ? m_res->subFormat : m_res->titleFormat, priorityLabelRect,
-        D2D1::ColorF(0.74f, 0.74f, 0.78f, 1.0f), alpha, DWRITE_TEXT_ALIGNMENT_LEADING);
-    const D2D1_RECT_F highRect = D2D1::RectF(editorCard.left + 14.0f, editorCard.top + 144.0f, editorCard.left + 78.0f, editorCard.top + 172.0f);
-    const D2D1_RECT_F mediumRect = D2D1::RectF(highRect.right + 10.0f, highRect.top, highRect.right + 74.0f, highRect.bottom);
-    const D2D1_RECT_F lowRect = D2D1::RectF(mediumRect.right + 10.0f, highRect.top, mediumRect.right + 64.0f, highRect.bottom);
-
-    DrawField(m_titleFieldRect, m_editorTitle, L"Title", m_activeField == ActiveField::EditorTitle, alpha);
-    DrawField(m_noteFieldRect, m_editorNote, L"Note", m_activeField == ActiveField::EditorNote, alpha);
-    DrawButton(saveRect, m_editingItemId == 0 ? L"Add" : L"Save", true, alpha, m_hoveredKind == HitKind::SaveButton);
-    DrawButton(cancelRect, L"Cancel", false, alpha, m_hoveredKind == HitKind::CancelButton);
-    DrawPriorityPill(highRect, TodoPriority::High, m_editorPriority == TodoPriority::High, alpha, m_hoveredKind == HitKind::PriorityHigh);
-    DrawPriorityPill(mediumRect, TodoPriority::Medium, m_editorPriority == TodoPriority::Medium, alpha, m_hoveredKind == HitKind::PriorityMedium);
-    DrawPriorityPill(lowRect, TodoPriority::Low, m_editorPriority == TodoPriority::Low, alpha, m_hoveredKind == HitKind::PriorityLow);
+    DrawField(m_titleFieldRect, m_editorTitle, L"Quick add TODO...", m_activeField == ActiveField::EditorTitle, alpha);
+    DrawButton(saveRect, L"Add", true, alpha, m_hoveredKind == HitKind::SaveButton);
 
     m_hits.push_back({ HitKind::TitleField, 0, m_titleFieldRect });
-    m_hits.push_back({ HitKind::NoteField, 0, m_noteFieldRect });
     m_hits.push_back({ HitKind::SaveButton, 0, saveRect });
-    m_hits.push_back({ HitKind::CancelButton, 0, cancelRect });
-    m_hits.push_back({ HitKind::PriorityHigh, 0, highRect });
-    m_hits.push_back({ HitKind::PriorityMedium, 0, mediumRect });
-    m_hits.push_back({ HitKind::PriorityLow, 0, lowRect });
 
     const auto sortedItems = m_store ? m_store->GetSortedItems() : std::vector<const TodoItem*>{};
     const float contentHeight = static_cast<float>(sortedItems.size()) * kRowHeight;
@@ -560,7 +531,7 @@ void TodoComponent::DrawExpanded(const D2D1_RECT_F& rect, float alpha) {
         const D2D1_RECT_F emptySub = D2D1::RectF(m_listViewportRect.left + 28.0f, emptyTitle.bottom + 10.0f, m_listViewportRect.right - 28.0f, emptyTitle.bottom + 48.0f);
         DrawText(L"No TODO items yet", m_res->titleFormat, emptyTitle,
             D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f), alpha, DWRITE_TEXT_ALIGNMENT_CENTER);
-        DrawText(L"Use the compact input or add one here.", m_res->subFormat ? m_res->subFormat : m_res->titleFormat, emptySub,
+        DrawText(L"Type above and press Enter.", m_res->subFormat ? m_res->subFormat : m_res->titleFormat, emptySub,
             D2D1::ColorF(0.72f, 0.72f, 0.76f, 1.0f), alpha, DWRITE_TEXT_ALIGNMENT_CENTER);
     } else {
         for (size_t i = 0; i < sortedItems.size(); ++i) {
@@ -695,11 +666,10 @@ void TodoComponent::DrawRow(const D2D1_RECT_F& rowRect, const TodoItem& item, fl
     ctx->DrawRoundedRectangle(D2D1::RoundedRect(rowRect, 14.0f, 14.0f), brush.Get(), hovered ? 1.2f : 0.9f);
 
     const D2D1_RECT_F toggleRect = D2D1::RectF(rowRect.left + 14.0f, rowRect.top + 18.0f, rowRect.left + 30.0f, rowRect.top + 34.0f);
-    const D2D1_RECT_F editRect = D2D1::RectF(rowRect.right - 116.0f, rowRect.top + 14.0f, rowRect.right - 68.0f, rowRect.top + 38.0f);
     const D2D1_RECT_F deleteRect = D2D1::RectF(rowRect.right - 60.0f, rowRect.top + 14.0f, rowRect.right - 12.0f, rowRect.top + 38.0f);
     const D2D1_RECT_F priorityBar = D2D1::RectF(rowRect.left + 40.0f, rowRect.top + 12.0f, rowRect.left + 44.0f, rowRect.bottom - 12.0f);
-    const D2D1_RECT_F titleRect = D2D1::RectF(priorityBar.right + 12.0f, rowRect.top + 10.0f, editRect.left - 12.0f, rowRect.top + 28.0f);
-    const D2D1_RECT_F noteRect = D2D1::RectF(priorityBar.right + 12.0f, rowRect.top + 28.0f, editRect.left - 12.0f, rowRect.bottom - 10.0f);
+    const D2D1_RECT_F titleRect = D2D1::RectF(priorityBar.right + 12.0f, rowRect.top + 10.0f, deleteRect.left - 12.0f, rowRect.top + 30.0f);
+    const D2D1_RECT_F noteRect = D2D1::RectF(priorityBar.right + 12.0f, rowRect.top + 30.0f, deleteRect.left - 12.0f, rowRect.bottom - 10.0f);
 
     brush->SetColor(item.completed ? D2D1::ColorF(0.45f, 0.80f, 0.55f, 1.0f) : PriorityColor(item.priority));
     brush->SetOpacity(rowAlpha);
@@ -722,12 +692,11 @@ void TodoComponent::DrawRow(const D2D1_RECT_F& rowRect, const TodoItem& item, fl
             ctx->DrawLine(D2D1::Point2F(titleRect.left, strikeY), D2D1::Point2F(titleRect.right - 6.0f, strikeY), strikeBrush.Get(), 1.0f);
         }
     }
-    DrawButton(editRect, L"#edit", false, rowAlpha, hovered && m_hoveredKind == HitKind::RowEdit && m_hoveredItemId == item.id);
     DrawButton(deleteRect, L"#delete", false, rowAlpha, hovered && m_hoveredKind == HitKind::RowDelete && m_hoveredItemId == item.id);
 
     m_hits.push_back({ HitKind::RowToggle, item.id, toggleRect });
-    m_hits.push_back({ HitKind::RowEdit, item.id, editRect });
     m_hits.push_back({ HitKind::RowDelete, item.id, deleteRect });
+    m_hits.push_back({ HitKind::RowToggle, item.id, rowRect });
 }
 
 void TodoComponent::DrawText(const std::wstring& text, IDWriteTextFormat* format, const D2D1_RECT_F& rect,
@@ -923,11 +892,7 @@ void TodoComponent::SaveEditor() {
         return;
     }
 
-    if (m_editingItemId == 0) {
-        m_store->AddItem(title, Trimmed(m_editorNote), m_editorPriority);
-    } else {
-        m_store->UpdateItem(m_editingItemId, title, Trimmed(m_editorNote), m_editorPriority);
-    }
+    m_store->AddItem(title, L"", TodoPriority::Medium);
     ResetExpandedEditor();
 }
 

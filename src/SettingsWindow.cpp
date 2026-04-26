@@ -91,6 +91,22 @@ namespace {
     constexpr float TRAFFIC_LIGHT_RADIUS = 6.f;
     constexpr float WINDOW_CORNER_RADIUS = 24.f;
 
+    struct CompactModeMeta {
+        const wchar_t* key;
+        const wchar_t* label;
+        const wchar_t* subtitle;
+        int toggleId;
+        int upId;
+        int downId;
+    };
+
+    const CompactModeMeta kCompactModes[] = {
+        { L"Music",    L"Music",    L"音乐紧凑态",     SettingID::COMPACT_MUSIC_TOGGLE, SettingID::COMPACT_MUSIC_UP, SettingID::COMPACT_MUSIC_DOWN },
+        { L"Pomodoro", L"Pomodoro", L"番茄钟紧凑态",   SettingID::COMPACT_POMO_TOGGLE,  SettingID::COMPACT_POMO_UP,  SettingID::COMPACT_POMO_DOWN },
+        { L"Todo",     L"Todo",     L"TODO 列表紧凑态", SettingID::COMPACT_TODO_TOGGLE, SettingID::COMPACT_TODO_UP,  SettingID::COMPACT_TODO_DOWN },
+        { L"Agent",    L"Agent",    L"Agent 会话紧凑态", SettingID::COMPACT_AGENT_TOGGLE, SettingID::COMPACT_AGENT_UP, SettingID::COMPACT_AGENT_DOWN },
+    };
+
     std::wstring Utf8ToWide(const std::string& utf8) {
         if (utf8.empty()) return {};
         int len = MultiByteToWideChar(CP_UTF8, 0, utf8.data(), (int)utf8.size(), nullptr, 0);
@@ -141,6 +157,16 @@ namespace {
             if (currentSection == targetSection && StartsWithKey(line, key)) {
                 return line.substr(key.size() + 1);
             }
+        }
+        return fallback;
+    }
+
+    bool IsVinylStyle(const std::wstring& value, bool fallback) {
+        if (CompareStringOrdinal(value.c_str(), -1, L"Vinyl", -1, TRUE) == CSTR_EQUAL) {
+            return true;
+        }
+        if (CompareStringOrdinal(value.c_str(), -1, L"Square", -1, TRUE) == CSTR_EQUAL) {
+            return false;
         }
         return fallback;
     }
@@ -207,6 +233,34 @@ namespace {
         std::ofstream out(path, std::ios::binary | std::ios::trunc);
         const std::string utf8 = WideToUtf8(output);
         out.write(utf8.data(), static_cast<std::streamsize>(utf8.size()));
+    }
+
+    std::wstring ReadClipboardUnicodeText(HWND hwnd) {
+        if (!OpenClipboard(hwnd)) {
+            return {};
+        }
+
+        std::wstring text;
+        HANDLE clipboardData = GetClipboardData(CF_UNICODETEXT);
+        if (clipboardData) {
+            const wchar_t* raw = static_cast<const wchar_t*>(GlobalLock(clipboardData));
+            if (raw) {
+                text = raw;
+                GlobalUnlock(clipboardData);
+            }
+        }
+
+        CloseClipboard();
+        return text;
+    }
+
+    const CompactModeMeta* FindCompactModeMetaById(int id) {
+        for (const auto& mode : kCompactModes) {
+            if (mode.toggleId == id || mode.upId == id || mode.downId == id) {
+                return &mode;
+            }
+        }
+        return nullptr;
     }
 
     std::wstring TrimWeatherAreaSuffix(std::wstring text) {
@@ -680,6 +734,10 @@ void SettingsWindow::LoadSettings() {
     m_weatherLocationId   = getS(L"Weather",   L"LocationId", L"101010100",  cp);
     m_allowedApps         = getS(L"Notifications", L"AllowedApps", L"微信,QQ", cp);
 
+    LoadCompactModeOrder(ReadUtf8IniValue(cp, L"MainUI", L"CompactModeOrder", L"Music,Pomodoro,Todo,Agent"));
+    m_compactAlbumVinyl = IsVinylStyle(ReadUtf8IniValue(cp, L"MainUI", L"CompactAlbumArtStyle", L"Vinyl"), true);
+    m_expandedAlbumVinyl = IsVinylStyle(ReadUtf8IniValue(cp, L"MainUI", L"ExpandedAlbumArtStyle", L"Square"), false);
+    m_allowedApps = ReadUtf8IniValue(cp, L"Notifications", L"AllowedApps", m_allowedApps);
     if (m_followSystemTheme) m_darkMode = GetSystemDarkMode();
     m_isDirty = false;
 }
@@ -718,12 +776,99 @@ void SettingsWindow::SaveSettings() {
     WritePrivateProfileStringW(L"Weather", L"LocationId",
         m_weatherLocationId.c_str(), cp.c_str());
     WriteUtf8IniValue(cp, L"Weather", L"City", m_weatherCity);
+    WriteUtf8IniValue(cp, L"Weather", L"APIKey", m_weatherApiKey);
+    WriteUtf8IniValue(cp, L"Weather", L"LocationId", m_weatherLocationId);
+    WriteUtf8IniValue(cp, L"Notifications", L"AllowedApps", m_allowedApps);
+    WriteUtf8IniValue(cp, L"MainUI", L"CompactModeOrder", SerializeCompactModeOrder());
+    WriteUtf8IniValue(cp, L"MainUI", L"CompactAlbumArtStyle", m_compactAlbumVinyl ? L"Vinyl" : L"Square");
+    WriteUtf8IniValue(cp, L"MainUI", L"ExpandedAlbumArtStyle", m_expandedAlbumVinyl ? L"Vinyl" : L"Square");
 }
 
 void SettingsWindow::ApplySettings() {
     SaveSettings();
     if (m_parentHwnd)
         PostMessageW(m_parentHwnd, WM_SETTINGS_APPLY, 0, 0);
+}
+
+std::wstring SettingsWindow::SerializeCompactModeOrder() const {
+    std::wstring rawValue;
+    bool first = true;
+    for (const auto& modeKey : m_compactModeOrder) {
+        if (!first) {
+            rawValue += L",";
+        }
+        rawValue += modeKey;
+        first = false;
+    }
+    return rawValue;
+}
+
+void SettingsWindow::LoadCompactModeOrder(const std::wstring& rawValue) {
+    m_compactModeOrder.clear();
+
+    size_t start = 0;
+    while (start <= rawValue.size()) {
+        const size_t comma = rawValue.find(L',', start);
+        std::wstring token = rawValue.substr(start, comma == std::wstring::npos ? std::wstring::npos : comma - start);
+        token.erase(0, token.find_first_not_of(L" \t\r\n"));
+        if (!token.empty()) {
+            token.erase(token.find_last_not_of(L" \t\r\n") + 1);
+        }
+
+        if (!token.empty() &&
+            std::find(m_compactModeOrder.begin(), m_compactModeOrder.end(), token) == m_compactModeOrder.end()) {
+            for (const auto& mode : kCompactModes) {
+                if (_wcsicmp(token.c_str(), mode.key) == 0) {
+                    m_compactModeOrder.push_back(mode.key);
+                    break;
+                }
+            }
+        }
+
+        if (comma == std::wstring::npos) {
+            break;
+        }
+        start = comma + 1;
+    }
+
+    for (const auto& mode : kCompactModes) {
+        if (std::find(m_compactModeOrder.begin(), m_compactModeOrder.end(), mode.key) == m_compactModeOrder.end()) {
+            m_compactModeOrder.push_back(mode.key);
+        }
+    }
+}
+
+bool SettingsWindow::IsCompactModeEnabled(const std::wstring& modeKey) const {
+    return std::find(m_compactModeOrder.begin(), m_compactModeOrder.end(), modeKey) != m_compactModeOrder.end();
+}
+
+void SettingsWindow::ToggleCompactMode(const std::wstring& modeKey) {
+    auto it = std::find(m_compactModeOrder.begin(), m_compactModeOrder.end(), modeKey);
+    if (it != m_compactModeOrder.end()) {
+        m_compactModeOrder.erase(it);
+    } else {
+        for (const auto& mode : kCompactModes) {
+            if (_wcsicmp(mode.key, modeKey.c_str()) == 0) {
+                m_compactModeOrder.push_back(mode.key);
+                break;
+            }
+        }
+    }
+}
+
+void SettingsWindow::MoveCompactMode(const std::wstring& modeKey, int delta) {
+    auto it = std::find(m_compactModeOrder.begin(), m_compactModeOrder.end(), modeKey);
+    if (it == m_compactModeOrder.end()) {
+        return;
+    }
+
+    const ptrdiff_t index = std::distance(m_compactModeOrder.begin(), it);
+    ptrdiff_t nextIndex = index + delta;
+    if (nextIndex < 0 || nextIndex >= static_cast<ptrdiff_t>(m_compactModeOrder.size())) {
+        return;
+    }
+
+    std::iter_swap(m_compactModeOrder.begin() + index, m_compactModeOrder.begin() + nextIndex);
 }
 
 void SettingsWindow::MarkDirty(bool dirty, const std::wstring& msg) {
@@ -799,6 +944,9 @@ void SettingsWindow::ResetToDefaults() {
         m_mainUIWidth = 400.0f;
         m_mainUIHeight = 420.0f;
         m_mainUITransparency = 1.0f;
+        m_compactAlbumVinyl = true;
+        m_expandedAlbumVinyl = false;
+        LoadCompactModeOrder(L"Music,Pomodoro,Todo,Agent");
         break;
     case SettingCategory::FilePanel:
         m_filePanelWidth = 340.0f;
@@ -1041,12 +1189,138 @@ void SettingsWindow::BuildMainUiPage(std::vector<SettingsControl>& ctrls,
     mkSlider(ctrls, SettingID::MAIN_HEIGHT, L"主岛高度",   L"展开态高度（含音乐面板）",m_mainUIHeight,      100, 400, L" px", ry); ry += SLIDER_H + 1;
     mkSlider(ctrls, SettingID::MAIN_ALPHA,  L"主岛透明度", L"背景不透明度百分比",   m_mainUITransparency*100, 30, 100, L"%",  ry);
     y += cardH + CARD_GAP;
+    float artworkCardH = 0.0f;
+    BuildMusicArtworkCard(ctrls, y, artworkCardH);
+    y += artworkCardH + CARD_GAP;
+    float compactModesCardH = 0.0f;
+    BuildCompactModesCard(ctrls, y, compactModesCardH);
+    y += compactModesCardH + CARD_GAP;
+    ctrls.push_back(mkSubLabel(L"Idle mode is always available as the final fallback.", y));
+    y += 44.0f + CARD_GAP;
+    ctrls.push_back(mkSubLabel(L"Pomodoro sessions restore in paused state after restart.", y));
+    y += 44.0f + CARD_GAP;
     h = y;
 }
 
 // ====================================================================
 // 页面: 文件副岛
 // ====================================================================
+void SettingsWindow::BuildMusicArtworkCard(std::vector<SettingsControl>& ctrls, float y, float& cardHeight) const {
+    const float rowHeight = 42.0f;
+    const float titleHeight = 48.0f;
+    cardHeight = CARD_PAD + titleHeight + rowHeight * 2.0f + CARD_PAD;
+    ctrls.push_back(mkCard(y, cardHeight));
+
+    SettingsControl title;
+    title.kind = ControlKind::Label;
+    title.bounds = D2D1::RectF(0.0f, y + CARD_PAD, CONT_W, y + CARD_PAD + titleHeight);
+    title.text = L"Music Artwork";
+    title.subtitle = L"Switch album art between square cover and vinyl record.";
+    ctrls.push_back(title);
+
+    struct ArtworkRow {
+        int squareId;
+        int vinylId;
+        const wchar_t* label;
+        bool vinyl;
+    };
+    const ArtworkRow rows[] = {
+        { SettingID::MUSIC_COMPACT_ART_SQUARE, SettingID::MUSIC_COMPACT_ART_VINYL, L"Compact music", m_compactAlbumVinyl },
+        { SettingID::MUSIC_EXPANDED_ART_SQUARE, SettingID::MUSIC_EXPANDED_ART_VINYL, L"Expanded music", m_expandedAlbumVinyl },
+    };
+
+    float rowTop = y + CARD_PAD + titleHeight;
+    for (const auto& row : rows) {
+        SettingsControl label;
+        label.kind = ControlKind::Label;
+        label.bounds = D2D1::RectF(0.0f, rowTop, CONT_W - 180.0f, rowTop + rowHeight);
+        label.text = row.label;
+        label.subtitle = row.vinyl ? L"Vinyl record" : L"Square cover";
+        ctrls.push_back(label);
+
+        const float segmentTop = rowTop + 6.0f;
+        const float segmentHeight = 28.0f;
+        const float segmentWidth = 64.0f;
+        const float segmentGap = 5.0f;
+        const float segmentLeft = CONT_W - 10.0f - segmentWidth * 2.0f - segmentGap;
+
+        SettingsControl square = {};
+        square.kind = ControlKind::Button;
+        square.id = row.squareId;
+        square.text = L"Square";
+        square.isPrimary = !row.vinyl;
+        square.bounds = D2D1::RectF(segmentLeft, segmentTop, segmentLeft + segmentWidth, segmentTop + segmentHeight);
+        square.hoverSpring.SetStiffness(200.f);
+        square.hoverSpring.SetDamping(24.f);
+        ctrls.push_back(square);
+
+        SettingsControl vinyl = {};
+        vinyl.kind = ControlKind::Button;
+        vinyl.id = row.vinylId;
+        vinyl.text = L"Vinyl";
+        vinyl.isPrimary = row.vinyl;
+        vinyl.bounds = D2D1::RectF(segmentLeft + segmentWidth + segmentGap, segmentTop,
+            segmentLeft + segmentWidth * 2.0f + segmentGap, segmentTop + segmentHeight);
+        vinyl.hoverSpring.SetStiffness(200.f);
+        vinyl.hoverSpring.SetDamping(24.f);
+        ctrls.push_back(vinyl);
+        rowTop += rowHeight;
+    }
+}
+
+void SettingsWindow::BuildCompactModesCard(std::vector<SettingsControl>& ctrls, float y, float& cardHeight) const {
+    const float rowHeight = 42.0f;
+    const float titleHeight = 48.0f;
+    cardHeight = CARD_PAD + titleHeight + rowHeight * static_cast<float>(sizeof(kCompactModes) / sizeof(kCompactModes[0])) + CARD_PAD;
+    ctrls.push_back(mkCard(y, cardHeight));
+
+    SettingsControl title;
+    title.kind = ControlKind::Label;
+    title.bounds = D2D1::RectF(0.0f, y + CARD_PAD, CONT_W, y + CARD_PAD + titleHeight);
+    title.text = L"Compact Modes";
+    title.subtitle = L"Enable, disable, and reorder compact-mode scroll targets.";
+    ctrls.push_back(title);
+
+    float rowTop = y + CARD_PAD + titleHeight;
+    for (const auto& mode : kCompactModes) {
+        const bool enabled = IsCompactModeEnabled(mode.key);
+        const auto it = std::find(m_compactModeOrder.begin(), m_compactModeOrder.end(), mode.key);
+        const ptrdiff_t index = it == m_compactModeOrder.end() ? -1 : std::distance(m_compactModeOrder.begin(), it);
+
+        SettingsControl label;
+        label.kind = ControlKind::Label;
+        label.bounds = D2D1::RectF(0.0f, rowTop, CONT_W - 200.0f, rowTop + rowHeight);
+        label.text = mode.label;
+        label.subtitle = enabled ? mode.subtitle : L"Disabled in compact rotation";
+        ctrls.push_back(label);
+
+        SettingsControl toggle = {};
+        toggle.kind = ControlKind::Button;
+        toggle.id = mode.toggleId;
+        toggle.text = enabled ? L"On" : L"Off";
+        toggle.bounds = D2D1::RectF(CONT_W - 192.0f, rowTop + 6.0f, CONT_W - 134.0f, rowTop + 34.0f);
+        ctrls.push_back(toggle);
+
+        SettingsControl up = {};
+        up.kind = ControlKind::Button;
+        up.id = mode.upId;
+        up.text = L"Up";
+        up.enabled = enabled && index > 0;
+        up.bounds = D2D1::RectF(CONT_W - 126.0f, rowTop + 6.0f, CONT_W - 72.0f, rowTop + 34.0f);
+        ctrls.push_back(up);
+
+        SettingsControl down = {};
+        down.kind = ControlKind::Button;
+        down.id = mode.downId;
+        down.text = L"Down";
+        down.enabled = enabled && index >= 0 && index < static_cast<ptrdiff_t>(m_compactModeOrder.size()) - 1;
+        down.bounds = D2D1::RectF(CONT_W - 64.0f, rowTop + 6.0f, CONT_W - 10.0f, rowTop + 34.0f);
+        ctrls.push_back(down);
+
+        rowTop += rowHeight;
+    }
+}
+
 void SettingsWindow::BuildFilePanelPage(std::vector<SettingsControl>& ctrls,
                                         float& h) const {
     float y = 0;
@@ -1057,6 +1331,8 @@ void SettingsWindow::BuildFilePanelPage(std::vector<SettingsControl>& ctrls,
     mkSlider(ctrls, SettingID::FILE_HEIGHT, L"文件副岛高度",   L"展开面板的垂直尺寸",   m_filePanelHeight,        150, 420, L" px", ry); ry += SLIDER_H + 1;
     mkSlider(ctrls, SettingID::FILE_ALPHA,  L"文件副岛透明度", L"背景不透明度百分比",   m_filePanelTransparency*100, 30, 100, L"%",  ry);
     y += cardH + CARD_GAP;
+    ctrls.push_back(mkSubLabel(L"Stashed file list restores after app restart.", y));
+    y += 44.0f + CARD_GAP;
     h = y;
 }
 
@@ -1113,6 +1389,8 @@ void SettingsWindow::BuildWeatherPage(std::vector<SettingsControl>& ctrls,
 
     ctrls.push_back(mkSubLabel(L"API Key 可在 qweather.com 获取。支持自动定位或手动搜索全国 3000+ 城市。", y));
     y += 44 + CARD_GAP;
+    ctrls.push_back(mkSubLabel(L"If API Key is empty, the island stays in an unavailable state and skips weather requests.", y));
+    y += 44.0f + CARD_GAP;
     h = y;
 }
 // ====================================================================
@@ -1539,6 +1817,38 @@ void SettingsWindow::HandleControlActivation(int id) {
 
     if (id == SettingID::WEATHER_AUTO_LOC) {
         AutoLocateCity();
+        return;
+    }
+
+    if (id == SettingID::MUSIC_COMPACT_ART_SQUARE ||
+        id == SettingID::MUSIC_COMPACT_ART_VINYL ||
+        id == SettingID::MUSIC_EXPANDED_ART_SQUARE ||
+        id == SettingID::MUSIC_EXPANDED_ART_VINYL) {
+        if (id == SettingID::MUSIC_COMPACT_ART_SQUARE) {
+            m_compactAlbumVinyl = false;
+        } else if (id == SettingID::MUSIC_COMPACT_ART_VINYL) {
+            m_compactAlbumVinyl = true;
+        } else if (id == SettingID::MUSIC_EXPANDED_ART_SQUARE) {
+            m_expandedAlbumVinyl = false;
+        } else {
+            m_expandedAlbumVinyl = true;
+        }
+        ApplySettings();
+        SwitchCategory(m_currentCategory);
+        MarkDirty(false, L"Music artwork style applied");
+        return;
+    }
+
+    if (const CompactModeMeta* compactMode = FindCompactModeMetaById(id)) {
+        if (id == compactMode->toggleId) {
+            ToggleCompactMode(compactMode->key);
+        } else if (id == compactMode->upId) {
+            MoveCompactMode(compactMode->key, -1);
+        } else if (id == compactMode->downId) {
+            MoveCompactMode(compactMode->key, +1);
+        }
+        SwitchCategory(m_currentCategory);
+        MarkDirty(true, L"Compact mode order updated");
         return;
     }
 
@@ -2835,7 +3145,45 @@ LRESULT SettingsWindow::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
     }
 
+    case WM_PASTE: {
+        if (m_activeTextInputId) {
+            SettingsControl* ctrl = FindControlById(m_activeControls, m_activeTextInputId);
+            if (ctrl && ctrl->editing) {
+                const std::wstring clipboardText = ReadClipboardUnicodeText(hwnd);
+                if (!clipboardText.empty()) {
+                    ctrl->inputText.insert(ctrl->cursorPos, clipboardText);
+                    ctrl->cursorPos += int(clipboardText.size());
+                    m_caretBlinkStart = GetTickCount64();
+                    SyncStateFromControl(m_activeTextInputId);
+                    PositionIMEWindow();
+                    InvalidateRect(hwnd, nullptr, FALSE);
+                }
+                return 0;
+            }
+        }
+        break;
+    }
+
     case WM_KEYDOWN:
+        if (m_activeTextInputId) {
+            const bool ctrlPressed = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+            const bool shiftPressed = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+            if ((ctrlPressed && wp == 'V') || (shiftPressed && wp == VK_INSERT)) {
+                SettingsControl* ctrl = FindControlById(m_activeControls, m_activeTextInputId);
+                if (ctrl && ctrl->editing) {
+                    const std::wstring clipboardText = ReadClipboardUnicodeText(hwnd);
+                    if (!clipboardText.empty()) {
+                        ctrl->inputText.insert(ctrl->cursorPos, clipboardText);
+                        ctrl->cursorPos += int(clipboardText.size());
+                        m_caretBlinkStart = GetTickCount64();
+                        SyncStateFromControl(m_activeTextInputId);
+                        PositionIMEWindow();
+                        InvalidateRect(hwnd, nullptr, FALSE);
+                    }
+                    return 0;
+                }
+            }
+        }
         switch (wp) {
         case VK_ESCAPE:
             if (m_activeTextInputId) SetFocusedControl(0);

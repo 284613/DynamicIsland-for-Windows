@@ -96,6 +96,13 @@ void FilePanelComponent::SetInteractionState(int selectedIndex, int hoveredIndex
     m_hoveredFileIndex = hoveredIndex;
 }
 
+void FilePanelComponent::Update(float deltaTime) {
+    const float dt = (std::max)(0.001f, (std::min)(0.05f, deltaTime > 0.0f ? deltaTime : 0.016f));
+    if (m_viewMode == ViewMode::SwirlDrop || m_viewMode == ViewMode::CircleDropTarget) {
+        m_phase = std::fmod(m_phase + dt * 4.2f, 6.2831853f);
+    }
+}
+
 bool FilePanelComponent::ContainsPoint(float x, float y) const {
     return x >= m_lastRect.left && x <= m_lastRect.right && y >= m_lastRect.top && y <= m_lastRect.bottom;
 }
@@ -137,7 +144,13 @@ FilePanelComponent::HitResult FilePanelComponent::HitTest(float x, float y) cons
     HitResult result;
     if (!ContainsPoint(x, y)) return result;
 
-    if (m_viewMode == ViewMode::Mini || m_viewMode == ViewMode::DropTarget) {
+    if (m_viewMode == ViewMode::Circle || m_viewMode == ViewMode::CircleDropTarget) {
+        result.kind = m_storedFiles.empty() ? HitResult::Kind::MiniBody : HitResult::Kind::FileItem;
+        result.index = m_storedFiles.empty() ? -1 : 0;
+        return result;
+    }
+
+    if (m_viewMode == ViewMode::SwirlDrop || m_viewMode == ViewMode::Mini || m_viewMode == ViewMode::DropTarget) {
         result.kind = HitResult::Kind::MiniBody;
         return result;
     }
@@ -178,6 +191,16 @@ void FilePanelComponent::Draw(const D2D1_RECT_F& rect, float contentAlpha, ULONG
     if (!m_res || !m_res->d2dContext || m_viewMode == ViewMode::Hidden || contentAlpha <= 0.01f) return;
     m_lastRect = rect;
 
+    if (m_viewMode == ViewMode::Circle || m_viewMode == ViewMode::CircleDropTarget) {
+        RenderCircleView(rect, contentAlpha, m_viewMode == ViewMode::CircleDropTarget);
+        return;
+    }
+
+    if (m_viewMode == ViewMode::SwirlDrop) {
+        RenderSwirlDrop(rect, contentAlpha);
+        return;
+    }
+
     if (m_viewMode == ViewMode::DropTarget) {
         RenderDragHint(rect, contentAlpha);
         return;
@@ -200,6 +223,97 @@ void FilePanelComponent::Draw(const D2D1_RECT_F& rect, float contentAlpha, ULONG
     }
 
     m_res->d2dContext->PopAxisAlignedClip();
+}
+
+void FilePanelComponent::RenderCircleView(const D2D1_RECT_F& rect, float contentAlpha, bool dropTarget) {
+    auto* ctx = m_res->d2dContext;
+    const float width = rect.right - rect.left;
+    const float height = rect.bottom - rect.top;
+    const float size = (std::min)(width, height);
+    const D2D1_POINT_2F center = D2D1::Point2F(rect.left + width * 0.5f, rect.top + height * 0.5f);
+    const float radius = size * 0.5f;
+
+    m_res->blackBrush->SetOpacity(0.72f * contentAlpha);
+    ctx->FillEllipse(D2D1::Ellipse(center, radius, radius), m_res->blackBrush);
+    m_res->fileBrush->SetOpacity((dropTarget ? 0.95f : 0.70f) * contentAlpha);
+    ctx->DrawEllipse(D2D1::Ellipse(center, radius - 1.5f, radius - 1.5f), m_res->fileBrush, dropTarget ? 2.2f : 1.4f);
+
+    if (dropTarget) {
+        for (int i = 0; i < 3; ++i) {
+            const float r = radius - 6.0f - static_cast<float>(i) * 5.5f;
+            const float a = m_phase + static_cast<float>(i) * 2.1f;
+            const D2D1_POINT_2F p1 = D2D1::Point2F(center.x + std::cos(a) * r, center.y + std::sin(a) * r);
+            const D2D1_POINT_2F p2 = D2D1::Point2F(center.x + std::cos(a + 1.15f) * (r - 3.0f), center.y + std::sin(a + 1.15f) * (r - 3.0f));
+            m_res->themeBrush->SetOpacity((0.42f - i * 0.08f) * contentAlpha);
+            ctx->DrawLine(p1, p2, m_res->themeBrush, 1.4f);
+        }
+    }
+
+    const float iconSize = size * 0.48f;
+    const float iconLeft = center.x - iconSize * 0.5f;
+    const float iconTop = center.y - iconSize * 0.5f;
+    if (!m_storedFiles.empty()) {
+        auto icon = GetFileIcon(m_storedFiles[0].stagedPath);
+        if (icon) {
+            ctx->DrawBitmap(icon.Get(), D2D1::RectF(iconLeft, iconTop, iconLeft + iconSize, iconTop + iconSize), contentAlpha, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+            return;
+        }
+    }
+
+    m_res->fileBrush->SetOpacity(contentAlpha);
+    ctx->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(iconLeft, iconTop, iconLeft + iconSize, iconTop + iconSize), 6.0f, 6.0f), m_res->fileBrush);
+}
+
+void FilePanelComponent::RenderSwirlDrop(const D2D1_RECT_F& rect, float contentAlpha) {
+    auto* ctx = m_res->d2dContext;
+    const float width = rect.right - rect.left;
+    const float height = rect.bottom - rect.top;
+    const D2D1_POINT_2F center = D2D1::Point2F(rect.left + width * 0.5f, rect.top + height * 0.52f);
+    const float maxRadius = (std::min)(width, height) * 0.36f;
+
+    m_res->themeBrush->SetOpacity(0.12f * contentAlpha);
+    ctx->FillEllipse(D2D1::Ellipse(center, maxRadius * 1.05f, maxRadius * 0.72f), m_res->themeBrush);
+
+    if (m_res->d2dFactory) {
+        for (int arm = 0; arm < 3; ++arm) {
+            ComPtr<ID2D1PathGeometry> geometry;
+            if (FAILED(m_res->d2dFactory->CreatePathGeometry(&geometry)) || !geometry) {
+                continue;
+            }
+            ComPtr<ID2D1GeometrySink> sink;
+            if (FAILED(geometry->Open(&sink)) || !sink) {
+                continue;
+            }
+            const float startAngle = m_phase + static_cast<float>(arm) * 2.0943951f;
+            for (int i = 0; i <= 24; ++i) {
+                const float t = static_cast<float>(i) / 24.0f;
+                const float angle = startAngle + t * 4.8f;
+                const float radius = maxRadius * (1.0f - t * 0.82f);
+                const D2D1_POINT_2F p = D2D1::Point2F(center.x + std::cos(angle) * radius, center.y + std::sin(angle) * radius * 0.72f);
+                if (i == 0) sink->BeginFigure(p, D2D1_FIGURE_BEGIN_HOLLOW);
+                else sink->AddLine(p);
+            }
+            sink->EndFigure(D2D1_FIGURE_END_OPEN);
+            if (SUCCEEDED(sink->Close())) {
+                m_res->themeBrush->SetOpacity((0.58f - arm * 0.08f) * contentAlpha);
+                ctx->DrawGeometry(geometry.Get(), m_res->themeBrush, 2.0f);
+            }
+        }
+    }
+
+    const float iconSize = 24.0f + 4.0f * std::sinf(m_phase * 1.7f);
+    const float iconLeft = center.x - iconSize * 0.5f;
+    const float iconTop = center.y - iconSize * 0.5f;
+    m_res->fileBrush->SetOpacity(0.92f * contentAlpha);
+    ctx->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(iconLeft, iconTop, iconLeft + iconSize, iconTop + iconSize), 7.0f, 7.0f), m_res->fileBrush);
+
+    auto titleLayout = CreateTextLayout(L"Drop file", m_res->subFormat, width - 36.0f);
+    if (titleLayout) {
+        DWRITE_TEXT_METRICS metrics{};
+        titleLayout->GetMetrics(&metrics);
+        m_res->whiteBrush->SetOpacity(0.78f * contentAlpha);
+        ctx->DrawTextLayout(D2D1::Point2F(center.x - metrics.width * 0.5f, rect.bottom - metrics.height - 8.0f), titleLayout.Get(), m_res->whiteBrush);
+    }
 }
 
 void FilePanelComponent::RenderDragHint(const D2D1_RECT_F& rect, float contentAlpha) {

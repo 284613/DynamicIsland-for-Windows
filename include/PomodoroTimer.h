@@ -16,6 +16,7 @@ public:
     
     // 设置时长（分钟）
     void SetDuration(int minutes);
+    void SetRemainingSeconds(int seconds);
     
     // 更新（每帧调用）
     void Update(float deltaTime);
@@ -54,6 +55,17 @@ inline PomodoroTimer::PomodoroTimer() {
 inline void PomodoroTimer::SetDuration(int minutes) {
     m_durationSeconds = minutes * 60;
     m_remainingSeconds = m_durationSeconds;
+    m_accumulatedTime = std::chrono::milliseconds(0);
+}
+
+inline void PomodoroTimer::SetRemainingSeconds(int seconds) {
+    if (seconds < 0) {
+        seconds = 0;
+    }
+    if (seconds > m_durationSeconds) {
+        seconds = m_durationSeconds;
+    }
+    m_remainingSeconds = seconds;
     m_accumulatedTime = std::chrono::milliseconds(0);
 }
 

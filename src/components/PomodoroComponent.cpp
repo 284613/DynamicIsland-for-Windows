@@ -1,10 +1,21 @@
 #include "components/PomodoroComponent.h"
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <shlobj.h>
+#include <sstream>
 #include <string>
+#include <winrt/base.h>
+#include <winrt/Windows.Foundation.Collections.h>
+#include <winrt/Windows.Data.Json.h>
 #include <wrl/client.h>
 
 using Microsoft::WRL::ComPtr;
+
+#pragma comment(lib, "shell32.lib")
+#pragma comment(lib, "windowsapp.lib")
 
 namespace {
 constexpr float kTomatoR = 0.91f;
@@ -33,6 +44,76 @@ D2D1_COLOR_F AccentColor(float alpha = 1.0f) {
 
 D2D1_COLOR_F PauseColor(float alpha = 1.0f) {
     return D2D1::ColorF(kPauseR, kPauseG, kPauseB, alpha);
+}
+
+std::filesystem::path GetPomodoroSnapshotPath() {
+    wchar_t localAppData[MAX_PATH] = {};
+    if (SUCCEEDED(SHGetFolderPathW(nullptr, CSIDL_LOCAL_APPDATA, nullptr, SHGFP_TYPE_CURRENT, localAppData))) {
+        std::filesystem::path dir = std::filesystem::path(localAppData) / L"DynamicIsland";
+        std::error_code ec;
+        std::filesystem::create_directories(dir, ec);
+        return dir / L"pomodoro.json";
+    }
+
+    std::filesystem::path fallback = std::filesystem::temp_directory_path() / L"DynamicIsland";
+    std::error_code ec;
+    std::filesystem::create_directories(fallback, ec);
+    return fallback / L"pomodoro.json";
+}
+
+std::string WideToUtf8(const std::wstring& wide) {
+    if (wide.empty()) {
+        return {};
+    }
+
+    const int len = WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), nullptr, 0, nullptr, nullptr);
+    if (len <= 0) {
+        return {};
+    }
+
+    std::string utf8(len, '\0');
+    WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), utf8.data(), len, nullptr, nullptr);
+    return utf8;
+}
+
+std::wstring Utf8ToWide(const std::string& utf8) {
+    if (utf8.empty()) {
+        return {};
+    }
+
+    const int len = MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), nullptr, 0);
+    if (len <= 0) {
+        return {};
+    }
+
+    std::wstring wide(len, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), wide.data(), len);
+    return wide;
+}
+
+std::wstring EscapeJson(const std::wstring& value) {
+    std::wstring escaped;
+    escaped.reserve(value.size() + 8);
+    for (wchar_t ch : value) {
+        switch (ch) {
+        case L'\\': escaped += L"\\\\"; break;
+        case L'"': escaped += L"\\\""; break;
+        case L'\n': escaped += L"\\n"; break;
+        case L'\r': escaped += L"\\r"; break;
+        case L'\t': escaped += L"\\t"; break;
+        default: escaped += ch; break;
+        }
+    }
+    return escaped;
+}
+
+uint64_t CurrentUnixMs() {
+    FILETIME ft{};
+    GetSystemTimeAsFileTime(&ft);
+    ULARGE_INTEGER value{};
+    value.LowPart = ft.dwLowDateTime;
+    value.HighPart = ft.dwHighDateTime;
+    return (value.QuadPart - 116444736000000000ULL) / 10000ULL;
 }
 }
 
@@ -70,6 +151,7 @@ void PomodoroComponent::OnAttach(SharedResources* res) {
         }
         StopSession(true);
     });
+    LoadSnapshot();
 }
 
 bool PomodoroComponent::IsActive() const {
@@ -86,12 +168,14 @@ void PomodoroComponent::SetExpanded(bool expanded) {
         if (m_state == State::Idle || m_state == State::Finished) {
             m_state = State::Setting;
         }
+        SaveSnapshot();
         return;
     }
 
     if (m_state == State::Setting || m_state == State::Finished) {
         m_state = State::Idle;
     }
+    SaveSnapshot();
 }
 
 int PomodoroComponent::GetRemainingSeconds() const {
@@ -100,6 +184,97 @@ int PomodoroComponent::GetRemainingSeconds() const {
 
 bool PomodoroComponent::HasActiveSession() const {
     return m_state == State::Running || m_state == State::Paused;
+}
+
+bool PomodoroComponent::LoadSnapshot() {
+    const std::filesystem::path path = GetPomodoroSnapshotPath();
+    std::ifstream in(path, std::ios::binary);
+    if (!in.is_open()) {
+        return false;
+    }
+
+    std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    if (bytes.empty()) {
+        return false;
+    }
+
+    try {
+        const auto root = winrt::Windows::Data::Json::JsonObject::Parse(winrt::hstring(Utf8ToWide(bytes)));
+        const int selectedMinutes = root.HasKey(L"selectedMinutes")
+            ? static_cast<int>(root.GetNamedValue(L"selectedMinutes").GetNumber())
+            : m_selectedMinutes;
+        const int remainingSeconds = root.HasKey(L"remainingSeconds")
+            ? static_cast<int>(root.GetNamedValue(L"remainingSeconds").GetNumber())
+            : selectedMinutes * 60;
+        const std::wstring snapshotState = root.HasKey(L"state")
+            ? std::wstring(root.GetNamedString(L"state").c_str())
+            : L"Idle";
+
+        SetSelectedMinutes(selectedMinutes, false);
+        m_timer.SetDuration(m_selectedMinutes);
+
+        if ((snapshotState == L"Running" || snapshotState == L"Paused") && remainingSeconds > 0) {
+            m_timer.SetRemainingSeconds(remainingSeconds);
+            m_timer.Pause();
+            m_state = State::Paused;
+            m_expanded = false;
+        } else {
+            m_timer.SetRemainingSeconds(m_selectedMinutes * 60);
+            m_state = State::Idle;
+        }
+
+        m_snapshotElapsed = 0.0f;
+        SaveSnapshot();
+        return true;
+    } catch (...) {
+        ClearSnapshot();
+        return false;
+    }
+}
+
+bool PomodoroComponent::SaveSnapshot() const {
+    const std::filesystem::path path = GetPomodoroSnapshotPath();
+    std::filesystem::create_directories(path.parent_path());
+    const std::filesystem::path tempPath = path.wstring() + L".tmp";
+
+    std::wostringstream out;
+    out << L"{\n";
+    out << L"  \"version\": 1,\n";
+    out << L"  \"selectedMinutes\": " << m_selectedMinutes << L",\n";
+    out << L"  \"remainingSeconds\": " << m_timer.GetRemainingSeconds() << L",\n";
+    out << L"  \"state\": \"" << EscapeJson(SnapshotStateLabel()) << L"\",\n";
+    out << L"  \"updatedAt\": " << CurrentUnixMs() << L"\n";
+    out << L"}\n";
+
+    {
+        std::ofstream file(tempPath, std::ios::binary | std::ios::trunc);
+        if (!file.is_open()) {
+            return false;
+        }
+        const std::string utf8 = WideToUtf8(out.str());
+        file.write(utf8.data(), static_cast<std::streamsize>(utf8.size()));
+        if (!file.good()) {
+            return false;
+        }
+    }
+
+    std::error_code ec;
+    std::filesystem::rename(tempPath, path, ec);
+    if (ec) {
+        std::filesystem::remove(path, ec);
+        ec.clear();
+        std::filesystem::rename(tempPath, path, ec);
+        if (ec) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+void PomodoroComponent::ClearSnapshot() {
+    std::error_code ec;
+    std::filesystem::remove(GetPomodoroSnapshotPath(), ec);
 }
 
 void PomodoroComponent::Update(float deltaTime) {
@@ -116,6 +291,11 @@ void PomodoroComponent::Update(float deltaTime) {
     }
     m_timer.Update(deltaTime);
     SyncStateFromTimer();
+    m_snapshotElapsed += deltaTime;
+    if (m_snapshotElapsed >= 5.0f) {
+        SaveSnapshot();
+        m_snapshotElapsed = 0.0f;
+    }
 }
 
 void PomodoroComponent::Draw(const D2D1_RECT_F& rect, float contentAlpha, ULONGLONG currentTimeMs) {
@@ -156,6 +336,7 @@ bool PomodoroComponent::OnMouseClick(float x, float y) {
                 m_timer.Start();
                 m_state = State::Running;
             }
+            SaveSnapshot();
             return true;
         }
         if (hit == ButtonId::CompactStop) {
@@ -194,6 +375,7 @@ bool PomodoroComponent::OnMouseClick(float x, float y) {
             m_timer.Start();
             m_state = State::Running;
         }
+        SaveSnapshot();
         return true;
     case ButtonId::Stop:
         StopSession(false);
@@ -638,6 +820,7 @@ void PomodoroComponent::SetSelectedMinutes(int minutes, bool animateHand) {
         m_handAngleCurrent = rawTarget;
         m_handAnimating = false;
     }
+    SaveSnapshot();
 }
 
 float PomodoroComponent::MinutesToAngle(int minutes) const {
@@ -673,12 +856,18 @@ bool PomodoroComponent::IsDialInteractive() const {
 
 void PomodoroComponent::SyncStateFromTimer() {
     if (m_timer.IsRunning()) {
-        m_state = State::Running;
+        if (m_state != State::Running) {
+            m_state = State::Running;
+            SaveSnapshot();
+        }
         return;
     }
 
     if (m_timer.IsPaused() && m_timer.GetRemainingSeconds() > 0) {
-        m_state = State::Paused;
+        if (m_state != State::Paused) {
+            m_state = State::Paused;
+            SaveSnapshot();
+        }
     }
 }
 
@@ -687,6 +876,8 @@ void PomodoroComponent::StopSession(bool finished) {
     m_timer.Reset();
     m_expanded = false;
     m_state = finished ? State::Finished : State::Idle;
+    m_snapshotElapsed = 0.0f;
+    SaveSnapshot();
 }
 
 void PomodoroComponent::CollapseToCompact() {
@@ -727,4 +918,20 @@ std::wstring PomodoroComponent::GetStatusText() const {
 
 std::wstring PomodoroComponent::GetDurationText() const {
     return FormatMinutes(m_selectedMinutes);
+}
+
+std::wstring PomodoroComponent::SnapshotStateLabel() const {
+    switch (m_state) {
+    case State::Setting:
+        return L"Setting";
+    case State::Running:
+        return L"Running";
+    case State::Paused:
+        return L"Paused";
+    case State::Finished:
+        return L"Finished";
+    case State::Idle:
+    default:
+        return L"Idle";
+    }
 }

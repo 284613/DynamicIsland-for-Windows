@@ -12,6 +12,7 @@
 #include "MediaMonitor.h"
 #include "Messages.h"
 #include <shellapi.h>
+#include <array>
 #include <vector>
 #include "NotificationMonitor.h"
 #include "LyricsMonitor.h"
@@ -88,21 +89,27 @@ private:
     int m_mediaPollIntervalMs = 1000;
     int m_fileStashMaxItems = 5;
     bool m_autoStart = false;
-    bool m_pomodoroExpanded = false;
     bool m_todoInputActive = false;
-    bool m_todoExpanded = false;
-    bool m_agentExpanded = false;
 
     void StartAnimation();
     void UpdatePhysics();
     void LoadConfig(); // 【新增】加载配置文件的函数
     void TransitionTo(IslandDisplayMode mode);
     void SetTargetSize(float width, float height);
+    void SetActiveExpandedMode(ActiveExpandedMode mode);
+    bool IsExpandedMode(ActiveExpandedMode mode) const;
+    bool ShouldUseShrunkMode() const;
+    bool HitTestShrunkHandle(POINT pt) const;
+    bool HitTestCompactShrinkHandle(POINT pt, IslandDisplayMode mode) const;
+    void BeginShrinkTransition(bool shrinkToShrunk, IslandDisplayMode sourceMode);
+    void UpdateShrinkTransition(ULONGLONG nowMs);
     IslandDisplayMode DetermineBaseDisplayMode() const;
     IslandDisplayMode DetermineDisplayMode();
     std::vector<IslandDisplayMode> CollectAvailableCompactModes() const;
     void ClearCompactOverride();
     static bool IsCompactSwitchableMode(IslandDisplayMode mode);
+    void LoadCompactModeOrder(const std::wstring& rawValue);
+    std::wstring SerializeCompactModeOrder() const;
     SecondaryContentKind DetermineSecondaryContent() const;
     D2D1_RECT_F GetSecondaryRectLogical() const;
     bool HandleFileSecondaryMouseDown(POINT pt);
@@ -111,6 +118,9 @@ private:
     void ResetFileSecondaryInteraction();
     void ShowFileStashLimitAlert();
     void RemoveFileStashIndex(int index);
+    HWND FindWindowBelowPoint(POINT screenPt) const;
+    bool ForwardMouseMessageToWindow(HWND target, UINT message, WPARAM wParam, POINT screenPt) const;
+    bool ForwardMouseMessageToUnderlyingWindow(UINT message, WPARAM wParam, POINT screenPt) const;
     POINT LogicalFromPhysical(POINT physicalPt) const;
     bool GetSystemDarkMode() const;
     void ApplyRuntimeSettings();
@@ -132,6 +142,7 @@ private:
     bool HasWorkingClaudeSession() const;
     bool ShouldShowClaudeWorkingEdgeBadge(IslandDisplayMode mode) const;
     float GetCompactTargetWidth(IslandDisplayMode mode) const;
+    float GetCompactTargetHeight(IslandDisplayMode mode) const;
     void PositionActiveImeWindow();
     bool IsTodoTextMode(IslandDisplayMode mode) const;
     bool ShouldKeepCompactOverride() const;
@@ -205,7 +216,17 @@ private:
     IslandState m_state = IslandState::Collapsed;
     bool m_hasCompactOverride = false;
     IslandDisplayMode m_compactOverrideMode = IslandDisplayMode::Idle;
+    ActiveExpandedMode m_activeExpandedMode = ActiveExpandedMode::None;
     bool m_isHovering = false;  // 鼠标是否悬停
+    bool m_shrunkWakeActive = false;
+    bool m_manualShrunk = false;
+    bool m_shrinkAnimating = false;
+    bool m_shrinkToShrunk = false;
+    ULONGLONG m_shrinkAnimationStartMs = 0;
+    float m_shrinkProgress = 0.0f;
+    IslandDisplayMode m_shrinkSourceMode = IslandDisplayMode::Idle;
+    HWND m_forwardMouseTarget = nullptr;
+    bool m_forwardMouseDragActive = false;
     AgentSessionFilter m_agentFilter = AgentSessionFilter::Claude;
     AgentKind m_selectedAgentKind = AgentKind::Claude;
     AgentKind m_compactAgentKind = AgentKind::Claude;
@@ -213,6 +234,9 @@ private:
     std::wstring m_selectedAgentSessionId;
     std::vector<AgentSessionSummary> m_agentSessionSummaries;
     std::vector<AgentHistoryEntry> m_selectedAgentHistory;
+    std::vector<IslandDisplayMode> m_compactModeOrder;
+    MusicArtworkStyle m_compactArtworkStyle = MusicArtworkStyle::Vinyl;
+    MusicArtworkStyle m_expandedArtworkStyle = MusicArtworkStyle::Square;
 
     // LayoutController handles size, alpha, springs, and hit testing
     LayoutController m_layoutController;
@@ -248,7 +272,6 @@ private:
 
 
     bool m_isVolumeControlActive = false;
-    bool m_isWeatherExpanded = false; // 是否正在显示音量条
     float m_currentVolume = 0.0f;         // 当前音量值
     UINT_PTR m_volumeTimerId = 4;         // 音量条自动隐藏定时器
     UINT_PTR m_fullscreenTimerId = 5;      // 全屏检测定时器

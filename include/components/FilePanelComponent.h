@@ -14,6 +14,9 @@ class FilePanelComponent : public IIslandComponent {
 public:
     enum class ViewMode {
         Hidden,
+        Circle,
+        CircleDropTarget,
+        SwirlDrop,
         Mini,
         Expanded,
         DropTarget
@@ -40,10 +43,10 @@ public:
 
     void OnAttach(SharedResources* res) override;
     void OnResize(float dpi, int width, int height) override {}
-    void Update(float deltaTime) override {}
+    void Update(float deltaTime) override;
     void Draw(const D2D1_RECT_F& rect, float contentAlpha, ULONGLONG currentTimeMs) override;
     bool IsActive() const override { return m_viewMode != ViewMode::Hidden; }
-    bool NeedsRender() const override { return false; }
+    bool NeedsRender() const override { return m_viewMode == ViewMode::SwirlDrop || m_viewMode == ViewMode::CircleDropTarget; }
 
     void SetViewMode(ViewMode mode) { m_viewMode = mode; }
     void SetStoredFiles(const std::vector<FileStashItem>& files);
@@ -60,6 +63,8 @@ private:
     D2D1_RECT_F GetCollapseButtonRect(const D2D1_RECT_F& rect) const;
     D2D1_RECT_F GetRowRect(const D2D1_RECT_F& rect, int index) const;
     void RenderDragHint(const D2D1_RECT_F& rect, float contentAlpha);
+    void RenderCircleView(const D2D1_RECT_F& rect, float contentAlpha, bool dropTarget);
+    void RenderSwirlDrop(const D2D1_RECT_F& rect, float contentAlpha);
     void RenderCompactView(const D2D1_RECT_F& rect, float contentAlpha);
     void RenderExpandedView(const D2D1_RECT_F& rect, float contentAlpha, float expansionProgress);
     void RenderPreviewPane(const D2D1_RECT_F& rect, float contentAlpha, float revealProgress);
@@ -73,6 +78,7 @@ private:
     int m_hoveredFileIndex = -1;
     int m_selectedFileIndex = -1;
     float m_dpi = 96.0f;
+    float m_phase = 0.0f;
     D2D1_RECT_F m_lastRect = D2D1::RectF(0, 0, 0, 0);
 
     std::map<std::wstring, ComPtr<ID2D1Bitmap>> m_iconCache;

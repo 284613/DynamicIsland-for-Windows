@@ -13,6 +13,8 @@ namespace Size {
     // Mini 尺寸（无任务时显示时间）
     constexpr float MINI_WIDTH = 96.0f;
     constexpr float MINI_HEIGHT = 24.0f;
+    constexpr float SHRUNK_WIDTH = 46.0f;
+    constexpr float SHRUNK_HEIGHT = 4.0f;
     
     // Collapsed 尺寸
     constexpr float COLLAPSED_WIDTH = MINI_WIDTH;
@@ -38,6 +40,8 @@ namespace Size {
     
     // 音乐展开高度
     constexpr float MUSIC_EXPANDED_HEIGHT = 160.0f;
+    constexpr float MUSIC_COMPACT_WIDTH = 280.0f;
+    constexpr float MUSIC_COMPACT_HEIGHT = 64.0f;
 
     // 天气展开尺寸
     constexpr float WEATHER_EXPANDED_WIDTH = 400.0f;
@@ -60,6 +64,8 @@ namespace Size {
     constexpr float FILE_SECONDARY_DROPTARGET_WIDTH = 260.0f;
     constexpr float FILE_SECONDARY_EXPANDED_HEIGHT = 200.0f;
     constexpr float FILE_SECONDARY_DROPTARGET_HEIGHT = 64.0f;
+    constexpr float FILE_CIRCLE_SIZE = 48.0f;
+    constexpr float FILE_CIRCLE_GAP = 10.0f;
     
     // 画布尺寸
     constexpr float CANVAS_WIDTH = 720.0f;

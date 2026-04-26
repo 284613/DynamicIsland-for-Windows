@@ -10,6 +10,8 @@ const wchar_t* SecondaryKindToString(SecondaryContentKind kind) {
     switch (kind) {
     case SecondaryContentKind::None: return L"None";
     case SecondaryContentKind::Volume: return L"Volume";
+    case SecondaryContentKind::FileCircle: return L"FileCircle";
+    case SecondaryContentKind::FileSwirlDrop: return L"FileSwirlDrop";
     case SecondaryContentKind::FileMini: return L"FileMini";
     case SecondaryContentKind::FileExpanded: return L"FileExpanded";
     case SecondaryContentKind::FileDropTarget: return L"FileDropTarget";
@@ -78,7 +80,9 @@ bool DynamicIsland::HandleFileSecondaryMouseDown(POINT pt) {
         AppendInputDebugLog(oss.str());
     }
 #endif
-    if (secondary != SecondaryContentKind::FileMini &&
+    if (secondary != SecondaryContentKind::FileCircle &&
+        secondary != SecondaryContentKind::FileSwirlDrop &&
+        secondary != SecondaryContentKind::FileMini &&
         secondary != SecondaryContentKind::FileExpanded &&
         secondary != SecondaryContentKind::FileDropTarget) {
         AppendInputDebugLog(L"MouseDown ignored: secondary content not file-related");
@@ -139,7 +143,9 @@ bool DynamicIsland::HandleFileSecondaryMouseDown(POINT pt) {
 
 bool DynamicIsland::HandleFileSecondaryMouseMove(HWND hwnd, POINT pt, WPARAM keyState) {
     const SecondaryContentKind secondary = DetermineSecondaryContent();
-    const bool secondaryVisible = secondary == SecondaryContentKind::FileMini ||
+    const bool secondaryVisible = secondary == SecondaryContentKind::FileCircle ||
+        secondary == SecondaryContentKind::FileSwirlDrop ||
+        secondary == SecondaryContentKind::FileMini ||
         secondary == SecondaryContentKind::FileExpanded ||
         secondary == SecondaryContentKind::FileDropTarget;
     const D2D1_RECT_F secondaryRect = GetSecondaryRectLogical();
@@ -194,7 +200,9 @@ bool DynamicIsland::HandleFileSecondaryMouseMove(HWND hwnd, POINT pt, WPARAM key
 
 bool DynamicIsland::HandleFileSecondaryMouseUp(POINT pt) {
     const SecondaryContentKind secondary = DetermineSecondaryContent();
-    const bool secondaryVisible = secondary == SecondaryContentKind::FileMini ||
+    const bool secondaryVisible = secondary == SecondaryContentKind::FileCircle ||
+        secondary == SecondaryContentKind::FileSwirlDrop ||
+        secondary == SecondaryContentKind::FileMini ||
         secondary == SecondaryContentKind::FileExpanded ||
         secondary == SecondaryContentKind::FileDropTarget;
     const D2D1_RECT_F secondaryRect = GetSecondaryRectLogical();

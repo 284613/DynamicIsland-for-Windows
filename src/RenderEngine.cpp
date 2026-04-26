@@ -2,6 +2,7 @@
 #include "Constants.h"
 #include <algorithm>
 #include <cmath>
+#include <cwchar>
 
 namespace {
 Microsoft::WRL::ComPtr<ID2D1PathGeometry> CreateNotchGeometry(
@@ -56,6 +57,47 @@ Microsoft::WRL::ComPtr<ID2D1PathGeometry> CreateNotchGeometry(
     }
 
     return geometry;
+}
+
+float Clamp01(float value) {
+    return (std::max)(0.0f, (std::min)(1.0f, value));
+}
+
+float SmoothStep(float value) {
+    value = Clamp01(value);
+    return value * value * (3.0f - 2.0f * value);
+}
+
+float Lerp(float a, float b, float t) {
+    return a + (b - a) * t;
+}
+
+D2D1_RECT_F LerpRect(const D2D1_RECT_F& a, const D2D1_RECT_F& b, float t) {
+    return D2D1::RectF(
+        Lerp(a.left, b.left, t),
+        Lerp(a.top, b.top, t),
+        Lerp(a.right, b.right, t),
+        Lerp(a.bottom, b.bottom, t));
+}
+
+float MusicExpansionProgress(float height) {
+    return SmoothStep((height - Constants::Size::MUSIC_COMPACT_HEIGHT) /
+        ((std::max)(1.0f, Constants::Size::MUSIC_EXPANDED_HEIGHT - Constants::Size::MUSIC_COMPACT_HEIGHT)));
+}
+
+D2D1_RECT_F BuildMusicLyricRect(const D2D1_RECT_F& rect, float height) {
+    const float progress = MusicExpansionProgress(height);
+    const D2D1_RECT_F compactRect = D2D1::RectF(
+        rect.left + 64.0f,
+        rect.top + 40.0f,
+        rect.right - 58.0f,
+        rect.bottom - 6.0f);
+    const D2D1_RECT_F expandedRect = D2D1::RectF(
+        rect.left + 95.0f,
+        rect.top + 66.0f,
+        rect.right - 24.0f,
+        rect.top + 90.0f);
+    return LerpRect(compactRect, expandedRect, progress);
 }
 }
 
@@ -237,8 +279,18 @@ void RenderEngine::Resize(int width, int height) {
 
 void RenderEngine::SetPlaybackState(bool hasSession, bool isPlaying, float progress,
     const std::wstring& title, const std::wstring& artist) {
+    m_hasPlaybackSession = hasSession;
+    m_isPlaybackActive = isPlaying;
+    m_playbackTitle = title;
+    m_playbackArtist = artist;
     if (m_musicComponent) {
         m_musicComponent->SetPlaybackState(hasSession, isPlaying, progress, title, artist);
+    }
+}
+
+void RenderEngine::SetMusicArtworkStyles(MusicArtworkStyle compactStyle, MusicArtworkStyle expandedStyle) {
+    if (m_musicComponent) {
+        m_musicComponent->SetArtworkStyles(compactStyle, expandedStyle);
     }
 }
 
@@ -254,14 +306,19 @@ void RenderEngine::SetLyricData(const LyricData& lyric) {
     }
 }
 
-void RenderEngine::SetWaveformState(float audioLevel, float islandHeight) {
+void RenderEngine::SetWaveformState(const std::array<float, 3>& bandLevels, float islandHeight, WaveformDisplayStyle style) {
     if (m_waveformComponent) {
-        m_waveformComponent->SetAudioLevel(audioLevel);
+        m_waveformComponent->SetBandLevels(bandLevels);
         m_waveformComponent->SetIslandHeight(islandHeight);
+        m_waveformComponent->SetDisplayStyle(style);
     }
 }
 
 void RenderEngine::SetTimeData(bool showTime, const std::wstring& timeText) {
+    m_showTime = showTime;
+    if (!timeText.empty()) {
+        m_timeText = timeText;
+    }
     if (m_clockComponent) {
         m_clockComponent->SetTimeData(showTime, timeText);
     }
@@ -278,6 +335,12 @@ void RenderEngine::SetFileState(SecondaryContentKind mode, const std::vector<Fil
     if (m_fileStorageComponent) {
         FilePanelComponent::ViewMode viewMode = FilePanelComponent::ViewMode::Hidden;
         switch (mode) {
+        case SecondaryContentKind::FileCircle:
+            viewMode = FilePanelComponent::ViewMode::Circle;
+            break;
+        case SecondaryContentKind::FileSwirlDrop:
+            viewMode = FilePanelComponent::ViewMode::CircleDropTarget;
+            break;
         case SecondaryContentKind::FileMini:
             viewMode = FilePanelComponent::ViewMode::Mini;
             break;
@@ -299,9 +362,14 @@ void RenderEngine::SetFileState(SecondaryContentKind mode, const std::vector<Fil
 
 void RenderEngine::SetWeatherState(const std::wstring& locationText, const std::wstring& desc, float temp, const std::wstring& iconId,
     const std::vector<HourlyForecast>& hourly, const std::vector<DailyForecast>& daily,
-    bool expanded, WeatherViewMode viewMode) {
+    bool expanded, WeatherViewMode viewMode, bool available) {
+    m_weatherLocationText = locationText;
+    m_weatherDesc = desc;
+    m_weatherTemp = temp;
+    m_weatherIconId = iconId;
+    m_weatherAvailable = available;
     if (m_weatherComponent) {
-        m_weatherComponent->SetWeatherData(locationText, desc, temp, iconId, hourly, daily);
+        m_weatherComponent->SetWeatherData(locationText, desc, temp, iconId, hourly, daily, available);
         m_weatherComponent->SetExpanded(expanded);
         m_weatherComponent->SetViewMode(viewMode);
     }
@@ -317,6 +385,7 @@ void RenderEngine::SetAlertState(bool active, const AlertInfo& info) {
 }
 
 void RenderEngine::SetTodoStore(TodoStore* store) {
+    m_todoStore = store;
     if (m_todoComponent) {
         m_todoComponent->SetStore(store);
     }
@@ -329,6 +398,8 @@ void RenderEngine::SetAgentSessionState(const std::vector<AgentSessionSummary>& 
     const std::vector<AgentHistoryEntry>& selectedHistory,
     AgentKind compactProvider,
     bool chooserOpen) {
+    m_agentSummaries = summaries;
+    m_compactAgentProvider = compactProvider;
     if (!m_agentSessionsComponent) {
         return;
     }
@@ -416,6 +487,8 @@ void RenderEngine::UpdateComponents(float deltaTime, const RenderContext& ctx) {
 
 IIslandComponent* RenderEngine::ResolvePrimaryComponent(IslandDisplayMode mode) {
     switch (mode) {
+    case IslandDisplayMode::Shrunk:
+        return nullptr;
     case IslandDisplayMode::Alert:
         return m_alertComponent.get();
     case IslandDisplayMode::TodoInputCompact:
@@ -447,6 +520,8 @@ IIslandComponent* RenderEngine::ResolveSecondaryComponent(SecondaryContentKind k
     switch (kind) {
     case SecondaryContentKind::Volume:
         return m_volumeComponent.get();
+    case SecondaryContentKind::FileCircle:
+    case SecondaryContentKind::FileSwirlDrop:
     case SecondaryContentKind::FileMini:
     case SecondaryContentKind::FileExpanded:
     case SecondaryContentKind::FileDropTarget:
@@ -474,13 +549,20 @@ void RenderEngine::DrawPrimaryContent(const D2D1_RECT_F& contentRect, const Rend
     }
 
     switch (ctx.mode) {
+    case IslandDisplayMode::Shrunk:
+        break;
     case IslandDisplayMode::Alert:
     case IslandDisplayMode::PomodoroExpanded:
     case IslandDisplayMode::WeatherExpanded:
-    case IslandDisplayMode::FileDrop:
     case IslandDisplayMode::Volume:
         if (m_activePrimaryComponent) {
             m_activePrimaryComponent->Draw(contentRect, ctx.contentAlpha, ctx.currentTimeMs);
+        }
+        break;
+    case IslandDisplayMode::FileDrop:
+        if (m_fileStorageComponent) {
+            m_fileStorageComponent->SetViewMode(FilePanelComponent::ViewMode::SwirlDrop);
+            m_fileStorageComponent->Draw(contentRect, ctx.contentAlpha, ctx.currentTimeMs);
         }
         break;
     case IslandDisplayMode::PomodoroCompact:
@@ -498,18 +580,19 @@ void RenderEngine::DrawPrimaryContent(const D2D1_RECT_F& contentRect, const Rend
         }
         break;
     case IslandDisplayMode::MusicCompact:
-        if (m_waveformComponent) m_waveformComponent->Draw(primaryRect, ctx.contentAlpha, ctx.currentTimeMs);
         if (m_musicComponent) m_musicComponent->Draw(primaryRect, ctx.contentAlpha, ctx.currentTimeMs);
+        if (m_lyricsComponent) {
+            D2D1_RECT_F lyricRect = BuildMusicLyricRect(primaryRect, ctx.islandHeight);
+            m_lyricsComponent->DrawCompact(lyricRect, ctx.contentAlpha, ctx.currentTimeMs);
+        }
+        if (m_waveformComponent) m_waveformComponent->Draw(primaryRect, ctx.contentAlpha, ctx.currentTimeMs);
         break;
     case IslandDisplayMode::MusicExpanded:
         if (m_waveformComponent) m_waveformComponent->Draw(contentRect, ctx.contentAlpha, ctx.currentTimeMs);
         if (m_musicComponent) m_musicComponent->Draw(contentRect, ctx.contentAlpha, ctx.currentTimeMs);
         if (m_lyricsComponent) {
-            float lyricLeft = contentRect.left + 95.0f;
-            float lyricTop = contentRect.top + 30.0f;
-            float lyricWidth = (contentRect.right - 20.0f) - lyricLeft;
-            D2D1_RECT_F lyricRect = D2D1::RectF(lyricLeft, lyricTop, lyricLeft + lyricWidth, lyricTop + 25.0f);
-            m_lyricsComponent->Draw(lyricRect, ctx.contentAlpha, ctx.currentTimeMs);
+            D2D1_RECT_F lyricRect = BuildMusicLyricRect(contentRect, ctx.islandHeight);
+            m_lyricsComponent->DrawCompact(lyricRect, ctx.contentAlpha, ctx.currentTimeMs);
         }
         break;
     case IslandDisplayMode::Idle:
@@ -560,6 +643,10 @@ void RenderEngine::DrawSecondaryIsland(const RenderContext& ctx, float top, floa
 
     float secWidth = Constants::Size::SECONDARY_WIDTH;
     switch (ctx.secondaryContent) {
+    case SecondaryContentKind::FileCircle:
+    case SecondaryContentKind::FileSwirlDrop:
+        secWidth = Constants::Size::FILE_CIRCLE_SIZE;
+        break;
     case SecondaryContentKind::FileExpanded:
         secWidth = Constants::Size::FILE_SECONDARY_EXPANDED_WIDTH;
         break;
@@ -571,6 +658,15 @@ void RenderEngine::DrawSecondaryIsland(const RenderContext& ctx, float top, floa
     }
     float secLeft = (ctx.canvasWidth - secWidth) / 2.0f;
     float secTop = bottom + 12.0f;
+    if (ctx.secondaryContent == SecondaryContentKind::FileCircle ||
+        ctx.secondaryContent == SecondaryContentKind::FileSwirlDrop) {
+        const float islandLeft = (ctx.canvasWidth - ctx.islandWidth) / 2.0f;
+        secLeft = islandLeft + ctx.islandWidth + Constants::Size::FILE_CIRCLE_GAP;
+        secTop = top + (ctx.islandHeight - ctx.secondaryHeight) * 0.5f;
+        if (secTop < top + 4.0f) {
+            secTop = top + 4.0f;
+        }
+    }
     float secRight = secLeft + secWidth;
     float secBottom = secTop + ctx.secondaryHeight;
     float secRadius = (ctx.secondaryHeight < 60.0f) ? (ctx.secondaryHeight / 2.0f) : 20.0f;
@@ -585,8 +681,218 @@ void RenderEngine::DrawSecondaryIsland(const RenderContext& ctx, float top, floa
     if (ctx.secondaryContent == SecondaryContentKind::Volume && m_volumeComponent) {
         m_volumeComponent->DrawSecondary(secLeft, secTop, secWidth, ctx.secondaryHeight, ctx.secondaryAlpha);
     } else if (m_fileStorageComponent) {
+        if (ctx.secondaryContent == SecondaryContentKind::FileCircle) {
+            m_fileStorageComponent->SetViewMode(FilePanelComponent::ViewMode::Circle);
+        } else if (ctx.secondaryContent == SecondaryContentKind::FileSwirlDrop) {
+            m_fileStorageComponent->SetViewMode(FilePanelComponent::ViewMode::CircleDropTarget);
+        }
         m_fileStorageComponent->Draw(secRect.rect, ctx.secondaryAlpha, ctx.currentTimeMs);
     }
+}
+
+D2D1_RECT_F RenderEngine::BuildShrinkInterpolatedRect(const RenderContext& ctx, float top) const {
+    float sourceWidth = Constants::Size::COMPACT_WIDTH;
+    float sourceHeight = Constants::Size::COMPACT_HEIGHT;
+    switch (ctx.shrinkSourceMode) {
+    case IslandDisplayMode::MusicCompact:
+        sourceWidth = Constants::Size::MUSIC_COMPACT_WIDTH;
+        sourceHeight = Constants::Size::MUSIC_COMPACT_HEIGHT;
+        break;
+    case IslandDisplayMode::PomodoroCompact:
+        sourceWidth = Constants::Size::POMODORO_COMPACT_WIDTH;
+        sourceHeight = Constants::Size::POMODORO_COMPACT_HEIGHT;
+        break;
+    case IslandDisplayMode::TodoListCompact:
+    case IslandDisplayMode::AgentCompact:
+    case IslandDisplayMode::Idle:
+    default:
+        break;
+    }
+
+    const D2D1_RECT_F sourceRect = D2D1::RectF(
+        (ctx.canvasWidth - sourceWidth) * 0.5f,
+        top,
+        (ctx.canvasWidth + sourceWidth) * 0.5f,
+        top + sourceHeight);
+    const float shrunkHeight = (std::max)(Constants::Size::SHRUNK_HEIGHT, 6.0f);
+    const D2D1_RECT_F shrunkRect = D2D1::RectF(
+        (ctx.canvasWidth - Constants::Size::SHRUNK_WIDTH) * 0.5f,
+        top,
+        (ctx.canvasWidth + Constants::Size::SHRUNK_WIDTH) * 0.5f,
+        top + shrunkHeight);
+    return LerpRect(sourceRect, shrunkRect, Clamp01(ctx.shrinkProgress));
+}
+
+void RenderEngine::DrawShrinkHandle(const D2D1_RECT_F& rect, float alpha) {
+    const float width = (std::min)(28.0f, (std::max)(12.0f, rect.right - rect.left - 10.0f));
+    const float height = 2.0f;
+    const float left = (rect.left + rect.right - width) * 0.5f;
+    const D2D1_RECT_F handleRect = D2D1::RectF(left, rect.top + 1.5f, left + width, rect.top + 1.5f + height);
+    const D2D1_ROUNDED_RECT handle = D2D1::RoundedRect(handleRect, height * 0.5f, height * 0.5f);
+    m_whiteBrush->SetOpacity(alpha);
+    m_d2dContext->FillRoundedRectangle(&handle, m_whiteBrush.Get());
+}
+
+void RenderEngine::DrawCompactShrinkHandle(const D2D1_RECT_F& rect, float alpha) {
+    const float handleWidth = 32.0f;
+    const float handleHeight = 2.5f;
+    const float handleLeft = (rect.left + rect.right - handleWidth) * 0.5f;
+    const D2D1_RECT_F handleRect = D2D1::RectF(
+        handleLeft,
+        rect.top + 4.0f,
+        handleLeft + handleWidth,
+        rect.top + 4.0f + handleHeight);
+    D2D1_ROUNDED_RECT handle = D2D1::RoundedRect(handleRect, handleHeight * 0.5f, handleHeight * 0.5f);
+    m_whiteBrush->SetOpacity(alpha);
+    m_d2dContext->FillRoundedRectangle(&handle, m_whiteBrush.Get());
+}
+
+bool RenderEngine::TryGetGhostHudText(IslandDisplayMode sourceMode, std::wstring& primary, std::wstring& secondary, bool& musicActive) const {
+    musicActive = false;
+    auto fillMusic = [&]() {
+        primary = m_playbackTitle.empty() ? L"Music" : m_playbackTitle;
+        secondary = m_playbackArtist.empty() ? (m_isPlaybackActive ? L"Playing" : L"Paused") : m_playbackArtist;
+        musicActive = true;
+        return true;
+    };
+    auto fillAgent = [&]() {
+        auto preferred = std::find_if(m_agentSummaries.begin(), m_agentSummaries.end(),
+        [this](const AgentSessionSummary& summary) {
+            return summary.kind == m_compactAgentProvider && (summary.isLive || !summary.statusText.empty());
+        });
+        if (preferred == m_agentSummaries.end()) {
+            preferred = std::find_if(m_agentSummaries.begin(), m_agentSummaries.end(),
+                [](const AgentSessionSummary& summary) {
+                    return summary.isLive || !summary.statusText.empty() || !summary.title.empty();
+                });
+        }
+        if (preferred != m_agentSummaries.end()) {
+            primary = AgentKindLabel(preferred->kind);
+            const std::wstring phase = AgentPhaseLabel(preferred->phase);
+            if (!preferred->statusText.empty()) {
+                secondary = preferred->statusText;
+            } else if (!preferred->recentActivityText.empty()) {
+                secondary = preferred->recentActivityText;
+            } else if (!phase.empty()) {
+                secondary = phase;
+            } else {
+                secondary = preferred->title;
+            }
+        } else {
+            primary = AgentKindLabel(m_compactAgentProvider);
+            secondary = L"No active session";
+        }
+        return true;
+    };
+    auto fillTodo = [&]() {
+        primary = L"Todo";
+        if (m_todoStore) {
+            const size_t incomplete = m_todoStore->CountIncomplete();
+            const TodoItem* item = m_todoStore->GetTopIncomplete();
+            if (item && !item->title.empty()) {
+                secondary = item->title;
+            } else {
+                secondary = std::to_wstring(incomplete) + L" pending";
+            }
+        } else {
+            secondary = L"No todo data";
+        }
+        return true;
+    };
+    auto fillPomodoro = [&]() {
+        primary = L"Pomodoro";
+        if (m_pomodoroComponent && m_pomodoroComponent->HasActiveSession()) {
+            const int remaining = (std::max)(0, m_pomodoroComponent->GetRemainingSeconds());
+            wchar_t timeText[32] = {};
+            swprintf_s(timeText, L"%02d:%02d", remaining / 60, remaining % 60);
+            if (m_pomodoroComponent->IsRunning()) {
+                secondary = std::wstring(timeText) + L" running";
+            } else if (m_pomodoroComponent->IsPaused()) {
+                secondary = std::wstring(timeText) + L" paused";
+            } else {
+                secondary = timeText;
+            }
+        } else {
+            secondary = L"No active timer";
+        }
+        return true;
+    };
+    auto fillIdle = [&]() {
+        primary = m_timeText.empty() ? L"--:--" : m_timeText;
+        if (m_weatherAvailable) {
+            wchar_t tempText[32] = {};
+            swprintf_s(tempText, L"%.0f C", m_weatherTemp);
+            secondary = m_weatherDesc.empty() ? tempText : (m_weatherDesc + L"  " + tempText);
+        } else {
+            secondary = L"Weather unavailable";
+        }
+        return true;
+    };
+
+    switch (sourceMode) {
+    case IslandDisplayMode::MusicCompact:
+        return fillMusic();
+    case IslandDisplayMode::AgentCompact:
+        return false;
+    case IslandDisplayMode::TodoListCompact:
+        return fillTodo();
+    case IslandDisplayMode::PomodoroCompact:
+        return fillPomodoro();
+    case IslandDisplayMode::Idle:
+    default:
+        return fillIdle();
+    }
+}
+
+void RenderEngine::DrawShrunkGhostHud(const RenderContext& ctx, float alpha) {
+    if (!m_d2dContext || alpha <= 0.01f) {
+        return;
+    }
+
+    const float width = Constants::Size::COMPACT_WIDTH;
+    const float height = Constants::Size::COMPACT_HEIGHT;
+    const float left = (ctx.canvasWidth - width) * 0.5f;
+    const float top = Constants::UI::TOP_MARGIN;
+    const D2D1_RECT_F hudRect = D2D1::RectF(left, top, left + width, top + height);
+
+    if (ctx.shrinkSourceMode == IslandDisplayMode::Idle) {
+        const float hudAlpha = (std::min)(0.56f, alpha * 1.20f);
+        if (m_clockComponent) {
+            const float weatherReserve = 54.0f;
+            const D2D1_RECT_F clockRect = D2D1::RectF(hudRect.left + 42.0f, hudRect.top, hudRect.right - weatherReserve, hudRect.bottom);
+            m_clockComponent->Draw(clockRect, hudAlpha, ctx.currentTimeMs);
+        }
+        if (m_weatherComponent) {
+            const float iconSize = (hudRect.bottom - hudRect.top) * 0.4f;
+            const float iconX = hudRect.right - iconSize - 15.0f;
+            const float iconY = hudRect.top + ((hudRect.bottom - hudRect.top) - iconSize) * 0.5f;
+            m_weatherComponent->DrawCompact(iconX, iconY, iconSize, hudAlpha, ctx.currentTimeMs);
+        }
+        return;
+    }
+
+    std::wstring primary;
+    std::wstring secondary;
+    bool musicActive = false;
+    if (!TryGetGhostHudText(ctx.shrinkSourceMode, primary, secondary, musicActive)) {
+        return;
+    }
+
+    if (musicActive && m_waveformComponent) {
+        D2D1_RECT_F bars = D2D1::RectF(hudRect.right - 46.0f, hudRect.top + 10.0f, hudRect.right - 12.0f, hudRect.bottom - 10.0f);
+        m_waveformComponent->Draw(bars, alpha * 0.65f, ctx.currentTimeMs);
+    }
+
+    const float textRight = musicActive ? hudRect.right - 54.0f : hudRect.right - 12.0f;
+    const D2D1_RECT_F primaryRect = D2D1::RectF(hudRect.left + 14.0f, hudRect.top + 6.0f, textRight, hudRect.top + 23.0f);
+    const D2D1_RECT_F secondaryRect = D2D1::RectF(hudRect.left + 14.0f, hudRect.top + 23.0f, textRight, hudRect.bottom - 5.0f);
+
+    m_whiteBrush->SetOpacity(alpha);
+    m_grayBrush->SetOpacity(alpha * 0.90f);
+    m_d2dContext->DrawTextW(primary.c_str(), static_cast<UINT32>(primary.size()), m_textFormatTitle.Get(), primaryRect, m_whiteBrush.Get(),
+        D2D1_DRAW_TEXT_OPTIONS_CLIP);
+    m_d2dContext->DrawTextW(secondary.c_str(), static_cast<UINT32>(secondary.size()), m_textFormatSub.Get(), secondaryRect, m_grayBrush.Get(),
+        D2D1_DRAW_TEXT_OPTIONS_CLIP);
 }
 
 void RenderEngine::DrawCapsule(const RenderContext& ctx) {
@@ -621,14 +927,22 @@ void RenderEngine::DrawCapsule(const RenderContext& ctx) {
     float dpiScale = dpiX / 96.0f;
     m_d2dContext->SetTransform(D2D1::Matrix3x2F::Translation(static_cast<float>(offset.x) / dpiScale, static_cast<float>(offset.y) / dpiScale));
 
+    const float top = Constants::UI::TOP_MARGIN;
     float left = (ctx.canvasWidth - ctx.islandWidth) / 2.0f;
-    float top = Constants::UI::TOP_MARGIN;
     float right = left + ctx.islandWidth;
     float bottom = top + ctx.islandHeight;
     float radius = (std::min)(Constants::UI::NOTCH_BOTTOM_RADIUS, ctx.islandHeight / 2.0f);
     D2D1_RECT_F notchRect = D2D1::RectF(left, top, right, bottom);
-    D2D1_ROUNDED_RECT fallbackRect = D2D1::RoundedRect(notchRect, radius, radius);
-    ComPtr<ID2D1PathGeometry> notchGeometry = CreateNotchGeometry(m_d2dFactory.Get(), notchRect, radius);
+    const bool shrinkVisual = ctx.mode == IslandDisplayMode::Shrunk || ctx.shrinkAnimating;
+    D2D1_RECT_F shellRect = shrinkVisual ? BuildShrinkInterpolatedRect(ctx, top) : notchRect;
+    if (shrinkVisual) {
+        left = shellRect.left;
+        right = shellRect.right;
+        bottom = shellRect.bottom;
+        radius = (shellRect.bottom - shellRect.top) * 0.5f;
+    }
+    D2D1_ROUNDED_RECT fallbackRect = D2D1::RoundedRect(shellRect, radius, radius);
+    ComPtr<ID2D1PathGeometry> notchGeometry = shrinkVisual ? nullptr : CreateNotchGeometry(m_d2dFactory.Get(), shellRect, radius);
 
     m_blackBrush->SetOpacity(m_primaryShellOpacity);
     if (notchGeometry) {
@@ -637,7 +951,14 @@ void RenderEngine::DrawCapsule(const RenderContext& ctx) {
         m_d2dContext->FillRoundedRectangle(&fallbackRect, m_blackBrush.Get());
     }
 
-    if (ctx.contentAlpha > 0.01f) {
+    const float contentFade = shrinkVisual ? (1.0f - Clamp01(ctx.shrinkProgress)) : 1.0f;
+    const float contentAlpha = ctx.contentAlpha * contentFade;
+    IslandDisplayMode contentMode = ctx.mode;
+    if (ctx.mode == IslandDisplayMode::Shrunk && ctx.shrinkAnimating && ctx.shrinkProgress < 0.98f) {
+        contentMode = ctx.shrinkSourceMode;
+    }
+
+    if (contentMode != IslandDisplayMode::Shrunk && contentAlpha > 0.01f) {
         ComPtr<ID2D1Geometry> clipGeometry;
         if (notchGeometry) {
             clipGeometry = notchGeometry;
@@ -655,15 +976,34 @@ void RenderEngine::DrawCapsule(const RenderContext& ctx) {
                 D2D1::IdentityMatrix(), 1.0f, nullptr, D2D1_LAYER_OPTIONS_NONE), layer.Get());
         }
 
-        m_whiteBrush->SetOpacity(ctx.contentAlpha);
-        m_grayBrush->SetOpacity(ctx.contentAlpha);
-        m_themeBrush->SetOpacity(ctx.contentAlpha);
+        m_whiteBrush->SetOpacity(contentAlpha);
+        m_grayBrush->SetOpacity(contentAlpha);
+        m_themeBrush->SetOpacity(contentAlpha);
 
-        DrawPrimaryContent(notchRect, ctx);
+        RenderContext contentCtx = ctx;
+        contentCtx.mode = contentMode;
+        contentCtx.contentAlpha = contentAlpha;
+        DrawPrimaryContent(notchRect, contentCtx);
 
         if (layer) {
             m_d2dContext->PopLayer();
         }
+    }
+
+    const bool compactHandleVisible =
+        ctx.mode == IslandDisplayMode::Idle ||
+        ctx.mode == IslandDisplayMode::MusicCompact ||
+        ctx.mode == IslandDisplayMode::PomodoroCompact ||
+        ctx.mode == IslandDisplayMode::TodoListCompact ||
+        ctx.mode == IslandDisplayMode::AgentCompact;
+    if (compactHandleVisible && ctx.islandHeight >= Constants::Size::COMPACT_MIN_HEIGHT) {
+        DrawCompactShrinkHandle(notchRect, 0.36f * contentAlpha);
+    }
+
+    if (shrinkVisual) {
+        const float ghostAlpha = Clamp01((ctx.shrinkProgress - 0.45f) / 0.55f) * 0.46f;
+        DrawShrunkGhostHud(ctx, ghostAlpha);
+        DrawShrinkHandle(shellRect, 0.56f * ctx.contentAlpha);
     }
 
     DrawSecondaryIsland(ctx, top, bottom);

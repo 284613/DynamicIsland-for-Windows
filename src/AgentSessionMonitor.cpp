@@ -18,7 +18,8 @@ using namespace Windows::Data::Json;
 
 namespace {
 constexpr uint64_t kLiveWindowMs = 15000;
-constexpr auto kPollInterval = std::chrono::seconds(1);
+constexpr auto kActivePollInterval = std::chrono::seconds(1);
+constexpr auto kIdlePollInterval = std::chrono::seconds(5);
 
 std::wstring Utf8ToWide(const std::string& utf8) {
     if (utf8.empty()) {
@@ -628,10 +629,19 @@ bool AgentSessionMonitor::Initialize(HWND targetHwnd) {
     return true;
 }
 
+void AgentSessionMonitor::RequestRefresh() {
+    {
+        std::lock_guard<std::mutex> lock(m_waitMutex);
+        m_refreshRequested = true;
+    }
+    m_waitCv.notify_all();
+}
+
 void AgentSessionMonitor::Shutdown() {
     {
         std::lock_guard<std::mutex> lock(m_waitMutex);
         m_running = false;
+        m_refreshRequested = false;
     }
     m_waitCv.notify_all();
 
@@ -671,8 +681,18 @@ void AgentSessionMonitor::WorkerLoop() {
             PostMessageW(m_targetHwnd, WM_AGENT_SESSIONS_UPDATED, 0, 0);
         }
 
+        std::chrono::milliseconds waitInterval = kIdlePollInterval;
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            const bool hasLiveSummary = std::any_of(m_summaries.begin(), m_summaries.end(), [](const AgentSessionSummary& summary) {
+                return summary.isLive;
+            });
+            waitInterval = hasLiveSummary ? kActivePollInterval : kIdlePollInterval;
+        }
+
         std::unique_lock<std::mutex> waitLock(m_waitMutex);
-        m_waitCv.wait_for(waitLock, kPollInterval, [this]() { return !m_running; });
+        m_waitCv.wait_for(waitLock, waitInterval, [this]() { return !m_running || m_refreshRequested; });
+        m_refreshRequested = false;
         if (!m_running) {
             break;
         }

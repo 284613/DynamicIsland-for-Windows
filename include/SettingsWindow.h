@@ -73,6 +73,13 @@ private:
     void BuildAdvancedPage(std::vector<SettingsControl>& controls, float& contentHeight) const;
     void BuildAboutPage(std::vector<SettingsControl>& controls, float& contentHeight) const;
     void RebuildFooterControls();
+    void BuildCompactModesCard(std::vector<SettingsControl>& controls, float y, float& cardHeight) const;
+    void BuildMusicArtworkCard(std::vector<SettingsControl>& controls, float y, float& cardHeight) const;
+    std::wstring SerializeCompactModeOrder() const;
+    void LoadCompactModeOrder(const std::wstring& rawValue);
+    bool IsCompactModeEnabled(const std::wstring& modeKey) const;
+    void ToggleCompactMode(const std::wstring& modeKey);
+    void MoveCompactMode(const std::wstring& modeKey, int delta);
 
     void Render();
     void DrawWindowBackground();
@@ -253,6 +260,9 @@ private:
     float m_fileStashMaxItems = 5.0f;
     float m_mediaPollIntervalMs = 1000.0f;
     float m_dpiScale = 1.0f;
+    std::vector<std::wstring> m_compactModeOrder;
+    bool m_compactAlbumVinyl = true;
+    bool m_expandedAlbumVinyl = false;
 
     std::vector<CityInfo> m_allCities;
     std::vector<const CityInfo*> m_filteredCities;

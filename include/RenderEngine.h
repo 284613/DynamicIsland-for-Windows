@@ -1,6 +1,7 @@
 #pragma once
 #include <windows.h>
 #include <string>
+#include <array>
 #include <vector>
 #include <memory>
 #include <functional>
@@ -61,15 +62,16 @@ public:
 
     void SetPlaybackState(bool hasSession, bool isPlaying, float progress,
                           const std::wstring& title, const std::wstring& artist);
+    void SetMusicArtworkStyles(MusicArtworkStyle compactStyle, MusicArtworkStyle expandedStyle);
     void SetMusicInteractionState(int hoveredButton, int pressedButton, int hoveredProgress, int pressedProgress);
     void SetLyricData(const LyricData& lyric);
-    void SetWaveformState(float audioLevel, float islandHeight);
+    void SetWaveformState(const std::array<float, 3>& bandLevels, float islandHeight, WaveformDisplayStyle style);
     void SetTimeData(bool showTime, const std::wstring& timeText);
     void SetVolumeState(bool active, float volumeLevel);
     void SetFileState(SecondaryContentKind mode, const std::vector<FileStashItem>& storedFiles, int selectedIndex, int hoveredIndex);
     void SetWeatherState(const std::wstring& locationText, const std::wstring& desc, float temp, const std::wstring& iconId,
                          const std::vector<HourlyForecast>& hourly, const std::vector<DailyForecast>& daily,
-                         bool expanded, WeatherViewMode viewMode);
+                         bool expanded, WeatherViewMode viewMode, bool available);
     void SetAlertState(bool active, const AlertInfo& info);
     void SetTheme(bool darkMode, float primaryOpacity, float secondaryOpacity);
     void SetClockClickCallback(std::function<void()> callback);
@@ -97,6 +99,11 @@ private:
     void DrawPrimaryContent(const D2D1_RECT_F& contentRect, const RenderContext& ctx);
     void DrawSecondaryIsland(const RenderContext& ctx, float top, float bottom);
     IIslandComponent* ResolveSecondaryComponent(SecondaryContentKind kind);
+    D2D1_RECT_F BuildShrinkInterpolatedRect(const RenderContext& ctx, float top) const;
+    void DrawShrinkHandle(const D2D1_RECT_F& rect, float alpha);
+    void DrawCompactShrinkHandle(const D2D1_RECT_F& rect, float alpha);
+    void DrawShrunkGhostHud(const RenderContext& ctx, float alpha);
+    bool TryGetGhostHudText(IslandDisplayMode sourceMode, std::wstring& primary, std::wstring& secondary, bool& musicActive) const;
 
     SharedResources m_sharedRes;
 
@@ -150,6 +157,21 @@ private:
     bool m_darkMode = true;
     float m_primaryShellOpacity = 1.0f;
     float m_secondaryShellOpacity = 1.0f;
+
+    bool m_hasPlaybackSession = false;
+    bool m_isPlaybackActive = false;
+    std::wstring m_playbackTitle;
+    std::wstring m_playbackArtist;
+    bool m_showTime = false;
+    std::wstring m_timeText;
+    std::wstring m_weatherLocationText;
+    std::wstring m_weatherDesc;
+    std::wstring m_weatherIconId;
+    float m_weatherTemp = 0.0f;
+    bool m_weatherAvailable = false;
+    std::vector<AgentSessionSummary> m_agentSummaries;
+    AgentKind m_compactAgentProvider = AgentKind::Claude;
+    TodoStore* m_todoStore = nullptr;
 
     IslandDisplayMode m_lastMode = IslandDisplayMode::Idle;
     IIslandComponent* m_activePrimaryComponent = nullptr;

@@ -16,6 +16,7 @@ public:
 
     bool Initialize(HWND targetHwnd);
     void Shutdown();
+    void RequestRefresh();
 
     std::vector<AgentSessionSummary> GetSummaries() const;
     std::vector<AgentHistoryEntry> GetHistory(AgentKind kind, const std::wstring& sessionId) const;
@@ -83,4 +84,5 @@ private:
     std::mutex m_waitMutex;
     std::condition_variable m_waitCv;
     bool m_running = false;
+    bool m_refreshRequested = false;
 };

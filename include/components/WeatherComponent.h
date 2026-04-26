@@ -41,7 +41,8 @@ public:
         float temp,
         const std::wstring& iconId,
         const std::vector<HourlyForecast>& hourly,
-        const std::vector<DailyForecast>& daily);
+        const std::vector<DailyForecast>& daily,
+        bool available);
 
     void SetExpanded(bool expanded) { m_isExpanded = expanded; }
     void SetViewMode(WeatherViewMode mode);
@@ -53,6 +54,7 @@ public:
     void ResetAnimation() { m_animPhase = 0.0f; m_lastAnimTime = 0; }
 
 private:
+    void DrawUnavailable(const D2D1_RECT_F& rect, float contentAlpha, ULONGLONG currentTimeMs);
     void DrawWeatherExpanded(const D2D1_RECT_F& rect, float contentAlpha, ULONGLONG currentTime);
     void DrawWeatherDaily(const D2D1_RECT_F& rect, float contentAlpha, ULONGLONG currentTime);
     void DrawWeatherView(WeatherViewMode mode, const D2D1_RECT_F& rect, float contentAlpha, ULONGLONG currentTime);
@@ -77,6 +79,7 @@ private:
     std::wstring m_iconId;
     std::vector<HourlyForecast> m_hourly;
     std::vector<DailyForecast> m_daily;
+    bool m_available = true;
 
     bool m_isExpanded = false;
     WeatherViewMode m_viewMode = WeatherViewMode::Hourly;

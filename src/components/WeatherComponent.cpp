@@ -27,7 +27,8 @@ void WeatherComponent::SetWeatherData(
     const std::wstring& locationText,
     const std::wstring& desc, float temp, const std::wstring& iconId,
     const std::vector<HourlyForecast>& hourly,
-    const std::vector<DailyForecast>& daily)
+    const std::vector<DailyForecast>& daily,
+    bool available)
 {
     WeatherType newType = MapWeatherDescToType(desc);
     if (newType != m_weatherType) {
@@ -40,6 +41,7 @@ void WeatherComponent::SetWeatherData(
     m_iconId = iconId;
     m_hourly = hourly;
     m_daily  = daily;
+    m_available = available;
 }
 
 void WeatherComponent::SetViewMode(WeatherViewMode mode) {
@@ -50,6 +52,11 @@ void WeatherComponent::SetViewMode(WeatherViewMode mode) {
 
 void WeatherComponent::Draw(const D2D1_RECT_F& rect, float contentAlpha, ULONGLONG currentTimeMs) {
     if (!m_res || !m_isExpanded) return;
+
+    if (!m_available) {
+        DrawUnavailable(rect, contentAlpha, currentTimeMs);
+        return;
+    }
 
     if (!m_isViewTransitioning) {
         DrawWeatherView(m_viewMode, rect, contentAlpha, currentTimeMs);
@@ -84,9 +91,9 @@ void WeatherComponent::DrawCompact(float iconX, float iconY, float iconSize,
 
     DrawWeatherIcon(iconX, iconY, iconSize, contentAlpha, currentTimeMs);
 
-    // Temperature
-    if (m_temp != 0.0f && m_res->subFormat) {
-        std::wstring tempText = std::to_wstring((int)m_temp) + L"\u00B0";
+    // Temperature / unavailable state
+    if (m_res->subFormat) {
+        const std::wstring tempText = m_available ? (std::to_wstring((int)m_temp) + L"\u00B0") : L"未配置";
         ComPtr<IDWriteTextLayout> tempLayout;
         m_res->dwriteFactory->CreateTextLayout(tempText.c_str(), (UINT32)tempText.size(),
             m_res->subFormat, 80.0f, 100.0f, &tempLayout);
@@ -99,6 +106,43 @@ void WeatherComponent::DrawCompact(float iconX, float iconY, float iconSize,
             ctx->DrawTextLayout(D2D1::Point2F(tempX, tempY), tempLayout.Get(), m_res->whiteBrush);
         }
     }
+}
+
+void WeatherComponent::DrawUnavailable(const D2D1_RECT_F& rect, float contentAlpha, ULONGLONG currentTimeMs) {
+    auto* ctx = m_res->d2dContext;
+    ComPtr<ID2D1SolidColorBrush> panelBrush;
+    ComPtr<ID2D1SolidColorBrush> strokeBrush;
+    ctx->CreateSolidColorBrush(D2D1::ColorF(0.15f, 0.15f, 0.15f, 0.42f * contentAlpha), &panelBrush);
+    ctx->CreateSolidColorBrush(D2D1::ColorF(0.62f, 0.62f, 0.66f, 0.65f * contentAlpha), &strokeBrush);
+
+    const D2D1_RECT_F cardRect = D2D1::RectF(rect.left + 16.0f, rect.top + 16.0f, rect.right - 16.0f, rect.bottom - 16.0f);
+    ctx->FillRoundedRectangle(D2D1::RoundedRect(cardRect, 18.0f, 18.0f), panelBrush.Get());
+    ctx->DrawRoundedRectangle(D2D1::RoundedRect(cardRect, 18.0f, 18.0f), strokeBrush.Get(), 1.0f);
+
+    const WeatherType savedType = m_weatherType;
+    m_weatherType = WeatherType::Default;
+    DrawWeatherIcon(cardRect.left + 22.0f, cardRect.top + 20.0f, 26.0f, contentAlpha * 0.95f, currentTimeMs);
+    m_weatherType = savedType;
+
+    const D2D1_RECT_F titleRect = D2D1::RectF(cardRect.left + 58.0f, cardRect.top + 16.0f, cardRect.right - 20.0f, cardRect.top + 38.0f);
+    const D2D1_RECT_F reasonRect = D2D1::RectF(cardRect.left + 22.0f, cardRect.top + 56.0f, cardRect.right - 22.0f, cardRect.top + 90.0f);
+    const D2D1_RECT_F hintRect = D2D1::RectF(cardRect.left + 22.0f, cardRect.top + 94.0f, cardRect.right - 22.0f, cardRect.bottom - 20.0f);
+
+    auto titleLayout = GetOrCreateTextLayout(L"天气不可用", m_res->titleFormat, titleRect.right - titleRect.left, L"weather_unavailable_title");
+    titleLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+    m_res->whiteBrush->SetOpacity(contentAlpha);
+    ctx->DrawTextLayout(D2D1::Point2F(titleRect.left, titleRect.top), titleLayout.Get(), m_res->whiteBrush);
+
+    auto reasonLayout = GetOrCreateTextLayout(m_desc.empty() ? L"未配置 API Key" : m_desc, m_res->subFormat, reasonRect.right - reasonRect.left, L"weather_unavailable_reason");
+    reasonLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+    m_res->grayBrush->SetOpacity(contentAlpha * 0.88f);
+    ctx->DrawTextLayout(D2D1::Point2F(reasonRect.left, reasonRect.top), reasonLayout.Get(), m_res->grayBrush);
+
+    const std::wstring locationLine = m_locationText.empty() ? L"请在设置页配置天气 API Key" : (L"当前位置: " + m_locationText + L"。请在设置页补充 API Key。");
+    auto hintLayout = GetOrCreateTextLayout(locationLine, m_res->subFormat, hintRect.right - hintRect.left, L"weather_unavailable_hint");
+    hintLayout->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
+    m_res->grayBrush->SetOpacity(contentAlpha * 0.72f);
+    ctx->DrawTextLayout(D2D1::Point2F(hintRect.left, hintRect.top), hintLayout.Get(), m_res->grayBrush);
 }
 
 bool WeatherComponent::OnMouseWheel(float /*x*/, float /*y*/, int delta) {
