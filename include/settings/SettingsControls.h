@@ -58,6 +58,11 @@ namespace SettingID {
     constexpr int MUSIC_COMPACT_ART_VINYL    = 77;
     constexpr int MUSIC_EXPANDED_ART_SQUARE  = 78;
     constexpr int MUSIC_EXPANDED_ART_VINYL   = 79;
+    constexpr int MUSIC_TRANSLATION_OFF      = 86;
+    constexpr int MUSIC_TRANSLATION_CURRENT  = 87;
+    constexpr int MUSIC_TRANSLATION_ALL      = 88;
+    constexpr int MUSIC_TRANSLATION_ONLY     = 89;
+    constexpr int MUSIC_VINYL_RING_PULSE     = 90;
     constexpr int FACE_ENABLE      = 80;
     constexpr int FACE_ENROLL      = 81;
     constexpr int FACE_DELETE      = 82;

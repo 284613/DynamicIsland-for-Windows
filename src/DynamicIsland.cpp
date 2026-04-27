@@ -135,6 +135,19 @@ MusicArtworkStyle ParseArtworkStyle(const std::wstring& value, MusicArtworkStyle
     }
     return fallback;
 }
+
+LyricTranslationMode ParseLyricTranslationMode(const std::wstring& value) {
+    if (EqualsNoCase(value, L"Off")) {
+        return LyricTranslationMode::Off;
+    }
+    if (EqualsNoCase(value, L"AllLines")) {
+        return LyricTranslationMode::AllLines;
+    }
+    if (EqualsNoCase(value, L"TranslationOnly")) {
+        return LyricTranslationMode::TranslationOnly;
+    }
+    return LyricTranslationMode::CurrentOnly;
+}
 }
 
 #ifdef _DEBUG
@@ -244,14 +257,11 @@ POINT DynamicIsland::LogicalFromPhysical(POINT physicalPt) const {
 }
 
 DynamicIsland::ProgressBarLayout DynamicIsland::GetProgressBarLayout() const {
-    const float left = (CANVAS_WIDTH - GetCurrentWidth()) / 2.0f;
-    const float right = left + GetCurrentWidth();
-    const float artLeft = left + 20.0f;
-    const float textLeft = artLeft + 60.0f + 15.0f;
-    return {
-        textLeft - 80.0f,
-        textLeft + (right - 20.0f - textLeft),
-    };
+	const float left = (CANVAS_WIDTH - GetCurrentWidth()) / 2.0f;
+	return {
+		left + 66.0f,
+		left + GetCurrentWidth() - 66.0f,
+	};
 }
 
 float DynamicIsland::ClampProgress(float progress) {
@@ -708,6 +718,12 @@ float DynamicIsland::GetCompactTargetWidth(IslandDisplayMode mode) const {
 
 float DynamicIsland::GetCompactTargetHeight(IslandDisplayMode mode) const {
     if (mode == IslandDisplayMode::MusicCompact) {
+        const bool showTranslation =
+            m_lyricTranslationMode != LyricTranslationMode::Off &&
+            !m_currentLyricData.translation.empty();
+        if (showTranslation) {
+            return Constants::Size::MUSIC_COMPACT_HEIGHT_WITH_LYRIC;
+        }
         return Constants::Size::MUSIC_COMPACT_HEIGHT;
     }
     if (mode == IslandDisplayMode::PomodoroCompact) {
@@ -1196,7 +1212,7 @@ void DynamicIsland::LoadConfig() {
 
 	EXPANDED_WIDTH = (float)getInt(L"MainUI", L"Width", (int)Constants::Size::EXPANDED_WIDTH);
 	EXPANDED_HEIGHT = (float)getInt(L"MainUI", L"Height", (int)Constants::Size::EXPANDED_HEIGHT);
-	MUSIC_EXPANDED_HEIGHT = EXPANDED_HEIGHT;
+	MUSIC_EXPANDED_HEIGHT = Constants::Size::MUSIC_EXPANDED_HEIGHT;
 	m_mainUITransparency = getInt(L"MainUI", L"Transparency", 100) / 100.0f;
 	m_filePanelTransparency = getInt(L"FilePanel", L"Transparency", 90) / 100.0f;
 	m_springStiffness = (float)getInt(L"Advanced", L"SpringStiffness", 400);
@@ -1211,6 +1227,8 @@ void DynamicIsland::LoadConfig() {
 	LoadCompactModeOrder(compactOrderBuf);
 	m_compactArtworkStyle = ParseArtworkStyle(ReadUtf8IniValue(configPath, L"MainUI", L"CompactAlbumArtStyle", L"Vinyl"), MusicArtworkStyle::Vinyl);
 	m_expandedArtworkStyle = ParseArtworkStyle(ReadUtf8IniValue(configPath, L"MainUI", L"ExpandedAlbumArtStyle", L"Square"), MusicArtworkStyle::Square);
+	m_lyricTranslationMode = ParseLyricTranslationMode(ReadUtf8IniValue(configPath, L"MainUI", L"LyricTranslationMode", L"CurrentOnly"));
+	m_vinylRingPulse = getInt(L"MainUI", L"VinylRingPulse", 1) != 0;
 
 	wchar_t allowedAppsBuf[512] = { 0 };
 
@@ -1402,9 +1420,14 @@ RegisterHotKey(m_window.GetHWND(), HOTKEY_ID, MOD_CONTROL | MOD_ALT, 'I');
 	initCtx.mode = IslandDisplayMode::Idle;
 	initCtx.currentTimeMs = GetTickCount64();
 
-	m_renderer.SetPlaybackState(hasSession, isPlaying, 0.0f, m_mediaMonitor.GetTitle(), m_mediaMonitor.GetArtist());
+	m_renderer.SetPlaybackState(hasSession, isPlaying, 0.0f, m_mediaMonitor.GetTitle(), m_mediaMonitor.GetArtist(), 0, 0);
 	m_renderer.SetMusicArtworkStyles(m_compactArtworkStyle, m_expandedArtworkStyle);
-	m_renderer.SetLyricData({ L"", -1, -1, 0 });
+	m_renderer.SetMusicOptions(m_lyricTranslationMode, m_vinylRingPulse);
+	m_renderer.SetMusicLiked(m_musicLiked);
+	LyricData emptyLyric{};
+	emptyLyric.currentMs = -1;
+	emptyLyric.nextMs = -1;
+	m_renderer.SetLyricData(emptyLyric);
 	m_renderer.SetWaveformState(m_mediaMonitor.GetWaveformBands(), GetCurrentHeight(), WaveformDisplayStyle::Compact);
 	m_renderer.SetTimeData(false, L"");
 	m_renderer.SetVolumeState(false, 0.0f);
@@ -1697,6 +1720,7 @@ void DynamicIsland::UpdatePhysics() {
 	LyricData currentLyricData = hasSession
 		? m_lyricsMonitor.GetLyricData(displayPositionMs)
 		: cachedLyricData;
+	m_currentLyricData = currentLyricData;
 
 	// 如果正在拖动或刚松开进度条，使用临时进度
 
@@ -1745,8 +1769,10 @@ void DynamicIsland::UpdatePhysics() {
 		}
 
 	}
-	m_renderer.SetPlaybackState(hasSession, isPlaying, progress, realTitle, realArtist);
+	m_renderer.SetPlaybackState(hasSession, isPlaying, progress, realTitle, realArtist, displayPositionMs, durationMs.count());
 	m_renderer.SetMusicArtworkStyles(m_compactArtworkStyle, m_expandedArtworkStyle);
+	m_renderer.SetMusicOptions(m_lyricTranslationMode, m_vinylRingPulse);
+	m_renderer.SetMusicLiked(m_musicLiked);
 	m_renderer.SetMusicInteractionState(m_hoveredButtonIndex, m_pressedButtonIndex, m_hoveredProgress, m_pressedProgress);
 	m_renderer.SetLyricData(currentLyricData);
 	m_renderer.SetWaveformState(
@@ -2475,13 +2501,38 @@ LRESULT DynamicIsland::HandleMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 			// 只有松开时鼠标还在那个按钮上，才算数（防止按错滑动取消）
 
 			if (hit == m_pressedButtonIndex) {
-
-				if (hit == 0) m_mediaMonitor.Previous();
-
-				else if (hit == 1) m_mediaMonitor.PlayPause();
-
-				else if (hit == 2) m_mediaMonitor.Next();
-
+				const bool expandedMusic = currentMode == IslandDisplayMode::MusicExpanded;
+				if (expandedMusic) {
+					if (hit == 0) {
+						m_musicLiked = !m_musicLiked;
+						m_renderer.SetMusicLiked(m_musicLiked);
+					}
+					else if (hit == 1) m_mediaMonitor.Previous();
+					else if (hit == 2) m_mediaMonitor.PlayPause();
+					else if (hit == 3) m_mediaMonitor.Next();
+					else if (hit == 4) {
+						switch (m_lyricTranslationMode) {
+						case LyricTranslationMode::Off:
+							m_lyricTranslationMode = LyricTranslationMode::CurrentOnly;
+							break;
+						case LyricTranslationMode::CurrentOnly:
+							m_lyricTranslationMode = LyricTranslationMode::TranslationOnly;
+							break;
+						case LyricTranslationMode::TranslationOnly:
+							m_lyricTranslationMode = LyricTranslationMode::Off;
+							break;
+						case LyricTranslationMode::AllLines:
+						default:
+							m_lyricTranslationMode = LyricTranslationMode::CurrentOnly;
+							break;
+						}
+						m_renderer.SetMusicOptions(m_lyricTranslationMode, m_vinylRingPulse);
+					}
+				} else {
+					if (hit == 0) m_mediaMonitor.Previous();
+					else if (hit == 1) m_mediaMonitor.PlayPause();
+					else if (hit == 2) m_mediaMonitor.Next();
+				}
 			}
 
 			m_pressedButtonIndex = -1; // 取消按下状态

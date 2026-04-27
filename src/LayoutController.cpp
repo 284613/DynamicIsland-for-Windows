@@ -93,34 +93,54 @@ void LayoutController::UpdatePhysics() {
 int LayoutController::HitTestPlaybackButtons(POINT pt, bool isExpanded, bool hasSession,
     float canvasWidth, float currentWidth, float currentHeight, float dpiScale) const
 {
-    if (!isExpanded || !hasSession) return -1;
+    if (!hasSession) return -1;
 
     float left = (canvasWidth - currentWidth) / 2.0f;
     float top = Constants::UI::TOP_MARGIN;
-    float right = left + currentWidth;
-    float artSize = 60.0f;
-    float artLeft = left + 20.0f;
-    float artTop = top + 30.0f;
-    float textLeft = artLeft + artSize + 15.0f;
-    float textRight = right - 20.0f;
-    float titleMaxWidth = textRight - textLeft;
-    float buttonSize = Constants::UI::BUTTON_SIZE;
-    float spacing = Constants::UI::BUTTON_SPACING;
-    float buttonGroupWidth = buttonSize * 3 + spacing * 2;
-    float artistBottom = artTop + 60.0f;
-    float progressBarY = artistBottom + 20.0f;
-    float progressBarHeight = 6.0f;
-    float buttonY = progressBarY + progressBarHeight + 10.0f;
-    float buttonX = textLeft + (titleMaxWidth - buttonGroupWidth) / 2.0f - 45.0f;
-    if (buttonX < textLeft) buttonX = textLeft;
+    if (!isExpanded) {
+        const float buttonSize = 28.0f;
+        const float spacing = Constants::UI::BUTTON_SPACING;
+        const float buttonX = left + currentWidth - 104.0f;
+        const float buttonY = top + (currentHeight - buttonSize) * 0.5f;
+        for (int i = 0; i < 3; ++i) {
+            const float x = buttonX + i * (buttonSize + spacing);
+            RECT r = {
+                (long)(x - 4.0f),
+                (long)(buttonY - 4.0f),
+                (long)(x + buttonSize + 4.0f),
+                (long)(buttonY + buttonSize + 4.0f)
+            };
+            if (PtInRect(&r, pt)) {
+                return i;
+            }
+        }
+        return -1;
+    }
 
-    RECT prevRect = { (long)buttonX, (long)buttonY, (long)(buttonX + buttonSize), (long)(buttonY + buttonSize) };
-    RECT playRect = { (long)(buttonX + buttonSize + spacing), (long)buttonY, (long)(buttonX + 2 * buttonSize + spacing), (long)(buttonY + buttonSize) };
-    RECT nextRect = { (long)(buttonX + 2 * (buttonSize + spacing)), (long)buttonY, (long)(buttonX + 3 * buttonSize + 2 * spacing), (long)(buttonY + buttonSize) };
+    const float buttonSize = 36.0f;
+    const float buttonGap = 22.0f;
+    const float playSize = 40.0f;
+    const float buttonGroupWidth = buttonSize * 4.0f + playSize + buttonGap * 4.0f;
+    const float buttonX = left + (currentWidth - buttonGroupWidth) * 0.5f;
+    const float buttonY = top + currentHeight - 48.0f;
 
-    if (PtInRect(&prevRect, pt)) return 0;
-    if (PtInRect(&playRect, pt)) return 1;
-    if (PtInRect(&nextRect, pt)) return 2;
+    for (int i = 0; i < 5; ++i) {
+        const bool isPlay = i == 2;
+        const float currentSize = isPlay ? playSize : buttonSize;
+        float x = buttonX + i * (buttonSize + buttonGap);
+        if (i > 2) {
+            x += 4.0f;
+        }
+        RECT r = {
+            (long)(x - 4.0f),
+            (long)(buttonY + (buttonSize - currentSize) * 0.5f - 4.0f),
+            (long)(x + currentSize + 4.0f),
+            (long)(buttonY + (buttonSize - currentSize) * 0.5f + currentSize + 4.0f)
+        };
+        if (PtInRect(&r, pt)) {
+            return i;
+        }
+    }
 
     return -1;
 }
@@ -130,19 +150,12 @@ int LayoutController::HitTestProgressBar(POINT pt, bool isExpanded, bool hasSess
 {
     if (!isExpanded || !hasSession) return -1;
 
-    float left = (canvasWidth - currentWidth) / 2.0f;
-    float top = Constants::UI::TOP_MARGIN;
-    float right = left + currentWidth;
-    float artSize = 60.0f;
-    float artLeft = left + 20.0f;
-    float artTop = top + 30.0f;
-    float textLeft = artLeft + artSize + 15.0f;
-    float titleMaxWidth = (right - 20.0f) - textLeft;
-    float progressBarLeft = textLeft - 80.0f;
-    float progressBarRight = textLeft + titleMaxWidth;
-    float artistBottom = artTop + 60.0f;
-    float progressBarY = artistBottom + 20.0f;
-    float progressBarHeight = 6.0f;
+    const float left = (canvasWidth - currentWidth) / 2.0f;
+    const float top = Constants::UI::TOP_MARGIN;
+    const float progressBarLeft = left + 66.0f;
+    const float progressBarRight = left + currentWidth - 66.0f;
+    const float progressBarY = top + currentHeight - 66.0f;
+    const float progressBarHeight = 3.5f;
 
     // 扩大点击区域方便操作
     float hitTop = progressBarY - 10.0f;

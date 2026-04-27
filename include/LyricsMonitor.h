@@ -13,6 +13,8 @@ struct LyricLine {
     int64_t timestamp;  // 毫秒
     std::wstring text;
     std::vector<LyricWord> words;
+    bool hasExplicitWordTiming = false;
+    std::wstring translation;  // 行级翻译（可空）
 };
 
 enum class DynamicLyricFormat {
@@ -46,6 +48,7 @@ private:
         std::wstring lineLyric;
         std::wstring yrcLyric;
         std::wstring klyricLyric;
+        std::wstring tlyricLyric;  // 网易云 tlyric（LRC 格式翻译）
         DynamicLyricFormat dynamicFormat = DynamicLyricFormat::None;
     };
 
@@ -61,6 +64,9 @@ private:
     static std::vector<LyricLine> ParseYrcLyrics(const std::wstring& lyricContent);
     static std::vector<LyricLine> ParseKlyricLyrics(const std::wstring& lyricContent);
     static void AttachFallbackWordTiming(std::vector<LyricLine>& lyrics);
+
+    // 把翻译 LRC 按时间戳合并进已解析的歌词行
+    static void MergeTranslation(std::vector<LyricLine>& lyrics, const std::wstring& tlyricLrc);
 
     // 本地文件辅助（静态）
     static std::wstring GetExeDirectory();

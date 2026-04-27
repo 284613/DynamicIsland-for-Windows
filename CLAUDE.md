@@ -94,3 +94,11 @@ x64\Release\DynamicIsland.exe
 - 用户要求“提交到 GitHub / 推送到远端”时，默认提交并推送当前分支；除非用户明确要求 PR 或新分支。
 - 提交前检查 `git status -sb`，不要把 `.omx/`、`.claude/` 本地运行时状态或无关代理文件混入提交。
 - 提交信息要说明为什么改，而不只是列出改了什么。
+
+## 音乐岛维护笔记
+
+- 音乐岛布局横跨 `DynamicIsland.cpp`、`LayoutController.cpp`、`RenderEngine.cpp` 和 `src/components/MusicPlayerComponent.cpp`，改按钮位置时要同步绘制区域和命中区域。
+- 展开态歌词走 `LyricsComponent::DrawThreeLines()`；有真实逐字时间轴时才启用逐字高亮，普通 LRC 长句只做横向滚动。
+- 网易云翻译来自 `LyricsMonitor` 请求的 `tlyric`，不要把翻译混进主歌词文本；翻译字段保存在 `LyricData::translation` 和相邻行翻译字段里。
+- 紧凑态波形由 `RenderEngine::ShouldHideCompactMusicWaveform()` 控制，鼠标靠近控制按钮时要隐藏波形，避免遮挡按钮。
+- 音乐设置项写入 `[MainUI]`：`CompactAlbumArtStyle`、`ExpandedAlbumArtStyle`、`LyricTranslationMode`、`VinylRingPulse`。

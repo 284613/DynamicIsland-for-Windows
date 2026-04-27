@@ -16,9 +16,13 @@ public:
         m_compactArtworkStyle = compactStyle;
         m_expandedArtworkStyle = expandedStyle;
     }
+    void SetVinylRingPulse(bool enabled) { m_vinylRingPulse = enabled; }
+    void SetLiked(bool liked) { m_liked = liked; }
+    bool ShouldHideCompactWaveform() const { return m_isCompact && m_controlHoverAlpha > 0.03f; }
 
     void SetPlaybackState(bool hasSession, bool isPlaying, float progress,
-                          const std::wstring& title, const std::wstring& artist);
+                          const std::wstring& title, const std::wstring& artist,
+                          int64_t positionMs = 0, int64_t durationMs = 0);
     void SetInteractionState(int hoveredButton, int pressedButton, int hoveredProgress, int pressedProgress);
 
     bool LoadAlbumArt(const std::wstring& file);
@@ -36,9 +40,10 @@ private:
     MusicVisualLayout BuildVisualLayout(float left, float top, float width, float height, float expansion) const;
     void RenderAlbumArt(float left, float top, float size, float alpha);
     void RenderVinylRecord(float left, float top, float size, float alpha);
-    void RenderVinylTonearm(float left, float top, float size, float alpha);
+    void RenderVinylRings(float left, float top, float size, float alpha);
     void RenderProgressBar(float left, float top, float width, float height, float alpha);
-    void RenderPlaybackButtons(float left, float top, float buttonSize, float alpha);
+    void RenderPlaybackButtons(float left, float top, float buttonSize, float alpha, bool expanded = false);
+    void RenderPlaybackIcon(int iconKind, const D2D1_RECT_F& rect, ID2D1Brush* brush, float alpha, bool filled);
     void RenderCompactText(const std::wstring& text, float left, float top, float textRight, float height, float alpha);
     void RenderTextLine(const std::wstring& text, IDWriteTextFormat* format, ID2D1Brush* brush,
                         const D2D1_RECT_F& rect, float alpha, bool center);
@@ -50,6 +55,8 @@ private:
     bool m_isPlaying = false;
     bool m_isCompact = false;
     float m_progress = 0.0f;
+    int64_t m_positionMs = 0;
+    int64_t m_durationMs = 0;
     std::wstring m_title;
     std::wstring m_artist;
 
@@ -62,6 +69,11 @@ private:
     bool m_titleScrolling = false;
     std::wstring m_lastDrawnFullText;
     float m_vinylAngle = 0.0f;
+    float m_ringPhase = 0.0f;
+    float m_audioLevel = 0.0f;
+    float m_controlHoverAlpha = 0.0f;
+    bool m_vinylRingPulse = true;
+    bool m_liked = false;
     MusicArtworkStyle m_compactArtworkStyle = MusicArtworkStyle::Vinyl;
     MusicArtworkStyle m_expandedArtworkStyle = MusicArtworkStyle::Square;
 

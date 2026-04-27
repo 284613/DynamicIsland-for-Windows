@@ -80,24 +80,20 @@ D2D1_RECT_F LerpRect(const D2D1_RECT_F& a, const D2D1_RECT_F& b, float t) {
         Lerp(a.bottom, b.bottom, t));
 }
 
-float MusicExpansionProgress(float height) {
-    return SmoothStep((height - Constants::Size::MUSIC_COMPACT_HEIGHT) /
-        ((std::max)(1.0f, Constants::Size::MUSIC_EXPANDED_HEIGHT - Constants::Size::MUSIC_COMPACT_HEIGHT)));
+D2D1_RECT_F BuildMusicCompactLyricRect(const D2D1_RECT_F& rect) {
+    return D2D1::RectF(
+        rect.left + 60.0f,
+        rect.top + 40.0f,
+        rect.right - 42.0f,
+        rect.bottom - 2.0f);
 }
 
-D2D1_RECT_F BuildMusicLyricRect(const D2D1_RECT_F& rect, float height) {
-    const float progress = MusicExpansionProgress(height);
-    const D2D1_RECT_F compactRect = D2D1::RectF(
-        rect.left + 64.0f,
-        rect.top + 40.0f,
-        rect.right - 58.0f,
-        rect.bottom - 6.0f);
-    const D2D1_RECT_F expandedRect = D2D1::RectF(
-        rect.left + 95.0f,
+D2D1_RECT_F BuildMusicExpandedLyricRect(const D2D1_RECT_F& rect) {
+    return D2D1::RectF(
+        rect.left + 122.0f,
         rect.top + 66.0f,
-        rect.right - 24.0f,
-        rect.top + 90.0f);
-    return LerpRect(compactRect, expandedRect, progress);
+        rect.right - 26.0f,
+        rect.bottom - 88.0f);
 }
 }
 
@@ -141,11 +137,11 @@ bool RenderEngine::Initialize(HWND hwnd, int canvasWidth, int canvasHeight) {
     hr = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), &m_dwriteFactory);
     if (FAILED(hr)) return false;
 
-    hr = m_dwriteFactory->CreateTextFormat(L"Microsoft YaHei", nullptr, DWRITE_FONT_WEIGHT_BOLD,
+    hr = m_dwriteFactory->CreateTextFormat(L"Microsoft YaHei UI", nullptr, DWRITE_FONT_WEIGHT_BOLD,
         DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 16.0f, L"zh-cn", &m_textFormatTitle);
     if (FAILED(hr)) return false;
 
-    hr = m_dwriteFactory->CreateTextFormat(L"Microsoft YaHei", nullptr, DWRITE_FONT_WEIGHT_NORMAL,
+    hr = m_dwriteFactory->CreateTextFormat(L"Microsoft YaHei UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL,
         DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 13.0f, L"zh-cn", &m_textFormatSub);
     if (FAILED(hr)) return false;
 
@@ -282,13 +278,13 @@ void RenderEngine::Resize(int width, int height) {
 }
 
 void RenderEngine::SetPlaybackState(bool hasSession, bool isPlaying, float progress,
-    const std::wstring& title, const std::wstring& artist) {
+    const std::wstring& title, const std::wstring& artist, int64_t positionMs, int64_t durationMs) {
     m_hasPlaybackSession = hasSession;
     m_isPlaybackActive = isPlaying;
     m_playbackTitle = title;
     m_playbackArtist = artist;
     if (m_musicComponent) {
-        m_musicComponent->SetPlaybackState(hasSession, isPlaying, progress, title, artist);
+        m_musicComponent->SetPlaybackState(hasSession, isPlaying, progress, title, artist, positionMs, durationMs);
     }
 }
 
@@ -296,6 +292,27 @@ void RenderEngine::SetMusicArtworkStyles(MusicArtworkStyle compactStyle, MusicAr
     if (m_musicComponent) {
         m_musicComponent->SetArtworkStyles(compactStyle, expandedStyle);
     }
+}
+
+void RenderEngine::SetMusicOptions(LyricTranslationMode translationMode, bool vinylRingPulse) {
+    m_lyricTranslationMode = translationMode;
+    m_vinylRingPulse = vinylRingPulse;
+    if (m_lyricsComponent) {
+        m_lyricsComponent->SetTranslationMode(translationMode);
+    }
+    if (m_musicComponent) {
+        m_musicComponent->SetVinylRingPulse(vinylRingPulse);
+    }
+}
+
+void RenderEngine::SetMusicLiked(bool liked) {
+    if (m_musicComponent) {
+        m_musicComponent->SetLiked(liked);
+    }
+}
+
+bool RenderEngine::ShouldHideCompactMusicWaveform() const {
+    return m_musicComponent && m_musicComponent->ShouldHideCompactWaveform();
 }
 
 void RenderEngine::SetMusicInteractionState(int hoveredButton, int pressedButton, int hoveredProgress, int pressedProgress) {
@@ -596,17 +613,18 @@ void RenderEngine::DrawPrimaryContent(const D2D1_RECT_F& contentRect, const Rend
     case IslandDisplayMode::MusicCompact:
         if (m_musicComponent) m_musicComponent->Draw(primaryRect, ctx.contentAlpha, ctx.currentTimeMs);
         if (m_lyricsComponent) {
-            D2D1_RECT_F lyricRect = BuildMusicLyricRect(primaryRect, ctx.islandHeight);
+            D2D1_RECT_F lyricRect = BuildMusicCompactLyricRect(primaryRect);
             m_lyricsComponent->DrawCompact(lyricRect, ctx.contentAlpha, ctx.currentTimeMs);
         }
-        if (m_waveformComponent) m_waveformComponent->Draw(primaryRect, ctx.contentAlpha, ctx.currentTimeMs);
+        if (m_waveformComponent && !ShouldHideCompactMusicWaveform()) {
+            m_waveformComponent->Draw(primaryRect, ctx.contentAlpha, ctx.currentTimeMs);
+        }
         break;
     case IslandDisplayMode::MusicExpanded:
-        if (m_waveformComponent) m_waveformComponent->Draw(contentRect, ctx.contentAlpha, ctx.currentTimeMs);
         if (m_musicComponent) m_musicComponent->Draw(contentRect, ctx.contentAlpha, ctx.currentTimeMs);
         if (m_lyricsComponent) {
-            D2D1_RECT_F lyricRect = BuildMusicLyricRect(contentRect, ctx.islandHeight);
-            m_lyricsComponent->DrawCompact(lyricRect, ctx.contentAlpha, ctx.currentTimeMs);
+            D2D1_RECT_F lyricRect = BuildMusicExpandedLyricRect(contentRect);
+            m_lyricsComponent->DrawThreeLines(lyricRect, ctx.contentAlpha, ctx.currentTimeMs);
         }
         break;
     case IslandDisplayMode::Idle:

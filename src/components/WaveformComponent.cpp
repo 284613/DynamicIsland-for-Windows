@@ -11,7 +11,7 @@ void WaveformComponent::OnAttach(SharedResources* res) {
     m_res = res;
     if (m_res && m_res->d2dContext) {
         m_res->d2dContext->CreateSolidColorBrush(
-            D2D1::ColorF(1.0f, 0.2f, 0.4f, 1.0f),
+            D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f),
             &m_waveBrush);
     }
 }
@@ -122,21 +122,20 @@ void WaveformComponent::Draw(const D2D1_RECT_F& rect, float contentAlpha, ULONGL
 
 void WaveformComponent::DrawCompact(const D2D1_RECT_F& rect, float contentAlpha) {
     auto* ctx = m_res->d2dContext;
-    m_waveBrush->SetOpacity(0.82f * contentAlpha);
+    m_waveBrush->SetOpacity(0.78f * contentAlpha);
 
     const float height = rect.bottom - rect.top;
     const float centerY = rect.top + height * 0.54f;
-    const float right = rect.right - 11.0f;
-    const float barWidth = 2.7f;
-    const float gap = 2.0f;
-    const float maxBarHeight = (std::min)(30.0f, (std::max)(18.0f, height - 26.0f));
+    const float right = rect.right - 14.0f;
+    const float barWidth = 2.2f;
+    const float gap = 1.6f;
+    const float maxBarHeight = (std::min)(22.0f, (std::max)(14.0f, height - 34.0f));
     const float totalWidth = barWidth * static_cast<float>(m_compactHeights.size()) + gap * static_cast<float>(m_compactHeights.size() - 1);
     const float left = right - totalWidth;
-
     for (size_t i = 0; i < m_compactHeights.size(); ++i) {
         const float x = left + static_cast<float>(i) * (barWidth + gap);
         const float h = (std::min)(maxBarHeight,
-            (std::max)(6.0f, m_compactHeights[i] * (0.78f + 0.08f * static_cast<float>(i % 4))));
+            (std::max)(4.0f, m_compactHeights[i] * (0.58f + 0.06f * static_cast<float>(i % 4))));
         const D2D1_ROUNDED_RECT bar = D2D1::RoundedRect(
             D2D1::RectF(x, centerY - h * 0.52f, x + barWidth, centerY + h * 0.52f),
             barWidth * 0.5f,

@@ -30,6 +30,16 @@ float MusicExpansionProgress(float height) {
     return SmoothStep((height - Constants::Size::MUSIC_COMPACT_HEIGHT) /
         ((std::max)(1.0f, Constants::Size::MUSIC_EXPANDED_HEIGHT - Constants::Size::MUSIC_COMPACT_HEIGHT)));
 }
+
+std::wstring FormatPlaybackTime(int64_t ms) {
+    if (ms < 0) ms = 0;
+    const int64_t totalSeconds = ms / 1000;
+    const int64_t minutes = totalSeconds / 60;
+    const int64_t seconds = totalSeconds % 60;
+    wchar_t buffer[32]{};
+    swprintf_s(buffer, L"%lld:%02lld", minutes, seconds);
+    return buffer;
+}
 }
 
 void MusicPlayerComponent::OnAttach(SharedResources* res) {
@@ -39,7 +49,13 @@ void MusicPlayerComponent::OnAttach(SharedResources* res) {
 void MusicPlayerComponent::Update(float deltaTime) {
     if (m_isPlaying) {
         m_vinylAngle = std::fmod(m_vinylAngle + deltaTime * 54.0f, 360.0f);
+        m_ringPhase = std::fmod(m_ringPhase + deltaTime * 2.8f, 6.2831853f);
     }
+
+    const float targetLevel = (m_isPlaying && m_vinylRingPulse) ? (0.5f + 0.5f * std::sin(m_ringPhase)) : 0.0f;
+    m_audioLevel += (targetLevel - m_audioLevel) * (m_isPlaying ? 0.14f : 0.08f);
+    const bool hoverControls = m_hoveredButton != -1 || m_pressedButton != -1 || m_hoveredProgress != -1 || m_pressedProgress != -1;
+    m_controlHoverAlpha += ((hoverControls ? 1.0f : 0.0f) - m_controlHoverAlpha) * 0.22f;
 
     if (!m_isCompact || !m_titleScrolling) {
         if (!m_isCompact) {
@@ -53,12 +69,14 @@ void MusicPlayerComponent::Update(float deltaTime) {
 }
 
 void MusicPlayerComponent::SetPlaybackState(bool hasSession, bool isPlaying, float progress,
-    const std::wstring& title, const std::wstring& artist) {
+    const std::wstring& title, const std::wstring& artist, int64_t positionMs, int64_t durationMs) {
     m_hasSession = hasSession;
     m_isPlaying = isPlaying;
     m_progress = progress;
     m_title = title;
     m_artist = artist;
+    m_positionMs = positionMs;
+    m_durationMs = durationMs;
 }
 
 void MusicPlayerComponent::SetInteractionState(int hoveredButton, int pressedButton, int hoveredProgress, int pressedProgress) {
@@ -134,44 +152,62 @@ void MusicPlayerComponent::Draw(const D2D1_RECT_F& rect, float contentAlpha, ULO
 
 void MusicPlayerComponent::RenderExpanded(float left, float top, float width, float height, float contentAlpha) {
     float right = left + width;
-    const float expansion = MusicExpansionProgress(height);
-    const MusicVisualLayout layout = BuildVisualLayout(left, top, width, height, expansion);
-    const float artLeft = layout.artRect.left;
-    const float artTop = layout.artRect.top;
-    const float artSize = layout.artRect.right - layout.artRect.left;
+    const float artSize = 64.0f;
+    const float artLeft = left + 26.0f;
+    const float artTop = top + 28.0f;
 
     if (m_expandedArtworkStyle == MusicArtworkStyle::Vinyl) {
         RenderVinylRecord(artLeft, artTop, artSize, contentAlpha);
-        RenderVinylTonearm(artLeft, artTop, artSize, contentAlpha);
     } else {
         RenderAlbumArt(artLeft, artTop, artSize, contentAlpha);
     }
 
-    RenderTextLine(m_title, m_res->titleFormat, m_res->whiteBrush, layout.titleRect, contentAlpha, false);
-    RenderTextLine(m_artist, m_res->subFormat, m_res->grayBrush, layout.artistRect, 0.78f * contentAlpha, false);
+    const float textLeft = artLeft + artSize + 24.0f;
+    RenderTextLine(m_title, m_res->titleFormat, m_res->whiteBrush,
+        D2D1::RectF(textLeft, top + 20.0f, right - 24.0f, top + 42.0f), contentAlpha, false);
+    RenderTextLine(m_artist, m_res->subFormat, m_res->grayBrush,
+        D2D1::RectF(textLeft, top + 43.0f, right - 24.0f, top + 61.0f), 0.72f * contentAlpha, false);
 
-    const float controlAlpha = contentAlpha * SmoothStep((expansion - 0.32f) / 0.68f);
-    float progressY = top + (std::max)(92.0f, height - 56.0f);
-    RenderProgressBar(left + 20.0f, progressY, right - left - 40.0f, 6.0f, controlAlpha);
-    float buttonGroupWidth = BUTTON_SIZE * 3 + BUTTON_SPACING * 2;
+    const float controlAlpha = contentAlpha;
+    float progressY = top + height - 66.0f;
+    const float timeWidth = 44.0f;
+    const float progressLeft = left + 66.0f;
+    const float progressWidth = width - 132.0f;
+    if (m_durationMs > 0) {
+        RenderTextLine(FormatPlaybackTime(m_positionMs), m_res->subFormat, m_res->grayBrush,
+            D2D1::RectF(left + 16.0f, progressY - 7.0f, left + 16.0f + timeWidth, progressY + 13.0f), 0.62f * controlAlpha, false);
+        RenderTextLine(FormatPlaybackTime(m_durationMs), m_res->subFormat, m_res->grayBrush,
+            D2D1::RectF(right - 16.0f - timeWidth, progressY - 7.0f, right - 16.0f, progressY + 13.0f), 0.62f * controlAlpha, true);
+    }
+    RenderProgressBar(progressLeft, progressY, progressWidth, 3.5f, controlAlpha);
+    float buttonGroupWidth = 36.0f * 4.0f + 40.0f + 22.0f * 4.0f;
     float buttonX = left + (width - buttonGroupWidth) / 2.0f;
-    RenderPlaybackButtons(buttonX, progressY + 16.0f, BUTTON_SIZE, controlAlpha);
+    RenderPlaybackButtons(buttonX, progressY + 18.0f, 36.0f, controlAlpha, true);
 }
 
 void MusicPlayerComponent::RenderCompact(float left, float top, float width, float height, float contentAlpha) {
     const MusicVisualLayout layout = BuildVisualLayout(left, top, width, height, MusicExpansionProgress(height));
     const float recordSize = layout.artRect.right - layout.artRect.left;
+    const float controlsAlpha = contentAlpha * m_controlHoverAlpha;
+    const float controlsLeft = width + left - 104.0f;
+    const float compactTextRight = (controlsAlpha > 0.02f)
+        ? (std::max)(layout.titleRect.left + 62.0f, controlsLeft - 8.0f)
+        : layout.titleRect.right;
 
     if (m_compactArtworkStyle == MusicArtworkStyle::Vinyl) {
         RenderVinylRecord(layout.artRect.left, layout.artRect.top, recordSize, contentAlpha);
-        RenderVinylTonearm(layout.artRect.left, layout.artRect.top, recordSize, contentAlpha);
     } else {
         RenderAlbumArt(layout.artRect.left, layout.artRect.top, recordSize, contentAlpha);
     }
-    RenderCompactText(m_title, layout.titleRect.left, layout.titleRect.top, layout.titleRect.right,
+    RenderCompactText(m_title, layout.titleRect.left, layout.titleRect.top, compactTextRight,
         layout.titleRect.bottom - layout.titleRect.top, contentAlpha);
+    D2D1_RECT_F artistRect = layout.artistRect;
+    artistRect.right = compactTextRight;
+    RenderTextLine(m_artist, m_res->subFormat, m_res->grayBrush, artistRect, 0.78f * contentAlpha, false);
 
-    RenderTextLine(m_artist, m_res->subFormat, m_res->grayBrush, layout.artistRect, 0.78f * contentAlpha, false);
+    if (controlsAlpha > 0.02f) {
+        RenderPlaybackButtons(controlsLeft, top + (height - 28.0f) * 0.5f, 28.0f, controlsAlpha);
+    }
 }
 
 MusicPlayerComponent::MusicVisualLayout MusicPlayerComponent::BuildVisualLayout(
@@ -181,13 +217,13 @@ MusicPlayerComponent::MusicVisualLayout MusicPlayerComponent::BuildVisualLayout(
     float height,
     float expansion) const {
     const float right = left + width;
-    const float compactArtSize = 44.0f;
+    const float compactArtSize = 36.0f;
     const D2D1_RECT_F compactArt = D2D1::RectF(
         left + 10.0f,
         top + (height - compactArtSize) * 0.5f,
         left + 10.0f + compactArtSize,
         top + (height - compactArtSize) * 0.5f + compactArtSize);
-    const float compactTextLeft = compactArt.right + 10.0f;
+    const float compactTextLeft = compactArt.right + 12.0f;
     const float compactTextRight = right - 58.0f;
     const D2D1_RECT_F compactTitle = D2D1::RectF(compactTextLeft, top + 5.0f, compactTextRight, top + 25.0f);
     const D2D1_RECT_F compactArtist = D2D1::RectF(compactTextLeft, top + 25.0f, compactTextRight, top + 43.0f);
@@ -227,25 +263,28 @@ void MusicPlayerComponent::RenderVinylRecord(float left, float top, float size, 
 
     const D2D1_POINT_2F center = D2D1::Point2F(left + size * 0.5f, top + size * 0.5f);
     const float radius = size * 0.5f;
-    const float labelRadius = size * 0.28f;
+    const float labelRadius = size * 0.40f;
 
     m_res->blackBrush->SetOpacity(0.30f * alpha);
     ctx->FillEllipse(D2D1::Ellipse(D2D1::Point2F(center.x + size * 0.08f, center.y + size * 0.10f), radius * 0.96f, radius * 0.50f), m_res->blackBrush);
 
-    m_res->darkGrayBrush->SetOpacity(0.52f * alpha);
-    ctx->FillEllipse(D2D1::Ellipse(center, radius + 2.0f, radius + 2.0f), m_res->darkGrayBrush);
+    m_res->darkGrayBrush->SetOpacity(0.62f * alpha);
+    ctx->FillEllipse(D2D1::Ellipse(center, radius + 2.4f, radius + 2.4f), m_res->darkGrayBrush);
     m_res->blackBrush->SetOpacity(0.96f * alpha);
     ctx->FillEllipse(D2D1::Ellipse(center, radius, radius), m_res->blackBrush);
 
     if (m_res->grayBrush) {
-        for (int i = 0; i < 7; ++i) {
-            const float grooveRadius = radius - 3.0f - static_cast<float>(i) * (radius * 0.085f);
-            if (grooveRadius <= labelRadius + 3.0f) {
+        for (int i = 0; i < 10; ++i) {
+            const float grooveRadius = radius - 3.0f - static_cast<float>(i) * (radius * 0.062f);
+            if (grooveRadius <= labelRadius + 2.0f) {
                 break;
             }
-            m_res->grayBrush->SetOpacity((0.13f - i * 0.010f) * alpha);
-            ctx->DrawEllipse(D2D1::Ellipse(center, grooveRadius, grooveRadius), m_res->grayBrush, 0.75f);
+            m_res->grayBrush->SetOpacity((0.16f - i * 0.010f) * alpha);
+            ctx->DrawEllipse(D2D1::Ellipse(center, grooveRadius, grooveRadius), m_res->grayBrush, i % 3 == 0 ? 1.0f : 0.65f);
         }
+        m_res->whiteBrush->SetOpacity(0.10f * alpha);
+        ctx->FillEllipse(D2D1::Ellipse(D2D1::Point2F(center.x - radius * 0.24f, center.y - radius * 0.28f),
+            radius * 0.18f, radius * 0.08f), m_res->whiteBrush);
         if (m_res->d2dFactory) {
             ComPtr<ID2D1PathGeometry> arcGeometry;
             if (SUCCEEDED(m_res->d2dFactory->CreatePathGeometry(&arcGeometry)) && arcGeometry) {
@@ -297,42 +336,32 @@ void MusicPlayerComponent::RenderVinylRecord(float left, float top, float size, 
         ctx->FillEllipse(labelEllipse, m_res->themeBrush);
     }
 
-    m_res->blackBrush->SetOpacity(0.72f * alpha);
-    ctx->FillEllipse(D2D1::Ellipse(center, 3.2f, 3.2f), m_res->blackBrush);
+    m_res->blackBrush->SetOpacity(0.76f * alpha);
+    ctx->FillEllipse(D2D1::Ellipse(center, 3.6f, 3.6f), m_res->blackBrush);
+    m_res->whiteBrush->SetOpacity(0.58f * alpha);
+    ctx->DrawEllipse(D2D1::Ellipse(center, 5.2f, 5.2f), m_res->whiteBrush, 0.75f);
     m_res->whiteBrush->SetOpacity(0.42f * alpha);
     ctx->DrawEllipse(D2D1::Ellipse(center, labelRadius, labelRadius), m_res->whiteBrush, 0.8f);
     m_res->whiteBrush->SetOpacity(0.22f * alpha);
     ctx->DrawEllipse(D2D1::Ellipse(center, radius - 1.0f, radius - 1.0f), m_res->whiteBrush, 0.9f);
 }
 
-void MusicPlayerComponent::RenderVinylTonearm(float left, float top, float size, float alpha) {
-    auto* ctx = m_res->d2dContext;
-    if (!ctx || !m_res->whiteBrush || !m_res->grayBrush) {
+void MusicPlayerComponent::RenderVinylRings(float left, float top, float size, float alpha) {
+    if (!m_res || !m_res->d2dContext || !m_res->whiteBrush || alpha <= 0.01f) {
         return;
     }
 
-    const D2D1_POINT_2F pivot = D2D1::Point2F(left + size * 0.92f, top + size * 0.15f);
-    const D2D1_POINT_2F elbow = D2D1::Point2F(left + size * 1.12f, top + size * 0.27f);
-    const D2D1_POINT_2F needle = D2D1::Point2F(left + size * 0.72f, top + size * 0.58f);
-    const D2D1_POINT_2F counter = D2D1::Point2F(left + size * 1.02f, top + size * 0.06f);
-
-    m_res->blackBrush->SetOpacity(0.40f * alpha);
-    ctx->DrawLine(D2D1::Point2F(pivot.x + 1.0f, pivot.y + 1.0f), D2D1::Point2F(elbow.x + 1.0f, elbow.y + 1.0f), m_res->blackBrush, 3.4f);
-    ctx->DrawLine(D2D1::Point2F(elbow.x + 1.0f, elbow.y + 1.0f), D2D1::Point2F(needle.x + 1.0f, needle.y + 1.0f), m_res->blackBrush, 3.0f);
-    m_res->grayBrush->SetOpacity(0.62f * alpha);
-    ctx->DrawLine(pivot, elbow, m_res->grayBrush, 2.8f);
-    m_res->whiteBrush->SetOpacity(0.76f * alpha);
-    ctx->DrawLine(elbow, needle, m_res->whiteBrush, 2.2f);
-    m_res->grayBrush->SetOpacity(0.36f * alpha);
-    ctx->FillEllipse(D2D1::Ellipse(counter, size * 0.045f, size * 0.035f), m_res->grayBrush);
-    m_res->grayBrush->SetOpacity(0.45f * alpha);
-    ctx->FillEllipse(D2D1::Ellipse(pivot, size * 0.085f, size * 0.085f), m_res->grayBrush);
-    m_res->blackBrush->SetOpacity(0.72f * alpha);
-    ctx->FillEllipse(D2D1::Ellipse(pivot, size * 0.040f, size * 0.040f), m_res->blackBrush);
-    m_res->whiteBrush->SetOpacity(0.70f * alpha);
-    ctx->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(needle.x - size * 0.035f, needle.y - size * 0.025f, needle.x + size * 0.040f, needle.y + size * 0.030f), 2.0f, 2.0f), m_res->whiteBrush);
-    m_res->blackBrush->SetOpacity(0.78f * alpha);
-    ctx->DrawLine(needle, D2D1::Point2F(needle.x + size * 0.035f, needle.y + size * 0.070f), m_res->blackBrush, 1.2f);
+    const D2D1_POINT_2F center = D2D1::Point2F(left + size * 0.5f, top + size * 0.5f);
+    const float baseRadius = size * 0.5f;
+    const float pulse = m_vinylRingPulse ? m_audioLevel : 0.0f;
+    const int ringCount = m_vinylRingPulse ? 3 : 1;
+    for (int i = 0; i < ringCount; ++i) {
+        const float t = ringCount == 1 ? 0.0f : static_cast<float>(i) / static_cast<float>(ringCount - 1);
+        const float radius = baseRadius + 7.0f + i * 7.0f + pulse * (14.0f + i * 2.0f);
+        const float opacity = (m_isPlaying ? 0.24f : 0.12f) * (1.0f - t * 0.72f) * alpha;
+        m_res->whiteBrush->SetOpacity(opacity);
+        m_res->d2dContext->DrawEllipse(D2D1::Ellipse(center, radius, radius), m_res->whiteBrush, 1.5f);
+    }
 }
 
 void MusicPlayerComponent::RenderProgressBar(float left, float top, float width, float height, float alpha) {
@@ -342,9 +371,10 @@ void MusicPlayerComponent::RenderProgressBar(float left, float top, float width,
     float actualHeight = height;
     float actualTop = top;
     if (m_hoveredProgress != -1 || m_pressedProgress != -1) {
-        actualHeight = 10.0f;
-        actualTop = top - 2.0f;
+        actualHeight = 6.0f;
+        actualTop = top - 1.25f;
     }
+    radius = actualHeight / 2.0f;
 
     if (m_res->progressBgBrush) {
         m_res->progressBgBrush->SetOpacity(0.5f * alpha);
@@ -356,35 +386,156 @@ void MusicPlayerComponent::RenderProgressBar(float left, float top, float width,
     }
 }
 
-void MusicPlayerComponent::RenderPlaybackButtons(float left, float top, float buttonSize, float alpha) {
+void MusicPlayerComponent::RenderPlaybackButtons(float left, float top, float buttonSize, float alpha, bool expanded) {
     auto* ctx = m_res->d2dContext;
-    m_res->whiteBrush->SetOpacity(alpha);
+    const int count = expanded ? 5 : 3;
 
-    const wchar_t icons[3] = { L'\uE892', m_isPlaying ? L'\uE769' : L'\uE768', L'\uE893' };
-
-    for (int i = 0; i < 3; ++i) {
-        float x = left + i * (buttonSize + BUTTON_SPACING);
-        D2D1_RECT_F r = D2D1::RectF(x, top, x + buttonSize, top + buttonSize);
+    for (int i = 0; i < count; ++i) {
+        const bool playButton = expanded && i == 2;
+        const float currentSize = playButton ? 40.0f : buttonSize;
+        float x = left + i * (buttonSize + (expanded ? 22.0f : BUTTON_SPACING));
+        if (expanded && i > 2) x += 4.0f;
+        D2D1_RECT_F r = D2D1::RectF(x, top + (buttonSize - currentSize) * 0.5f, x + currentSize, top + (buttonSize - currentSize) * 0.5f + currentSize);
         bool hovered = (i == m_hoveredButton);
         bool pressed = (i == m_pressedButton);
 
-        if (alpha > 0.1f && (hovered || pressed) && m_res->buttonHoverBrush) {
-            float bgOp = pressed ? 0.25f : 0.12f;
-            m_res->buttonHoverBrush->SetOpacity(bgOp * alpha);
-            ctx->FillRoundedRectangle(D2D1::RoundedRect(r, buttonSize / 2.0f, buttonSize / 2.0f), m_res->buttonHoverBrush);
+        if (playButton) {
+            m_res->whiteBrush->SetOpacity(alpha);
+            ctx->FillEllipse(D2D1::Ellipse(D2D1::Point2F((r.left + r.right) * 0.5f, (r.top + r.bottom) * 0.5f),
+                currentSize * 0.5f, currentSize * 0.5f), m_res->whiteBrush);
+            RenderPlaybackIcon(m_isPlaying ? 2 : 5, D2D1::RectF(r.left + 10.0f, r.top + 10.0f, r.right - 10.0f, r.bottom - 10.0f),
+                m_res->blackBrush, alpha, true);
+            continue;
         }
+
+        const bool compactButton = !expanded;
+        if (alpha > 0.1f && m_res->buttonHoverBrush && (compactButton || hovered || pressed)) {
+            float bgOp = compactButton ? 0.12f : 0.0f;
+            if (hovered) bgOp = compactButton ? 0.22f : 0.08f;
+            if (pressed) bgOp = compactButton ? 0.28f : 0.14f;
+            m_res->buttonHoverBrush->SetOpacity(bgOp * alpha);
+            ctx->FillEllipse(D2D1::Ellipse(D2D1::Point2F((r.left + r.right) * 0.5f, (r.top + r.bottom) * 0.5f),
+                currentSize * 0.5f, currentSize * 0.5f), m_res->buttonHoverBrush);
+        }
+
+        const int iconKind = expanded
+            ? i
+            : (i == 0 ? 1 : (i == 1 ? (m_isPlaying ? 2 : 5) : 3));
+        ID2D1Brush* iconBrush = (expanded && i == 0 && m_liked && m_res->themeBrush)
+            ? m_res->themeBrush
+            : m_res->whiteBrush;
+        const float iconAlpha = (expanded ? 0.86f : 1.0f) * alpha;
+        const float inset = compactButton ? 7.0f : 8.0f;
+        const D2D1_RECT_F iconRect = D2D1::RectF(r.left + inset, r.top + inset, r.right - inset, r.bottom - inset);
 
         if (pressed) {
             D2D1_MATRIX_3X2_F old;
             ctx->GetTransform(&old);
-            float cx = x + buttonSize / 2.0f;
-            float cy = top + buttonSize / 2.0f;
-            ctx->SetTransform(D2D1::Matrix3x2F::Scale(0.8f, 0.8f, D2D1::Point2F(cx, cy)) * old);
-            ctx->DrawText(&icons[i], 1, m_res->iconFormat, r, m_res->whiteBrush);
+            const float cx = (r.left + r.right) * 0.5f;
+            const float cy = (r.top + r.bottom) * 0.5f;
+            ctx->SetTransform(D2D1::Matrix3x2F::Scale(0.96f, 0.96f, D2D1::Point2F(cx, cy)) * old);
+            RenderPlaybackIcon(iconKind, iconRect, iconBrush, iconAlpha, expanded && i == 0 && m_liked);
             ctx->SetTransform(old);
         } else {
-            ctx->DrawText(&icons[i], 1, m_res->iconFormat, r, m_res->whiteBrush);
+            RenderPlaybackIcon(iconKind, iconRect, iconBrush, iconAlpha, expanded && i == 0 && m_liked);
         }
+    }
+}
+
+void MusicPlayerComponent::RenderPlaybackIcon(int iconKind, const D2D1_RECT_F& rect, ID2D1Brush* brush, float alpha, bool filled) {
+    if (!m_res || !m_res->d2dContext || !m_res->d2dFactory || !brush || alpha <= 0.01f) {
+        return;
+    }
+
+    auto* ctx = m_res->d2dContext;
+    brush->SetOpacity(alpha);
+    const float w = rect.right - rect.left;
+    const float h = rect.bottom - rect.top;
+    const float cx = (rect.left + rect.right) * 0.5f;
+    const float cy = (rect.top + rect.bottom) * 0.5f;
+
+    auto fillTriangle = [&](D2D1_POINT_2F a, D2D1_POINT_2F b, D2D1_POINT_2F c) {
+        ComPtr<ID2D1PathGeometry> geometry;
+        if (FAILED(m_res->d2dFactory->CreatePathGeometry(&geometry)) || !geometry) return;
+        ComPtr<ID2D1GeometrySink> sink;
+        if (FAILED(geometry->Open(&sink)) || !sink) return;
+        sink->BeginFigure(a, D2D1_FIGURE_BEGIN_FILLED);
+        sink->AddLine(b);
+        sink->AddLine(c);
+        sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+        if (SUCCEEDED(sink->Close())) {
+            ctx->FillGeometry(geometry.Get(), brush);
+        }
+    };
+
+    switch (iconKind) {
+    case 0: { // like
+        ComPtr<ID2D1PathGeometry> geometry;
+        if (FAILED(m_res->d2dFactory->CreatePathGeometry(&geometry)) || !geometry) return;
+        ComPtr<ID2D1GeometrySink> sink;
+        if (FAILED(geometry->Open(&sink)) || !sink) return;
+        sink->BeginFigure(D2D1::Point2F(cx, rect.bottom - h * 0.10f),
+            filled ? D2D1_FIGURE_BEGIN_FILLED : D2D1_FIGURE_BEGIN_HOLLOW);
+        sink->AddBezier(D2D1::BezierSegment(
+            D2D1::Point2F(rect.left + w * 0.02f, rect.top + h * 0.55f),
+            D2D1::Point2F(rect.left + w * 0.10f, rect.top + h * 0.02f),
+            D2D1::Point2F(cx, rect.top + h * 0.30f)));
+        sink->AddBezier(D2D1::BezierSegment(
+            D2D1::Point2F(rect.right - w * 0.10f, rect.top + h * 0.02f),
+            D2D1::Point2F(rect.right - w * 0.02f, rect.top + h * 0.55f),
+            D2D1::Point2F(cx, rect.bottom - h * 0.10f)));
+        sink->EndFigure(filled ? D2D1_FIGURE_END_CLOSED : D2D1_FIGURE_END_OPEN);
+        if (SUCCEEDED(sink->Close())) {
+            if (filled) ctx->FillGeometry(geometry.Get(), brush);
+            else ctx->DrawGeometry(geometry.Get(), brush, 1.8f);
+        }
+        break;
+    }
+    case 1: // previous
+        ctx->DrawLine(D2D1::Point2F(rect.left + w * 0.22f, rect.top + h * 0.18f),
+            D2D1::Point2F(rect.left + w * 0.22f, rect.bottom - h * 0.18f), brush, 1.9f);
+        fillTriangle(D2D1::Point2F(rect.right - w * 0.16f, rect.top + h * 0.16f),
+            D2D1::Point2F(rect.right - w * 0.16f, rect.bottom - h * 0.16f),
+            D2D1::Point2F(rect.left + w * 0.34f, cy));
+        break;
+    case 2: { // pause
+        const float barW = w * 0.20f;
+        const float gap = w * 0.14f;
+        const float top = rect.top + h * 0.12f;
+        const float bottom = rect.bottom - h * 0.12f;
+        ctx->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(cx - gap * 0.5f - barW, top, cx - gap * 0.5f, bottom), barW * 0.45f, barW * 0.45f), brush);
+        ctx->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(cx + gap * 0.5f, top, cx + gap * 0.5f + barW, bottom), barW * 0.45f, barW * 0.45f), brush);
+        break;
+    }
+    case 3: // next
+        ctx->DrawLine(D2D1::Point2F(rect.right - w * 0.22f, rect.top + h * 0.18f),
+            D2D1::Point2F(rect.right - w * 0.22f, rect.bottom - h * 0.18f), brush, 1.9f);
+        fillTriangle(D2D1::Point2F(rect.left + w * 0.16f, rect.top + h * 0.16f),
+            D2D1::Point2F(rect.left + w * 0.16f, rect.bottom - h * 0.16f),
+            D2D1::Point2F(rect.right - w * 0.34f, cy));
+        break;
+    case 4: { // music note / lyrics mode
+        const float lineLeft = rect.left + w * 0.06f;
+        const float lineRight = rect.left + w * 0.60f;
+        const float lineH = h * 0.10f;
+        const float ys[3] = { rect.top + h * 0.22f, rect.top + h * 0.48f, rect.top + h * 0.74f };
+        for (int row = 0; row < 3; ++row) {
+            const float right = row == 2 ? rect.left + w * 0.44f : lineRight;
+            ctx->FillRoundedRectangle(D2D1::RoundedRect(
+                D2D1::RectF(lineLeft, ys[row] - lineH * 0.5f, right, ys[row] + lineH * 0.5f),
+                lineH * 0.5f, lineH * 0.5f), brush);
+        }
+        fillTriangle(D2D1::Point2F(rect.left + w * 0.70f, rect.top + h * 0.22f),
+            D2D1::Point2F(rect.left + w * 0.70f, rect.bottom - h * 0.22f),
+            D2D1::Point2F(rect.right - w * 0.08f, cy));
+        break;
+    }
+    case 5: // play
+    default:
+        fillTriangle(D2D1::Point2F(rect.left + w * 0.28f, rect.top + h * 0.14f),
+            D2D1::Point2F(rect.left + w * 0.28f, rect.bottom - h * 0.14f),
+            D2D1::Point2F(rect.right - w * 0.12f, cy));
+        break;
     }
 }
 

@@ -118,10 +118,20 @@ x64\Release\DynamicIsland.exe
 
 - 改显示模式：先看 `DetermineDisplayMode()`、`TransitionTo()` 和 `ActiveExpandedMode`。
 - 改布局/命中：先看 `LayoutController`，同时确认 DPI 缩放。
+- 改音乐岛视觉：看 `src/components/MusicPlayerComponent.cpp`、`src/components/WaveformComponent.cpp` 和 `src/RenderEngine.cpp`。
+- 改歌词解析/翻译：看 `src/LyricsMonitor.cpp` 和 `src/components/LyricsComponent.cpp`。
 - 改人脸岛动画：看 `src/components/FaceIdComponent.cpp`。
 - 改人脸识别逻辑：看 `face_core/src/FacePipeline.cpp`。
 - 改人脸录入：看 `src/FaceEnrollWindow.cpp`。
 - 改设置页：看 `src/SettingsWindow.cpp`。
+
+## 音乐岛与歌词
+
+- 音乐岛支持紧凑态和 240px 展开态，包含封面/黑胶、进度条、时间、喜欢、上一首、播放暂停、下一首和歌词模式按钮。
+- 紧凑态会在鼠标靠近控制按钮时隐藏右侧波形，避免按钮与波形遮挡。
+- 展开态不绘制波形，歌词区显示上一句、当前句、翻译和下一句；有逐字时间轴时当前句会随高亮横向跟随，没有逐字时间轴时长句会自动横向滚动。
+- 歌词优先解析网易云 YRC/KLYRIC 动态歌词，同时请求 `tlyric` 行级翻译；缓存歌词缺少翻译时会补拉翻译并写入 `.trans` 缓存。
+- `[MainUI]` 支持 `CompactAlbumArtStyle`、`ExpandedAlbumArtStyle`、`LyricTranslationMode` 和 `VinylRingPulse`，设置页可热更新音乐封面、歌词翻译和黑胶脉动选项。
 
 ## 文档
 

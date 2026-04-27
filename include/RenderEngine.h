@@ -62,8 +62,12 @@ public:
     bool HasActiveAnimations() const;
 
     void SetPlaybackState(bool hasSession, bool isPlaying, float progress,
-                          const std::wstring& title, const std::wstring& artist);
+                          const std::wstring& title, const std::wstring& artist,
+                          int64_t positionMs = 0, int64_t durationMs = 0);
     void SetMusicArtworkStyles(MusicArtworkStyle compactStyle, MusicArtworkStyle expandedStyle);
+    void SetMusicOptions(LyricTranslationMode translationMode, bool vinylRingPulse);
+    void SetMusicLiked(bool liked);
+    bool ShouldHideCompactMusicWaveform() const;
     void SetMusicInteractionState(int hoveredButton, int pressedButton, int hoveredProgress, int pressedProgress);
     void SetLyricData(const LyricData& lyric);
     void SetWaveformState(const std::array<float, 3>& bandLevels, float islandHeight, WaveformDisplayStyle style);
@@ -164,6 +168,8 @@ private:
 
     bool m_hasPlaybackSession = false;
     bool m_isPlaybackActive = false;
+    LyricTranslationMode m_lyricTranslationMode = LyricTranslationMode::CurrentOnly;
+    bool m_vinylRingPulse = true;
     std::wstring m_playbackTitle;
     std::wstring m_playbackArtist;
     bool m_showTime = false;

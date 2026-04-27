@@ -244,6 +244,10 @@ private:
     std::vector<IslandDisplayMode> m_compactModeOrder;
     MusicArtworkStyle m_compactArtworkStyle = MusicArtworkStyle::Vinyl;
     MusicArtworkStyle m_expandedArtworkStyle = MusicArtworkStyle::Square;
+    LyricTranslationMode m_lyricTranslationMode = LyricTranslationMode::CurrentOnly;
+    bool m_vinylRingPulse = true;
+    bool m_musicLiked = false;
+    LyricData m_currentLyricData;
     bool m_faceUnlockFeedbackActive = false;
     bool m_faceUnlockVisualPending = false;
     bool m_faceUnlockVisualStarted = false;

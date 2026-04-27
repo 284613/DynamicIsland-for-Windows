@@ -7,6 +7,7 @@
 #include <array>
 #include <string>
 #include <vector>
+#include "IslandState.h"
 #include "Spring.h"
 #include "settings/SettingsControls.h"
 
@@ -77,6 +78,7 @@ private:
     void RebuildFooterControls();
     void BuildCompactModesCard(std::vector<SettingsControl>& controls, float y, float& cardHeight) const;
     void BuildMusicArtworkCard(std::vector<SettingsControl>& controls, float y, float& cardHeight) const;
+    void BuildMusicLyricsCard(std::vector<SettingsControl>& controls, float y, float& cardHeight) const;
     std::wstring SerializeCompactModeOrder() const;
     void LoadCompactModeOrder(const std::wstring& rawValue);
     bool IsCompactModeEnabled(const std::wstring& modeKey) const;
@@ -269,6 +271,8 @@ private:
     std::vector<std::wstring> m_compactModeOrder;
     bool m_compactAlbumVinyl = true;
     bool m_expandedAlbumVinyl = false;
+    LyricTranslationMode m_lyricTranslationMode = LyricTranslationMode::CurrentOnly;
+    bool m_vinylRingPulse = true;
 
     std::vector<CityInfo> m_allCities;
     std::vector<const CityInfo*> m_filteredCities;

@@ -8,6 +8,7 @@
 #include <sstream>
 #include <regex>
 #include <algorithm>
+#include <cstdlib>
 #include <cwctype>
 #include <shlwapi.h>
 #include <shellapi.h>
@@ -394,7 +395,10 @@ static bool IsArtistMatch(const std::wstring& searchArtist, const std::wstring& 
 
 
 LyricData LyricsMonitor::GetLyricData(int64_t positionMs) {
-    LyricData data = {L"", -1, -1, positionMs};
+    LyricData data{};
+    data.currentMs = -1;
+    data.nextMs = -1;
+    data.positionMs = positionMs;
     std::lock_guard<std::mutex> lock(m_lyricsMutex);
     if (m_lyrics.empty())
         return data;
@@ -412,10 +416,19 @@ LyricData LyricsMonitor::GetLyricData(int64_t positionMs) {
         data.text = it->text;
         data.currentMs = it->timestamp;
         data.words = it->words;
+        data.hasExplicitWordTiming = it->hasExplicitWordTiming;
+        data.translation = it->translation;
+        if (it != m_lyrics.begin()) {
+            auto prevIt = std::prev(it);
+            data.previousText = prevIt->text;
+            data.previousTranslation = prevIt->translation;
+        }
         // 下一行
         auto nextIt = std::next(it);
         if (nextIt != m_lyrics.end()) {
             data.nextMs = nextIt->timestamp;
+            data.nextText = nextIt->text;
+            data.nextTranslation = nextIt->translation;
         } else if (!it->words.empty()) {
             const auto& lastWord = it->words.back();
             data.nextMs = lastWord.startMs + (std::max)(int64_t{ 250 }, lastWord.durationMs);
@@ -495,7 +508,7 @@ LyricsMonitor::FetchedLyrics LyricsMonitor::FetchLyricsFromNetEase(const std::ws
     FetchedLyrics result;
     try {
         HttpClient httpClient;
-        std::wstring url = L"https://music.163.com/api/song/lyric?id=" + songId + L"&lv=1&kv=1&yv=1&tv=-1";
+        std::wstring url = L"https://music.163.com/api/song/lyric?id=" + songId + L"&lv=1&kv=1&yv=1&tv=1";
         Uri uri(url);
         HttpRequestMessage request(HttpMethod::Get(), uri);
 
@@ -534,11 +547,64 @@ LyricsMonitor::FetchedLyrics LyricsMonitor::FetchLyricsFromNetEase(const std::ws
                 result.lineLyric = lrc.GetNamedString(L"lyric").c_str();
             }
         }
+
+        if (json.HasKey(L"tlyric")) {
+            auto tlyric = json.GetNamedObject(L"tlyric");
+            if (tlyric.HasKey(L"lyric")) {
+                result.tlyricLyric = tlyric.GetNamedString(L"lyric").c_str();
+            }
+        }
     }
     catch (winrt::hresult_error const& e) {
         OutputDebugStringW((L"FetchLyrics error: " + std::wstring(e.message().c_str()) + L"\n").c_str());
     }
     return result;
+}
+
+static bool HasAnyTranslation(const std::vector<LyricLine>& lyrics) {
+    return std::any_of(lyrics.begin(), lyrics.end(), [](const LyricLine& line) {
+        return !line.translation.empty();
+    });
+}
+
+// 把翻译 LRC 按时间戳合并进已解析的歌词行。动态歌词和 tlyric 经常有轻微偏移，
+// 所以按歌词行区间找最近翻译，而不是要求时间戳完全相同。
+void LyricsMonitor::MergeTranslation(std::vector<LyricLine>& lyrics, const std::wstring& tlyricLrc) {
+    if (lyrics.empty() || tlyricLrc.empty()) return;
+
+    std::vector<LyricLine> translated = ParseLrc(WideToUTF8(tlyricLrc));
+    if (translated.empty()) return;
+
+    size_t ti = 0;
+    for (size_t i = 0; i < lyrics.size(); ++i) {
+        auto& line = lyrics[i];
+        const int64_t lineStart = line.timestamp;
+        const int64_t lineEnd = (i + 1 < lyrics.size() && lyrics[i + 1].timestamp > lineStart)
+            ? lyrics[i + 1].timestamp
+            : lineStart + 5000;
+
+        while (ti + 1 < translated.size() && translated[ti + 1].timestamp <= lineStart) {
+            ++ti;
+        }
+
+        size_t best = ti;
+        int64_t bestDelta = std::llabs(translated[best].timestamp - lineStart);
+        if (ti + 1 < translated.size()) {
+            const int64_t delta = std::llabs(translated[ti + 1].timestamp - lineStart);
+            if (delta < bestDelta) {
+                best = ti + 1;
+                bestDelta = delta;
+            }
+        }
+
+        const int64_t lineWindow = (std::max)(int64_t{ 1500 }, (lineEnd - lineStart) / 2);
+        const int64_t tolerance = (std::min)(int64_t{ 5000 }, lineWindow);
+        const bool withinLine = translated[best].timestamp >= lineStart - 500 &&
+            translated[best].timestamp < lineEnd + 500;
+        if (withinLine && bestDelta <= tolerance) {
+            line.translation = translated[best].text;
+        }
+    }
 }
 
 // ---------- 解析LRC ----------
@@ -679,6 +745,7 @@ static std::vector<LyricLine> ParseTimedDynamicLyrics(const std::wstring& lyricC
         parsedLine.timestamp = lineStart;
         parsedLine.text = lineText;
         parsedLine.words = std::move(words);
+        parsedLine.hasExplicitWordTiming = true;
         result.push_back(std::move(parsedLine));
     }
 
@@ -787,6 +854,41 @@ static std::wstring CleanFileName(const std::wstring& name) {
     return result;
 }
 
+static std::vector<std::wstring> BuildLyricSearchKeywords(const std::wstring& title, const std::wstring& artist) {
+    std::vector<std::wstring> keywords;
+    keywords.push_back(title);
+
+    if (!artist.empty() && artist != L"系统") {
+        keywords.push_back(title + L" " + artist);
+    }
+
+    std::wstring simpleTitle = title;
+    size_t pos;
+    while ((pos = simpleTitle.find(L" (")) != std::wstring::npos) {
+        simpleTitle = simpleTitle.substr(0, pos);
+    }
+    while ((pos = simpleTitle.find(L"（")) != std::wstring::npos) {
+        simpleTitle = simpleTitle.substr(0, pos);
+    }
+    while ((pos = simpleTitle.find(L"[")) != std::wstring::npos) {
+        simpleTitle = simpleTitle.substr(0, pos);
+    }
+
+    const size_t start = simpleTitle.find_first_not_of(L" \t\r\n");
+    const size_t end = simpleTitle.find_last_not_of(L" \t\r\n");
+    if (start != std::wstring::npos && end != std::wstring::npos) {
+        simpleTitle = simpleTitle.substr(start, end - start + 1);
+    }
+    if (!simpleTitle.empty() && simpleTitle != title) {
+        keywords.push_back(simpleTitle);
+        if (!artist.empty() && artist != L"系统") {
+            keywords.push_back(simpleTitle + L" " + artist);
+        }
+    }
+
+    return keywords;
+}
+
 // ---------- 获取线程 ----------
 void LyricsMonitor::FetchLyricsThread(std::wstring title, std::wstring artist) {
     std::vector<LyricLine> newLyrics;
@@ -800,55 +902,56 @@ void LyricsMonitor::FetchLyricsThread(std::wstring title, std::wstring artist) {
         cacheFile += L" - " + cleanArtist;
     }
     cacheFile += L".lrc";
+    const std::wstring tlyricCacheFile = cacheFile + L".trans";
+    const std::vector<std::wstring> keywords = BuildLyricSearchKeywords(title, artist);
+    auto fetchTranslationText = [&]() -> std::wstring {
+        for (const auto& keyword : keywords) {
+            if (keyword.empty()) {
+                continue;
+            }
+            const std::wstring songId = SearchSong(keyword, artist);
+            if (songId.empty()) {
+                continue;
+            }
+            FetchedLyrics fetchedLyrics = FetchLyricsFromNetEase(songId);
+            if (!fetchedLyrics.tlyricLyric.empty()) {
+                return fetchedLyrics.tlyricLyric;
+            }
+        }
+        return L"";
+    };
 
     // 1. 优先尝试从本地缓存加载
     // OutputDebugStringW((L"Trying to load from cache: " + cacheFile + L"\n").c_str());
     if (LoadLrcFromFile(cacheFile, newLyrics)) {
-        // std::wstring msg = L"Lyrics loaded  from cache successfully!\n";
-        // OutputDebugStringW(msg.c_str());
+        // 翻译缓存（如果存在）
+        std::ifstream tfile(tlyricCacheFile, std::ios::binary);
+        if (tfile.is_open()) {
+            std::stringstream tbuf;
+            tbuf << tfile.rdbuf();
+            tfile.close();
+            MergeTranslation(newLyrics, UTF8ToWide(tbuf.str()));
+        }
+        if (!HasAnyTranslation(newLyrics)) {
+            const std::wstring fetchedTranslation = fetchTranslationText();
+            if (!fetchedTranslation.empty()) {
+                MergeTranslation(newLyrics, fetchedTranslation);
+                if (HasAnyTranslation(newLyrics)) {
+                    std::ofstream tfileOut(tlyricCacheFile, std::ios::binary);
+                    if (tfileOut.is_open()) {
+                        tfileOut << WideToUTF8(fetchedTranslation);
+                        tfileOut.close();
+                    }
+                }
+            }
+        }
     }
 
     // 2. 如果缓存没有，再从网络获取
     if (newLyrics.empty()) {
-        // 简化搜索策略：先尝试完整歌曲名，再尝试清理后的版本
-        std::vector<std::wstring> keywords;
-
-        // 1. 优先只搜索歌曲名（最简单）
-        keywords.push_back(title);
-
-        // 2. 如果有艺术家，也尝试歌曲名+艺术家
-        if (!artist.empty() && artist != L"系统" && artist != L"") {
-            keywords.push_back(title + L" " + artist);
-        }
-
-        // 3. 清理歌曲名中的特殊字符后再试
-        std::wstring simpleTitle = title;
-        size_t pos;
-        // 只移除常见的干扰字符，但保留核心歌曲名
-        while ((pos = simpleTitle.find(L" (")) != std::wstring::npos) {
-            simpleTitle = simpleTitle.substr(0, pos);
-        }
-        while ((pos = simpleTitle.find(L"（")) != std::wstring::npos) {
-            simpleTitle = simpleTitle.substr(0, pos);
-        }
-        while ((pos = simpleTitle.find(L"[")) != std::wstring::npos) {
-            simpleTitle = simpleTitle.substr(0, pos);
-        }
-        // 清理首尾空格
-        size_t start = simpleTitle.find_first_not_of(L" \t\r\n");
-        size_t end = simpleTitle.find_last_not_of(L" \t\r\n");
-        if (start != std::wstring::npos && end != std::wstring::npos) {
-            simpleTitle = simpleTitle.substr(start, end - start + 1);
-        }
-        if (!simpleTitle.empty() && simpleTitle != title) {
-            keywords.push_back(simpleTitle);
-            if (!artist.empty() && artist != L"系统" && artist != L"") {
-                keywords.push_back(simpleTitle + L" " + artist);
-            }
-        }
-
         // 网络获取 - 尝试多个关键词
         std::wstring lrcTextToSave;
+        std::wstring tlyricTextToSave;
         for (const auto& keyword : keywords) {
             if (newLyrics.empty() && !keyword.empty()) {
                 // 输出调试信息（已禁用）
@@ -871,6 +974,7 @@ void LyricsMonitor::FetchLyricsThread(std::wstring title, std::wstring artist) {
                         if (!yrcLyrics.empty() && yrcLooksComplete) {
                             newLyrics = std::move(yrcLyrics);
                             lrcTextToSave = GetLyricCacheFormatMarker(DynamicLyricFormat::Yrc) + fetchedLyrics.yrcLyric;
+                            tlyricTextToSave = fetchedLyrics.tlyricLyric;
                             break;
                         }
                     }
@@ -879,6 +983,7 @@ void LyricsMonitor::FetchLyricsThread(std::wstring title, std::wstring artist) {
                         newLyrics = ParseKlyricLyrics(fetchedLyrics.klyricLyric);
                         if (!newLyrics.empty()) {
                             lrcTextToSave = GetLyricCacheFormatMarker(DynamicLyricFormat::Klyric) + fetchedLyrics.klyricLyric;
+                            tlyricTextToSave = fetchedLyrics.tlyricLyric;
                             break;
                         }
                     }
@@ -887,6 +992,7 @@ void LyricsMonitor::FetchLyricsThread(std::wstring title, std::wstring artist) {
                         newLyrics = std::move(lineLyrics);
                         if (!newLyrics.empty()) {
                             lrcTextToSave = fetchedLyrics.lineLyric;
+                            tlyricTextToSave = fetchedLyrics.tlyricLyric;
                             // std::wstring msg = L"Lyrics loaded successfully!\n";
                             // OutputDebugStringW(msg.c_str());
                             break; // 找到歌词了，停止搜索
@@ -894,6 +1000,11 @@ void LyricsMonitor::FetchLyricsThread(std::wstring title, std::wstring artist) {
                     }
                 }
             }
+        }
+
+        // 合并翻译
+        if (!newLyrics.empty() && !tlyricTextToSave.empty()) {
+            MergeTranslation(newLyrics, tlyricTextToSave);
         }
 
         // 保存到缓存
@@ -910,6 +1021,15 @@ void LyricsMonitor::FetchLyricsThread(std::wstring title, std::wstring artist) {
                     file.close();
                     // std::wstring msg = (L"Saved lyrics to cache: " + cacheFile + L"\n");
                     // OutputDebugStringW(msg.c_str());
+                }
+
+                // 保存翻译到 sibling 缓存文件
+                if (!tlyricTextToSave.empty()) {
+                    std::ofstream tfile(tlyricCacheFile, std::ios::binary);
+                    if (tfile.is_open()) {
+                        tfile << WideToUTF8(tlyricTextToSave);
+                        tfile.close();
+                    }
                 }
             }
             catch (...) {
@@ -932,4 +1052,3 @@ void LyricsMonitor::FetchLyricsThread(std::wstring title, std::wstring artist) {
     }
     m_isFetching = false;
 }
-

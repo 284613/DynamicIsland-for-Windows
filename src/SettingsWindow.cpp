@@ -259,6 +259,30 @@ namespace {
         return fallback;
     }
 
+    LyricTranslationMode ParseTranslationMode(const std::wstring& value) {
+        if (CompareStringOrdinal(value.c_str(), -1, L"Off", -1, TRUE) == CSTR_EQUAL) {
+            return LyricTranslationMode::Off;
+        }
+        if (CompareStringOrdinal(value.c_str(), -1, L"AllLines", -1, TRUE) == CSTR_EQUAL) {
+            return LyricTranslationMode::AllLines;
+        }
+        if (CompareStringOrdinal(value.c_str(), -1, L"TranslationOnly", -1, TRUE) == CSTR_EQUAL) {
+            return LyricTranslationMode::TranslationOnly;
+        }
+        return LyricTranslationMode::CurrentOnly;
+    }
+
+    std::wstring SerializeTranslationMode(LyricTranslationMode mode) {
+        switch (mode) {
+        case LyricTranslationMode::Off: return L"Off";
+        case LyricTranslationMode::AllLines: return L"AllLines";
+        case LyricTranslationMode::TranslationOnly: return L"TranslationOnly";
+        case LyricTranslationMode::CurrentOnly:
+        default:
+            return L"CurrentOnly";
+        }
+    }
+
     void WriteUtf8IniValue(const std::wstring& path, const std::wstring& section, const std::wstring& key, const std::wstring& value) {
         std::ifstream in(path, std::ios::binary);
         std::string bytes;
@@ -837,6 +861,8 @@ void SettingsWindow::LoadSettings() {
     LoadCompactModeOrder(ReadUtf8IniValue(cp, L"MainUI", L"CompactModeOrder", L"Music,Pomodoro,Todo,Agent"));
     m_compactAlbumVinyl = IsVinylStyle(ReadUtf8IniValue(cp, L"MainUI", L"CompactAlbumArtStyle", L"Vinyl"), true);
     m_expandedAlbumVinyl = IsVinylStyle(ReadUtf8IniValue(cp, L"MainUI", L"ExpandedAlbumArtStyle", L"Square"), false);
+    m_lyricTranslationMode = ParseTranslationMode(ReadUtf8IniValue(cp, L"MainUI", L"LyricTranslationMode", L"CurrentOnly"));
+    m_vinylRingPulse = getI(L"MainUI", L"VinylRingPulse", 1, cp) != 0;
     m_allowedApps = ReadUtf8IniValue(cp, L"Notifications", L"AllowedApps", m_allowedApps);
     if (m_followSystemTheme) m_darkMode = GetSystemDarkMode();
     m_isDirty = false;
@@ -884,6 +910,8 @@ void SettingsWindow::SaveSettings() {
     WriteUtf8IniValue(cp, L"MainUI", L"CompactModeOrder", SerializeCompactModeOrder());
     WriteUtf8IniValue(cp, L"MainUI", L"CompactAlbumArtStyle", m_compactAlbumVinyl ? L"Vinyl" : L"Square");
     WriteUtf8IniValue(cp, L"MainUI", L"ExpandedAlbumArtStyle", m_expandedAlbumVinyl ? L"Vinyl" : L"Square");
+    WriteUtf8IniValue(cp, L"MainUI", L"LyricTranslationMode", SerializeTranslationMode(m_lyricTranslationMode));
+    wI(L"MainUI", L"VinylRingPulse", m_vinylRingPulse ? 1 : 0, cp);
 }
 
 void SettingsWindow::ApplySettings() {
@@ -1067,6 +1095,8 @@ void SettingsWindow::ResetToDefaults() {
         m_mainUITransparency = 1.0f;
         m_compactAlbumVinyl = true;
         m_expandedAlbumVinyl = false;
+        m_lyricTranslationMode = LyricTranslationMode::CurrentOnly;
+        m_vinylRingPulse = true;
         LoadCompactModeOrder(L"Music,Pomodoro,Todo,Agent");
         break;
     case SettingCategory::FilePanel:
@@ -1318,6 +1348,9 @@ void SettingsWindow::BuildMainUiPage(std::vector<SettingsControl>& ctrls,
     float artworkCardH = 0.0f;
     BuildMusicArtworkCard(ctrls, y, artworkCardH);
     y += artworkCardH + CARD_GAP;
+    float lyricsCardH = 0.0f;
+    BuildMusicLyricsCard(ctrls, y, lyricsCardH);
+    y += lyricsCardH + CARD_GAP;
     float compactModesCardH = 0.0f;
     BuildCompactModesCard(ctrls, y, compactModesCardH);
     y += compactModesCardH + CARD_GAP;
@@ -1392,6 +1425,61 @@ void SettingsWindow::BuildMusicArtworkCard(std::vector<SettingsControl>& ctrls, 
         ctrls.push_back(vinyl);
         rowTop += rowHeight;
     }
+}
+
+void SettingsWindow::BuildMusicLyricsCard(std::vector<SettingsControl>& ctrls, float y, float& cardHeight) const {
+    const float titleHeight = 48.0f;
+    const float rowHeight = 42.0f;
+    cardHeight = CARD_PAD + titleHeight + rowHeight * 2.0f + CARD_PAD;
+    ctrls.push_back(mkCard(y, cardHeight));
+
+    SettingsControl title;
+    title.kind = ControlKind::Label;
+    title.bounds = D2D1::RectF(0.0f, y + CARD_PAD, CONT_W, y + CARD_PAD + titleHeight);
+    title.text = L"Music Lyrics";
+    title.subtitle = L"Configure lyric translation and vinyl ring pulse.";
+    ctrls.push_back(title);
+
+    SettingsControl label;
+    label.kind = ControlKind::Label;
+    label.bounds = D2D1::RectF(0.0f, y + CARD_PAD + titleHeight, CONT_W - 330.0f, y + CARD_PAD + titleHeight + rowHeight);
+    label.text = L"Translation";
+    label.subtitle = SerializeTranslationMode(m_lyricTranslationMode);
+    ctrls.push_back(label);
+
+    struct ModeButton {
+        int id;
+        const wchar_t* text;
+        LyricTranslationMode mode;
+    };
+    const ModeButton buttons[] = {
+        { SettingID::MUSIC_TRANSLATION_OFF, L"Off", LyricTranslationMode::Off },
+        { SettingID::MUSIC_TRANSLATION_CURRENT, L"Current", LyricTranslationMode::CurrentOnly },
+        { SettingID::MUSIC_TRANSLATION_ALL, L"All", LyricTranslationMode::AllLines },
+        { SettingID::MUSIC_TRANSLATION_ONLY, L"Only", LyricTranslationMode::TranslationOnly },
+    };
+
+    const float buttonW = 70.0f;
+    const float buttonGap = 5.0f;
+    const float buttonTop = y + CARD_PAD + titleHeight + 7.0f;
+    const float buttonLeft = CONT_W - 10.0f - buttonW * 4.0f - buttonGap * 3.0f;
+    for (int i = 0; i < 4; ++i) {
+        SettingsControl c;
+        c.kind = ControlKind::Button;
+        c.id = buttons[i].id;
+        c.text = buttons[i].text;
+        c.isPrimary = m_lyricTranslationMode == buttons[i].mode;
+        c.bounds = D2D1::RectF(buttonLeft + i * (buttonW + buttonGap), buttonTop,
+            buttonLeft + i * (buttonW + buttonGap) + buttonW, buttonTop + 28.0f);
+        c.hoverSpring.SetStiffness(200.f);
+        c.hoverSpring.SetDamping(24.f);
+        ctrls.push_back(c);
+    }
+
+    const float toggleY = y + CARD_PAD + titleHeight + rowHeight;
+    ctrls.push_back(mkSep(toggleY - 1.0f));
+    mkToggle(ctrls, SettingID::MUSIC_VINYL_RING_PULSE, L"Vinyl ring pulse",
+        L"Draw pulsing rings around the expanded vinyl record", m_vinylRingPulse, toggleY);
 }
 
 void SettingsWindow::BuildCompactModesCard(std::vector<SettingsControl>& ctrls, float y, float& cardHeight) const {
@@ -1762,6 +1850,9 @@ void SettingsWindow::SyncStateFromControl(int id) {
         return;
     case SettingID::FACE_PERF_MODE:
         m_facePerformanceMode = ctrl->value > 0.5f;
+        break;
+    case SettingID::MUSIC_VINYL_RING_PULSE:
+        m_vinylRingPulse = ctrl->value > 0.5f;
         break;
     case SettingID::MAIN_WIDTH:       m_mainUIWidth          = ctrl->GetRawValue(); break;
     case SettingID::MAIN_HEIGHT:      m_mainUIHeight         = ctrl->GetRawValue(); break;
@@ -2183,6 +2274,25 @@ void SettingsWindow::HandleControlActivation(int id) {
             }
         }
         SwitchCategory(m_currentCategory);
+        return;
+    }
+
+    if (id == SettingID::MUSIC_TRANSLATION_OFF ||
+        id == SettingID::MUSIC_TRANSLATION_CURRENT ||
+        id == SettingID::MUSIC_TRANSLATION_ALL ||
+        id == SettingID::MUSIC_TRANSLATION_ONLY) {
+        if (id == SettingID::MUSIC_TRANSLATION_OFF) {
+            m_lyricTranslationMode = LyricTranslationMode::Off;
+        } else if (id == SettingID::MUSIC_TRANSLATION_ALL) {
+            m_lyricTranslationMode = LyricTranslationMode::AllLines;
+        } else if (id == SettingID::MUSIC_TRANSLATION_ONLY) {
+            m_lyricTranslationMode = LyricTranslationMode::TranslationOnly;
+        } else {
+            m_lyricTranslationMode = LyricTranslationMode::CurrentOnly;
+        }
+        ApplySettings();
+        SwitchCategory(m_currentCategory);
+        MarkDirty(false, L"Music lyric settings applied");
         return;
     }
 

@@ -54,6 +54,14 @@ enum class MusicArtworkStyle
     Vinyl
 };
 
+enum class LyricTranslationMode
+{
+    Off,
+    CurrentOnly,
+    AllLines,
+    TranslationOnly
+};
+
 struct DisplayModeEntry {
     IslandDisplayMode mode;
     int priority;
@@ -74,10 +82,16 @@ struct LyricWord {
 
 struct LyricData {
     std::wstring text;
-    int64_t currentMs;
-    int64_t nextMs;
-    int64_t positionMs;
+    std::wstring previousText;
+    std::wstring nextText;
+    int64_t currentMs = -1;
+    int64_t nextMs = -1;
+    int64_t positionMs = 0;
     std::vector<LyricWord> words;
+    bool hasExplicitWordTiming = false;
+    std::wstring translation;  // 行级中文翻译（网易云 tlyric），缺失时为空
+    std::wstring previousTranslation;
+    std::wstring nextTranslation;
 };
 
 struct RenderContext
