@@ -1,6 +1,6 @@
 # Dynamic Island for Windows
 
-一个基于 C++17、Win32 API、Direct2D、DirectComposition 和 D3D11 的 Windows 桌面灵动岛应用。它把音乐播放、逐字歌词、天气、通知、Todo、Pomodoro、Agent 会话和文件暂存整合到顶部主岛与轻量副岛中。
+一个基于 C++17、Win32 API、Direct2D、DirectComposition 和 D3D11 的 Windows 桌面灵动岛应用。它把音乐播放、逐字歌词、天气、通知、Todo、Pomodoro、Agent 会话、文件暂存和人脸解锁整合到顶部主岛与轻量副岛中。
 
 ## 功能概览
 
@@ -12,28 +12,32 @@
 - Pomodoro：支持紧凑/展开态、暂停恢复和本地快照。
 - 文件暂存：拖入主岛时显示吞食动效，右侧显示单文件圆圈；暂存索引支持启动恢复。
 - Agent：支持 Claude/Codex 会话面板、hook 事件刷新和空闲降频轮询。
+- 人脸解锁：基于 ML 的 Windows 锁屏人脸识别（YuNet/ArcFace/Silent-Face/3DDFA_V2），支持自动登录，包含平滑聚拢与从左至右 3D 翻转打勾的灵动岛解锁动画反馈。
 - 通知：监听系统通知并限制已处理缓存增长。
-- 设置页：Direct2D 自绘设置窗口，支持主题、透明度、天气、紧凑态顺序、专辑样式等配置热更新。
+- 设置页：Direct2D 自绘设置窗口，支持主题、透明度、天气、人脸录入、紧凑态顺序、专辑样式等配置热更新。
 
 ## 技术栈
 
 - 语言：C++17
 - 图形：Direct2D 1.1、DirectComposition、D3D11
-- 系统接口：Win32 API、WinRT、WASAPI、SMTC
+- 系统接口：Win32 API、WinRT、WASAPI、SMTC、Media Foundation
+- 机器学习：ONNX Runtime 1.17+
 - 构建：Visual Studio 2022 / MSBuild
 
 ## 架构
 
 ```text
-输入层: MediaMonitor / NotificationMonitor / WeatherPlugin / SystemMonitor / AgentSessionMonitor
+输入层: MediaMonitor / NotificationMonitor / WeatherPlugin / SystemMonitor / AgentSessionMonitor / FaceUnlockBridge
 调度层: DynamicIsland -> LayoutController
 渲染层: RenderEngine -> src/components/
+底层能力: face_core (ML Pipeline) / FaceUnlockProvider (Credential Provider DLL)
 ```
 
 - `DynamicIsland`：窗口消息、状态机、输入分发、配置热更新和模式切换。
 - `LayoutController`：尺寸、透明度、弹簧动画和命中测试。
 - `RenderEngine`：Direct2D/DirectComposition 生命周期、壳体绘制和组件调度。
-- `src/components/`：音乐、歌词、天气、Todo、Pomodoro、文件圆圈、Agent 等具体 UI。
+- `src/components/`：音乐、歌词、天气、Todo、Pomodoro、文件圆圈、Agent、人脸反馈等具体 UI。
+- `face_core`：封装摄像头采集与多级人脸识别算法流水线。
 
 ## 目录结构
 
@@ -42,16 +46,18 @@ DynamicIsland/
 ├─ src/
 │  ├─ components/             # 独立 UI 组件
 │  ├─ DynamicIsland.cpp       # 主窗口消息与状态调度
-│  ├─ FileSecondaryInput.cpp  # 文件圆圈/拖拽输入
+│  ├─ FaceEnrollWindow.cpp    # 人脸录入引导窗口
+│  ├─ FaceUnlockBridge.cpp    # 桥接锁屏解锁事件
 │  ├─ RenderEngine.cpp        # 渲染壳体与组件调度
-│  ├─ LayoutController.cpp    # 弹簧布局与命中测试
-│  ├─ LyricsMonitor.cpp       # 歌词获取与解析
-│  └─ SettingsWindow.cpp      # D2D 自绘设置窗口
+│  └─ LayoutController.cpp    # 弹簧布局与命中测试
 ├─ include/
 │  ├─ components/
 │  ├─ settings/
 │  └─ *.h
+├─ face_core/                 # 人脸识别核心静态库
+├─ FaceUnlockProvider/        # 凭据提供程序 DLL (CP)
 ├─ resources/
+├─ models/                    # ONNX 模型文件
 ├─ docs/
 │  └─ plans/
 ├─ DynamicIsland.sln
@@ -66,21 +72,20 @@ DynamicIsland/
 - `[MainUI]`
 - `[FilePanel]`
 - `[Weather]`
+- `[FaceUnlock]`
 - `[Notifications]`
-- `[Advanced]`
 
 关键配置说明：
 
 - `Weather.ApiKey` 需要用户自行配置；未配置时天气模块不会发起请求。
-- `MainUI.CompactModeOrder` 控制紧凑态轮播顺序，`Idle` 始终作为兜底模式。
-- `CompactAlbumArtStyle` / `ExpandedAlbumArtStyle` 支持 `Square` 或 `Vinyl`。
+- `FaceUnlock.Enabled` 控制是否启用锁屏识别（需要管理员权限安装 CP）。
 
 ## 本地数据
 
 - Todo：`%LOCALAPPDATA%\DynamicIsland\todos.json`
-- Pomodoro 快照：`%LOCALAPPDATA%\DynamicIsland\pomodoro.json`
-- 文件暂存索引：`%LOCALAPPDATA%\DynamicIsland\file_stash.json`
-- 文件暂存目录：`%LOCALAPPDATA%\DynamicIsland\FileStash\`
+- 文件暂存：`%LOCALAPPDATA%\DynamicIsland\FileStash\`
+- 人脸模板：`%PROGRAMDATA%\DynamicIsland\faces.bin` (加密存储)
+- 人脸凭据：通过 Windows LSA Secrets 安全存储
 
 ## 构建与运行
 
@@ -88,8 +93,8 @@ DynamicIsland/
 
 - Windows 10/11 x64
 - Visual Studio 2022
-- MSVC v143
 - Windows SDK 10.0
+- 已下载模型文件至 `models/` 目录
 
 构建命令：
 
@@ -97,6 +102,9 @@ DynamicIsland/
 msbuild DynamicIsland.sln /p:Configuration=Debug /p:Platform=x64
 msbuild DynamicIsland.sln /p:Configuration=Release /p:Platform=x64
 ```
+
+安装人脸解锁：
+以管理员权限运行 `DynamicIsland.exe --install-cp`。
 
 运行：
 
@@ -110,15 +118,14 @@ x64\Release\DynamicIsland.exe
 
 - 改显示模式：先看 `DetermineDisplayMode()`、`TransitionTo()` 和 `ActiveExpandedMode`。
 - 改布局/命中：先看 `LayoutController`，同时确认 DPI 缩放。
-- 改音乐视觉：看 `MusicPlayerComponent`、`WaveformComponent`、`LyricsComponent`。
-- 改歌词解析：看 `LyricsMonitor`。
-- 改文件圆圈和拖拽：看 `FileSecondaryInput.cpp` 与 `FilePanelComponent`。
-- 改 Todo：看 `TodoComponent` 与 `TodoStore`。
-- 改天气：看 `WeatherPlugin` 与 `WeatherComponent`。
-- 改设置页：看 `SettingsWindow.cpp`。
+- 改人脸岛动画：看 `src/components/FaceIdComponent.cpp`。
+- 改人脸识别逻辑：看 `face_core/src/FacePipeline.cpp`。
+- 改人脸录入：看 `src/FaceEnrollWindow.cpp`。
+- 改设置页：看 `src/SettingsWindow.cpp`。
 
 ## 文档
 
+- 人脸解锁实现方案：`docs/FaceUnlockPlan.md`
 - 当前优化状态：`docs/OPT_STATUS.md`
 - 下一批功能路线图：`docs/plans/2026-04-23-next-batch-roadmap.md`
 

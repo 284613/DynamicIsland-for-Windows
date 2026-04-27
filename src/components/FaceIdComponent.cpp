@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 namespace {
 
@@ -12,6 +13,23 @@ float Clamp01(float value) {
     return (std::max)(0.0f, (std::min)(1.0f, value));
 }
 
+float SmoothStep(float value) {
+    value = Clamp01(value);
+    return value * value * (3.0f - 2.0f * value);
+}
+
+float EaseInOutCubic(float x) {
+    x = Clamp01(x);
+    return x < 0.5f ? 4.0f * x * x * x : 1.0f - std::pow(-2.0f * x + 2.0f, 3.0f) / 2.0f;
+}
+
+float EaseOutBack(float x) {
+    x = Clamp01(x);
+    const float c1 = 1.70158f;
+    const float c3 = c1 + 1.0f;
+    return 1.0f + c3 * std::pow(x - 1.0f, 3.0f) + c1 * std::pow(x - 1.0f, 2.0f);
+}
+
 float DegToRad(float deg) {
     return deg * kPi / 180.0f;
 }
@@ -20,25 +38,137 @@ D2D1_POINT_2F PointOnCircle(float cx, float cy, float radius, float angle) {
     return D2D1::Point2F(cx + std::cos(angle) * radius, cy + std::sin(angle) * radius);
 }
 
+void DrawMorphingFaceBox(ID2D1Factory1* factory, ID2D1RenderTarget* target, ID2D1Brush* brush,
+    float cx, float cy, float size, float strokeWidth, float mergeProgress) {
+    if (!factory || !target || !brush) return;
+
+    const float half = size * 0.5f;
+    const float gap = (1.0f - mergeProgress) * (size * 0.25f);
+    const float r = size * 0.08f + mergeProgress * (size * 0.42f);
+
+    ComPtr<ID2D1PathGeometry> geometry;
+    factory->CreatePathGeometry(&geometry);
+    ComPtr<ID2D1GeometrySink> sink;
+    geometry->Open(&sink);
+
+    // Top-Left
+    sink->BeginFigure(D2D1::Point2F(cx - half, cy - gap), D2D1_FIGURE_BEGIN_HOLLOW);
+    sink->AddLine(D2D1::Point2F(cx - half, cy - half + r));
+    sink->AddArc(D2D1::ArcSegment(D2D1::Point2F(cx - half + r, cy - half), D2D1::SizeF(r, r), 0.0f, D2D1_SWEEP_DIRECTION_CLOCKWISE, D2D1_ARC_SIZE_SMALL));
+    sink->AddLine(D2D1::Point2F(cx - gap, cy - half));
+    sink->EndFigure(D2D1_FIGURE_END_OPEN);
+
+    // Top-Right
+    sink->BeginFigure(D2D1::Point2F(cx + gap, cy - half), D2D1_FIGURE_BEGIN_HOLLOW);
+    sink->AddLine(D2D1::Point2F(cx + half - r, cy - half));
+    sink->AddArc(D2D1::ArcSegment(D2D1::Point2F(cx + half, cy - half + r), D2D1::SizeF(r, r), 0.0f, D2D1_SWEEP_DIRECTION_CLOCKWISE, D2D1_ARC_SIZE_SMALL));
+    sink->AddLine(D2D1::Point2F(cx + half, cy - gap));
+    sink->EndFigure(D2D1_FIGURE_END_OPEN);
+
+    // Bottom-Right
+    sink->BeginFigure(D2D1::Point2F(cx + half, cy + gap), D2D1_FIGURE_BEGIN_HOLLOW);
+    sink->AddLine(D2D1::Point2F(cx + half, cy + half - r));
+    sink->AddArc(D2D1::ArcSegment(D2D1::Point2F(cx + half - r, cy + half), D2D1::SizeF(r, r), 0.0f, D2D1_SWEEP_DIRECTION_CLOCKWISE, D2D1_ARC_SIZE_SMALL));
+    sink->AddLine(D2D1::Point2F(cx + gap, cy + half));
+    sink->EndFigure(D2D1_FIGURE_END_OPEN);
+
+    // Bottom-Left
+    sink->BeginFigure(D2D1::Point2F(cx - gap, cy + half), D2D1_FIGURE_BEGIN_HOLLOW);
+    sink->AddLine(D2D1::Point2F(cx - half + r, cy + half));
+    sink->AddArc(D2D1::ArcSegment(D2D1::Point2F(cx - half, cy + half - r), D2D1::SizeF(r, r), 0.0f, D2D1_SWEEP_DIRECTION_CLOCKWISE, D2D1_ARC_SIZE_SMALL));
+    sink->AddLine(D2D1::Point2F(cx - half, cy + gap));
+    sink->EndFigure(D2D1_FIGURE_END_OPEN);
+
+    sink->Close();
+
+    ComPtr<ID2D1StrokeStyle> strokeStyle;
+    D2D1_STROKE_STYLE_PROPERTIES props = D2D1::StrokeStyleProperties(
+        D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND, D2D1_LINE_JOIN_ROUND
+    );
+    factory->CreateStrokeStyle(props, nullptr, 0, &strokeStyle);
+
+    target->DrawGeometry(geometry.Get(), brush, strokeWidth, strokeStyle.Get());
+}
+
+void DrawFaceInside(ID2D1Factory1* factory, ID2D1RenderTarget* target, ID2D1Brush* brush,
+    float cx, float cy, float size, float strokeWidth) {
+    if (!factory || !target || !brush) return;
+
+    ComPtr<ID2D1PathGeometry> geometry;
+    factory->CreatePathGeometry(&geometry);
+    ComPtr<ID2D1GeometrySink> sink;
+    geometry->Open(&sink);
+
+    // Left eye
+    sink->BeginFigure(D2D1::Point2F(cx - size * 0.16f, cy - size * 0.16f), D2D1_FIGURE_BEGIN_HOLLOW);
+    sink->AddLine(D2D1::Point2F(cx - size * 0.16f, cy - size * 0.02f));
+    sink->EndFigure(D2D1_FIGURE_END_OPEN);
+
+    // Right eye
+    sink->BeginFigure(D2D1::Point2F(cx + size * 0.16f, cy - size * 0.16f), D2D1_FIGURE_BEGIN_HOLLOW);
+    sink->AddLine(D2D1::Point2F(cx + size * 0.16f, cy - size * 0.02f));
+    sink->EndFigure(D2D1_FIGURE_END_OPEN);
+
+    // Nose
+    sink->BeginFigure(D2D1::Point2F(cx, cy - size * 0.04f), D2D1_FIGURE_BEGIN_HOLLOW);
+    sink->AddLine(D2D1::Point2F(cx, cy + size * 0.1f));
+    sink->EndFigure(D2D1_FIGURE_END_OPEN);
+
+    // Smile
+    sink->BeginFigure(D2D1::Point2F(cx - size * 0.22f, cy + size * 0.2f), D2D1_FIGURE_BEGIN_HOLLOW);
+    sink->AddQuadraticBezier(D2D1::QuadraticBezierSegment(
+        D2D1::Point2F(cx, cy + size * 0.36f),
+        D2D1::Point2F(cx + size * 0.22f, cy + size * 0.2f)
+    ));
+    sink->EndFigure(D2D1_FIGURE_END_OPEN);
+
+    sink->Close();
+
+    ComPtr<ID2D1StrokeStyle> strokeStyle;
+    D2D1_STROKE_STYLE_PROPERTIES props = D2D1::StrokeStyleProperties(
+        D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND, D2D1_LINE_JOIN_ROUND
+    );
+    factory->CreateStrokeStyle(props, nullptr, 0, &strokeStyle);
+
+    target->DrawGeometry(geometry.Get(), brush, strokeWidth, strokeStyle.Get());
+}
+
+void DrawCheckmarkCircle(ID2D1Factory1* factory, ID2D1RenderTarget* target, ID2D1Brush* brush,
+    float cx, float cy, float size, float strokeWidth) {
+    if (!factory || !target || !brush) return;
+
+    D2D1_ELLIPSE circle = D2D1::Ellipse(D2D1::Point2F(cx, cy), size * 0.5f, size * 0.5f);
+    target->DrawEllipse(&circle, brush, strokeWidth);
+
+    ComPtr<ID2D1PathGeometry> geometry;
+    factory->CreatePathGeometry(&geometry);
+    ComPtr<ID2D1GeometrySink> sink;
+    geometry->Open(&sink);
+
+    sink->BeginFigure(D2D1::Point2F(cx - size * 0.15f, cy + size * 0.05f), D2D1_FIGURE_BEGIN_HOLLOW);
+    sink->AddLine(D2D1::Point2F(cx - size * 0.05f, cy + size * 0.15f));
+    sink->AddLine(D2D1::Point2F(cx + size * 0.22f, cy - size * 0.12f));
+    sink->EndFigure(D2D1_FIGURE_END_OPEN);
+    sink->Close();
+
+    ComPtr<ID2D1StrokeStyle> strokeStyle;
+    D2D1_STROKE_STYLE_PROPERTIES props = D2D1::StrokeStyleProperties(
+        D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND, D2D1_LINE_JOIN_ROUND
+    );
+    factory->CreateStrokeStyle(props, nullptr, 0, &strokeStyle);
+
+    target->DrawGeometry(geometry.Get(), brush, strokeWidth, strokeStyle.Get());
+}
+
 } // namespace
 
 void FaceIdComponent::OnAttach(SharedResources* res) {
     m_res = res;
     if (m_res && m_res->d2dContext) {
-        m_res->d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.20f, 0.25f, 0.62f, 1.0f), &m_indigoBrush);
-        m_res->d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.18f, 0.72f, 0.38f, 1.0f), &m_greenBrush);
-        m_res->d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.92f, 0.22f, 0.25f, 1.0f), &m_redBrush);
+        m_res->d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.24f, 0.45f, 1.0f, 1.0f), &m_indigoBrush);
+        m_res->d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.22f, 0.86f, 0.45f, 1.0f), &m_greenBrush);
+        m_res->d2dContext->CreateSolidColorBrush(D2D1::ColorF(1.0f, 0.28f, 0.32f, 1.0f), &m_redBrush);
         m_res->d2dContext->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.24f), &m_softBrush);
-    }
-    if (m_res && m_res->dwriteFactory) {
-        m_res->dwriteFactory->CreateTextFormat(
-            L"Microsoft YaHei", nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD,
-            DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-            12.0f, L"zh-cn", &m_labelFormat);
-        if (m_labelFormat) {
-            m_labelFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
-            m_labelFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-        }
     }
 }
 
@@ -79,89 +209,128 @@ void FaceIdComponent::Draw(const D2D1_RECT_F& rect, float contentAlpha, ULONGLON
 
 void FaceIdComponent::DrawScanning(const D2D1_RECT_F& rect, float alpha, ULONGLONG) {
     auto* ctx = m_res->d2dContext;
-    const float width = rect.right - rect.left;
+    if (!ctx || !m_greenBrush) {
+        return;
+    }
+
     const float height = rect.bottom - rect.top;
-    const float radius = height * 0.5f;
-    const float cx = rect.left + 32.0f;
+    // 扫描时在左侧
+    const float cx = rect.left + height;
     const float cy = rect.top + height * 0.5f;
+    const float faceSize = (std::min)(32.0f, height - 6.0f);
+    const float radius = faceSize * 0.6f;
 
-    m_indigoBrush->SetOpacity(alpha * 0.28f);
-    ctx->FillRoundedRectangle(D2D1::RoundedRect(rect, height * 0.5f, height * 0.5f), m_indigoBrush.Get());
+    m_greenBrush->SetOpacity(alpha * 0.96f);
+    DrawMorphingFaceBox(m_res->d2dFactory, ctx, m_greenBrush.Get(), cx, cy, faceSize * 0.75f, 1.8f, 0.0f);
+    DrawFaceInside(m_res->d2dFactory, ctx, m_greenBrush.Get(), cx, cy, faceSize * 0.75f, 1.8f);
 
-    m_softBrush->SetOpacity(alpha * 0.28f);
-    ctx->DrawEllipse(D2D1::Ellipse(D2D1::Point2F(cx, cy), radius - 12.0f, radius - 12.0f), m_softBrush.Get(), 2.0f);
-
-    if (m_res->whiteBrush) {
-        m_res->whiteBrush->SetOpacity(alpha);
-        const float base = m_phase * DegToRad(60.0f);
-        DrawArc(cx, cy, radius - 12.0f, base, DegToRad(82.0f), m_res->whiteBrush, 2.6f);
-        DrawArc(cx, cy, radius - 12.0f, base + DegToRad(122.0f), DegToRad(72.0f), m_res->whiteBrush, 2.6f);
-        DrawArc(cx, cy, radius - 12.0f, base + DegToRad(236.0f), DegToRad(64.0f), m_res->whiteBrush, 2.6f);
-    }
-
-    DrawCenteredText(m_text.empty() ? L"正在识别" : m_text,
-        D2D1::RectF(rect.left + 58.0f, rect.top, rect.right - 32.0f, rect.bottom), alpha);
-
-    if (m_res->grayBrush) {
-        m_res->grayBrush->SetOpacity(alpha * 0.75f);
-        D2D1_RECT_F chevron = D2D1::RectF(rect.right - 27.0f, rect.top + 18.0f, rect.right - 11.0f, rect.bottom - 18.0f);
-        ctx->DrawLine(D2D1::Point2F(chevron.left, chevron.top), D2D1::Point2F((chevron.left + chevron.right) * 0.5f, chevron.bottom), m_res->grayBrush, 1.8f);
-        ctx->DrawLine(D2D1::Point2F((chevron.left + chevron.right) * 0.5f, chevron.bottom), D2D1::Point2F(chevron.right, chevron.top), m_res->grayBrush, 1.8f);
-    }
+    m_greenBrush->SetOpacity(alpha * 0.6f);
+    const float base = m_phase * DegToRad(128.0f);
+    DrawArc(cx, cy, radius, base, DegToRad(78.0f), m_greenBrush.Get(), 2.0f);
+    DrawArc(cx, cy, radius, base + DegToRad(180.0f), DegToRad(78.0f), m_greenBrush.Get(), 2.0f);
 }
 
 void FaceIdComponent::DrawSuccess(const D2D1_RECT_F& rect, float alpha, ULONGLONG now) {
     auto* ctx = m_res->d2dContext;
-    const float height = rect.bottom - rect.top;
-    const float cx = rect.left + 32.0f;
-    const float cy = rect.top + height * 0.5f;
-    const float t = Clamp01(static_cast<float>(now - m_startedMs) / 260.0f);
-    const float pulse = Clamp01(static_cast<float>(now - m_startedMs) / 1000.0f);
-
-    m_greenBrush->SetOpacity(alpha * 0.32f);
-    ctx->FillRoundedRectangle(D2D1::RoundedRect(rect, height * 0.5f, height * 0.5f), m_greenBrush.Get());
-    m_greenBrush->SetOpacity(alpha * (0.35f * (1.0f - pulse)));
-    ctx->DrawEllipse(D2D1::Ellipse(D2D1::Point2F(cx, cy), 14.0f + pulse * 10.0f, 14.0f + pulse * 10.0f), m_greenBrush.Get(), 2.0f);
-
-    if (m_res->whiteBrush) {
-        m_res->whiteBrush->SetOpacity(alpha);
-        D2D1_POINT_2F a = D2D1::Point2F(cx - 9.0f, cy + 0.5f);
-        D2D1_POINT_2F b = D2D1::Point2F(cx - 2.0f, cy + 7.0f);
-        D2D1_POINT_2F c = D2D1::Point2F(cx + 11.0f, cy - 8.0f);
-        if (t < 0.5f) {
-            float local = t / 0.5f;
-            ctx->DrawLine(a, D2D1::Point2F(a.x + (b.x - a.x) * local, a.y + (b.y - a.y) * local), m_res->whiteBrush, 3.0f);
-        } else {
-            ctx->DrawLine(a, b, m_res->whiteBrush, 3.0f);
-            float local = (t - 0.5f) / 0.5f;
-            ctx->DrawLine(b, D2D1::Point2F(b.x + (c.x - b.x) * local, b.y + (c.y - b.y) * local), m_res->whiteBrush, 3.0f);
-        }
+    if (!ctx || !m_greenBrush) {
+        return;
     }
 
-    DrawCenteredText(m_text.empty() ? L"已解锁" : m_text,
-        D2D1::RectF(rect.left + 58.0f, rect.top, rect.right - 18.0f, rect.bottom), alpha);
+    const float height = rect.bottom - rect.top;
+    const float elapsed = static_cast<float>(now - m_startedMs);
+    
+    // Animation timing with delay for Windows lockscreen fade-in
+    const float delayMs = 1100.0f;
+    const float morphDuration = 250.0f;
+    const float flipDuration = 450.0f;
+
+    const float morphTime = Clamp01((elapsed - delayMs) / morphDuration);
+    const float mergeProgress = EaseInOutCubic(morphTime);
+    
+    const float flipTime = Clamp01((elapsed - delayMs - morphDuration) / flipDuration);
+    const float flipProgress = EaseInOutCubic(flipTime);
+    
+    const float pulse = Clamp01((elapsed - delayMs) / 780.0f);
+
+    const float startX = rect.left + height;
+    const float endX = rect.right - height;
+    // 翻转时从左侧平滑移动到右侧
+    const float cx = startX + (endX - startX) * flipProgress;
+    const float cy = rect.top + height * 0.5f;
+    const float faceSize = (std::min)(32.0f, height - 6.0f);
+
+    // Pulse effect
+    m_greenBrush->SetOpacity(alpha * 0.15f * (1.0f - pulse));
+    D2D1_ELLIPSE pulseRing = D2D1::Ellipse(D2D1::Point2F(cx, cy),
+        faceSize * 0.55f + pulse * 9.0f,
+        faceSize * 0.55f + pulse * 9.0f);
+    ctx->DrawEllipse(&pulseRing, m_greenBrush.Get(), 1.9f);
+
+    m_greenBrush->SetOpacity(alpha * 0.95f);
+
+    D2D1_MATRIX_3X2_F oldTransform;
+    ctx->GetTransform(&oldTransform);
+
+    if (flipProgress > 0.0f) {
+        float sx = std::cos(flipProgress * kPi); // 1.0 -> -1.0
+        // Apply pop-out/bouncy scale effect to the checkmark phase
+        float scalePop = 1.0f;
+        if (flipProgress > 0.5f) {
+            float checkTime = (flipProgress - 0.5f) * 2.0f;
+            scalePop = 0.8f + 0.2f * EaseOutBack(checkTime);
+        }
+
+        D2D1_MATRIX_3X2_F flipTransform = D2D1::Matrix3x2F::Scale(
+            D2D1::SizeF(std::abs(sx) * scalePop, scalePop),
+            D2D1::Point2F(cx, cy)
+        );
+        ctx->SetTransform(flipTransform * oldTransform);
+
+        if (sx > 0.0f) {
+            // First half of flip: showing the circle face
+            DrawMorphingFaceBox(m_res->d2dFactory, ctx, m_greenBrush.Get(), cx, cy, faceSize * 0.75f, 1.8f, mergeProgress);
+            DrawFaceInside(m_res->d2dFactory, ctx, m_greenBrush.Get(), cx, cy, faceSize * 0.75f, 1.8f);
+        } else {
+            // Second half of flip: showing the checkmark circle
+            DrawCheckmarkCircle(m_res->d2dFactory, ctx, m_greenBrush.Get(), cx, cy, faceSize * 0.75f, 1.8f);
+        }
+    } else {
+        // Before flip starts: morphing into circle
+        DrawMorphingFaceBox(m_res->d2dFactory, ctx, m_greenBrush.Get(), cx, cy, faceSize * 0.75f, 1.8f, mergeProgress);
+        DrawFaceInside(m_res->d2dFactory, ctx, m_greenBrush.Get(), cx, cy, faceSize * 0.75f, 1.8f);
+    }
+
+    // Restore transform
+    ctx->SetTransform(oldTransform);
 }
 
 void FaceIdComponent::DrawFailed(const D2D1_RECT_F& rect, float alpha, ULONGLONG now) {
     auto* ctx = m_res->d2dContext;
-    const float height = rect.bottom - rect.top;
-    const float elapsed = static_cast<float>(now - m_startedMs);
-    const float shake = elapsed < 320.0f ? std::sin(elapsed / 80.0f * kTwoPi) * 6.0f : 0.0f;
-    const float cx = rect.left + 32.0f + shake;
-    const float cy = rect.top + height * 0.5f;
-
-    D2D1_RECT_F shifted = D2D1::RectF(rect.left + shake, rect.top, rect.right + shake, rect.bottom);
-    m_redBrush->SetOpacity(alpha * 0.30f);
-    ctx->FillRoundedRectangle(D2D1::RoundedRect(shifted, height * 0.5f, height * 0.5f), m_redBrush.Get());
-
-    if (m_res->whiteBrush) {
-        m_res->whiteBrush->SetOpacity(alpha);
-        ctx->DrawLine(D2D1::Point2F(cx - 9.0f, cy - 9.0f), D2D1::Point2F(cx + 9.0f, cy + 9.0f), m_res->whiteBrush, 3.0f);
-        ctx->DrawLine(D2D1::Point2F(cx + 9.0f, cy - 9.0f), D2D1::Point2F(cx - 9.0f, cy + 9.0f), m_res->whiteBrush, 3.0f);
+    if (!ctx || !m_redBrush) {
+        return;
     }
 
-    DrawCenteredText(m_text.empty() ? L"识别失败" : m_text,
-        D2D1::RectF(rect.left + 58.0f + shake, rect.top, rect.right - 18.0f + shake, rect.bottom), alpha);
+    const float height = rect.bottom - rect.top;
+    const float elapsed = static_cast<float>(now - m_startedMs);
+    const float shake = elapsed < 320.0f ? std::sin(elapsed / 72.0f * kTwoPi) * 3.0f : 0.0f;
+    // 失败时保持在左侧并抖动
+    const float cx = rect.left + height + shake;
+    const float cy = rect.top + height * 0.5f;
+    const float faceSize = (std::min)(32.0f, height - 6.0f);
+
+    m_redBrush->SetOpacity(alpha * 0.85f);
+    DrawMorphingFaceBox(m_res->d2dFactory, ctx, m_redBrush.Get(), cx, cy, faceSize * 0.75f, 1.8f, 0.0f);
+    DrawFaceInside(m_res->d2dFactory, ctx, m_redBrush.Get(), cx, cy, faceSize * 0.75f, 1.8f);
+
+    m_redBrush->SetOpacity(alpha * 0.95f);
+    ComPtr<ID2D1StrokeStyle> strokeStyle;
+    D2D1_STROKE_STYLE_PROPERTIES props = D2D1::StrokeStyleProperties(
+        D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND, D2D1_LINE_JOIN_ROUND
+    );
+    m_res->d2dFactory->CreateStrokeStyle(props, nullptr, 0, &strokeStyle);
+    
+    ctx->DrawLine(D2D1::Point2F(cx - 10.0f, cy - 10.0f), D2D1::Point2F(cx + 10.0f, cy + 10.0f), m_redBrush.Get(), 2.5f, strokeStyle.Get());
+    ctx->DrawLine(D2D1::Point2F(cx + 10.0f, cy - 10.0f), D2D1::Point2F(cx - 10.0f, cy + 10.0f), m_redBrush.Get(), 2.5f, strokeStyle.Get());
 }
 
 void FaceIdComponent::DrawArc(float cx, float cy, float radius, float startAngle, float sweepAngle,
@@ -190,15 +359,11 @@ void FaceIdComponent::DrawArc(float cx, float cy, float radius, float startAngle
         std::fabs(sweepAngle) > kPi ? D2D1_ARC_SIZE_LARGE : D2D1_ARC_SIZE_SMALL));
     sink->EndFigure(D2D1_FIGURE_END_OPEN);
     if (SUCCEEDED(sink->Close())) {
-        m_res->d2dContext->DrawGeometry(geometry.Get(), brush, strokeWidth);
+        ComPtr<ID2D1StrokeStyle> strokeStyle;
+        D2D1_STROKE_STYLE_PROPERTIES props = D2D1::StrokeStyleProperties(
+            D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND, D2D1_LINE_JOIN_ROUND
+        );
+        m_res->d2dFactory->CreateStrokeStyle(props, nullptr, 0, &strokeStyle);
+        m_res->d2dContext->DrawGeometry(geometry.Get(), brush, strokeWidth, strokeStyle.Get());
     }
-}
-
-void FaceIdComponent::DrawCenteredText(const std::wstring& text, const D2D1_RECT_F& rect, float alpha) {
-    if (!m_res || !m_res->d2dContext || !m_res->whiteBrush || !m_labelFormat) {
-        return;
-    }
-    m_res->whiteBrush->SetOpacity(alpha);
-    m_res->d2dContext->DrawTextW(text.c_str(), static_cast<UINT32>(text.size()),
-        m_labelFormat.Get(), rect, m_res->whiteBrush, D2D1_DRAW_TEXT_OPTIONS_CLIP);
 }

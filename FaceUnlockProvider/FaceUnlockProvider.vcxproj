@@ -53,7 +53,9 @@
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <ModuleDefinitionFile>FaceUnlockProvider.def</ModuleDefinitionFile>
-      <AdditionalDependencies>credui.lib;secur32.lib;crypt32.lib;mfplat.lib;mfreadwrite.lib;mfuuid.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>credui.lib;secur32.lib;crypt32.lib;advapi32.lib;mfplat.lib;mfreadwrite.lib;mfuuid.lib;onnxruntime.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>..\third_party\onnxruntime\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <DelayLoadDLLs>onnxruntime.dll;%(DelayLoadDLLs)</DelayLoadDLLs>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -72,14 +74,26 @@
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <ModuleDefinitionFile>FaceUnlockProvider.def</ModuleDefinitionFile>
-      <AdditionalDependencies>credui.lib;secur32.lib;crypt32.lib;mfplat.lib;mfreadwrite.lib;mfuuid.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>credui.lib;secur32.lib;crypt32.lib;advapi32.lib;mfplat.lib;mfreadwrite.lib;mfuuid.lib;onnxruntime.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>..\third_party\onnxruntime\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <DelayLoadDLLs>onnxruntime.dll;%(DelayLoadDLLs)</DelayLoadDLLs>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="include\Guids.h" />
+    <ClInclude Include="include\CpLogger.h" />
+    <ClInclude Include="include\IpcNotifier.h" />
+    <ClInclude Include="include\UnlockOrchestrator.h" />
+    <ClInclude Include="include\CFaceCredential.h" />
+    <ClInclude Include="include\CFaceCredentialProvider.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\dllmain.cpp" />
+    <ClCompile Include="src\CpLogger.cpp" />
+    <ClCompile Include="src\IpcNotifier.cpp" />
+    <ClCompile Include="src\UnlockOrchestrator.cpp" />
+    <ClCompile Include="src\CFaceCredential.cpp" />
+    <ClCompile Include="src\CFaceCredentialProvider.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="FaceUnlockProvider.def" />

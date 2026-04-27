@@ -10,7 +10,16 @@
 #include "CodexHookBridge.h"
 #include "AutoStartManager.h"
 #include "FaceEnrollWindow.h"
+#include "CpInstaller.h"
 #include "face_core/FaceTemplateStore.h"
+#include "face_core/CredentialPasswordStore.h"
+#include <wincred.h>
+#define SECURITY_WIN32
+#include <security.h>
+#include <secext.h>
+#include <filesystem>
+#pragma comment(lib, "credui.lib")
+#pragma comment(lib, "secur32.lib")
 #include <dwmapi.h>
 #include <windowsx.h>
 #include <algorithm>
@@ -135,6 +144,80 @@ namespace {
             line.pop_back();
         }
         return line;
+    }
+
+    bool SplitWindowsAccountName(const std::wstring& qualifiedName,
+                                 std::wstring& domain,
+                                 std::wstring& user) {
+        domain.clear();
+        user.clear();
+        if (qualifiedName.empty()) {
+            return false;
+        }
+
+        const size_t slash = qualifiedName.find(L'\\');
+        if (slash != std::wstring::npos) {
+            domain = qualifiedName.substr(0, slash);
+            user = qualifiedName.substr(slash + 1);
+            return !user.empty();
+        }
+
+        user = qualifiedName;
+        return true;
+    }
+
+    bool ValidateWindowsPassword(const std::wstring& qualifiedName,
+                                 PCWSTR password,
+                                 DWORD& error) {
+        error = ERROR_SUCCESS;
+        if (qualifiedName.empty() || !password || !*password) {
+            error = ERROR_INVALID_PARAMETER;
+            return false;
+        }
+
+        std::wstring domain;
+        std::wstring user;
+        if (!SplitWindowsAccountName(qualifiedName, domain, user)) {
+            error = ERROR_INVALID_PARAMETER;
+            return false;
+        }
+
+        auto tryLogon = [&](const std::wstring& account,
+                            const std::wstring& accountDomain) -> bool {
+            HANDLE token = nullptr;
+            const wchar_t* domainArg = accountDomain.empty() ? nullptr : accountDomain.c_str();
+            if (!LogonUserW(account.c_str(), domainArg, password,
+                            LOGON32_LOGON_INTERACTIVE,
+                            LOGON32_PROVIDER_DEFAULT,
+                            &token)) {
+                error = GetLastError();
+                return false;
+            }
+            CloseHandle(token);
+            return true;
+        };
+
+        if (!domain.empty() && tryLogon(user, domain)) {
+            return true;
+        }
+        if (!domain.empty() && tryLogon(user, L".")) {
+            return true;
+        }
+        if (tryLogon(user, L"")) {
+            return true;
+        }
+        if (user.find(L'@') != std::wstring::npos && tryLogon(user, L"MicrosoftAccount")) {
+            return true;
+        }
+        if (domain.empty() && qualifiedName.find(L'@') != std::wstring::npos &&
+            tryLogon(qualifiedName, L"MicrosoftAccount")) {
+            return true;
+        }
+
+        if (error == ERROR_SUCCESS) {
+            error = GetLastError();
+        }
+        return false;
     }
 
     bool StartsWithKey(const std::wstring& line, const std::wstring& key) {
@@ -566,6 +649,17 @@ void SettingsWindow::Hide() {
     m_hidePending = true;
     m_windowAlpha.SetTarget(0.f);
     StartAnimationTimer();
+}
+
+void SettingsWindow::HideImmediately() {
+    if (!m_hwnd) return;
+    KillTimer(m_hwnd, ANIM_TIMER);
+    ShowWindow(m_hwnd, SW_HIDE);
+    m_visible = false;
+    m_hidePending = false;
+    m_lastAnimationTick = 0;
+    m_windowAlpha.SetTarget(0.f);
+    m_windowAlpha.SnapToTarget();
 }
 
 void SettingsWindow::Toggle() {
@@ -1449,11 +1543,11 @@ void SettingsWindow::BuildFaceUnlockPage(std::vector<SettingsControl>& ctrls,
 
     float statusCardH = CARD_PAD + ROW_H + 1.0f + ROW_H + CARD_PAD;
     ctrls.push_back(mkCard(y, statusCardH));
+    const bool cpRegistered = CpInstaller::IsRegistered();
     mkToggle(ctrls, SettingID::FACE_ENABLE, L"启用人脸解锁",
-        L"锁屏 Credential Provider 将在 Phase 3 接入", false, y + CARD_PAD);
-    if (!ctrls.empty()) {
-        ctrls.back().enabled = false;
-    }
+        cpRegistered ? L"锁屏人脸解锁已注册，禁用将注销 Credential Provider"
+                     : L"注册锁屏 Credential Provider（需要管理员权限）",
+        cpRegistered, y + CARD_PAD);
     ctrls.push_back(mkSep(y + CARD_PAD + ROW_H));
     SettingsControl status;
     status.kind = ControlKind::Label;
@@ -1463,10 +1557,15 @@ void SettingsWindow::BuildFaceUnlockPage(std::vector<SettingsControl>& ctrls,
     ctrls.push_back(status);
     y += statusCardH + CARD_GAP;
 
-    float actionCardH = CARD_PAD + INPUT_H + 1.0f + INPUT_H + CARD_PAD;
+    float actionCardH = CARD_PAD + INPUT_H + 1.0f + INPUT_H + 1.0f + INPUT_H + CARD_PAD;
     ctrls.push_back(mkCard(y, actionCardH));
     float ry = y + CARD_PAD;
     mkButton(ctrls, SettingID::FACE_ENROLL, templateCount > 0 ? L"重新录入人脸" : L"录入人脸", L"", ry);
+    ry += INPUT_H + 1.0f;
+    mkButton(ctrls, SettingID::FACE_UPDATE_PASSWORD, L"更新账户密码", L"Windows 密码变更后使用", ry);
+    if (!ctrls.empty()) {
+        ctrls.back().enabled = cpRegistered;
+    }
     ry += INPUT_H + 1.0f;
     mkButton(ctrls, SettingID::FACE_DELETE, L"删除已录入人脸", L"", ry);
     if (!ctrls.empty()) {
@@ -1487,7 +1586,7 @@ void SettingsWindow::BuildFaceUnlockPage(std::vector<SettingsControl>& ctrls,
 
     SettingsControl note;
     note.kind = ControlKind::SubLabel;
-    note.text = L"Phase 2 不注册锁屏组件、不弹 UAC、不保存 Windows 密码。";
+    note.text = L"启用会弹出 Windows 密码验证和管理员权限确认；密码迁移到系统凭据区后仅保留账户元数据。";
     note.bounds = D2D1::RectF(16.0f, y, CONT_W - 16.0f, y + 44.0f);
     ctrls.push_back(note);
     y += 44.0f + CARD_GAP;
@@ -1657,6 +1756,10 @@ void SettingsWindow::SyncStateFromControl(int id) {
     case SettingID::FACE_AUTOSTART:
         m_autoStart = ctrl->value > 0.5f;
         break;
+    case SettingID::FACE_ENABLE:
+        // Handled via OnButtonClicked so we can show dialogs; ignore toggle-change path.
+        SwitchCategory(m_currentCategory);
+        return;
     case SettingID::FACE_PERF_MODE:
         m_facePerformanceMode = ctrl->value > 0.5f;
         break;
@@ -1876,7 +1979,7 @@ void SettingsWindow::EndSliderDrag() {
 void SettingsWindow::HandleControlActivation(int id) {
     // Toggle
     SettingsControl* ctrl = FindControlById(m_activeControls, id);
-    if (ctrl && ctrl->kind == ControlKind::Toggle) {
+    if (ctrl && ctrl->kind == ControlKind::Toggle && id != SettingID::FACE_ENABLE) {
         ctrl->value = ctrl->value > 0.5f ? 0.f : 1.f;
         ctrl->spring.SetTarget(ctrl->value);
         SyncStateFromControl(id);
@@ -1942,10 +2045,266 @@ void SettingsWindow::HandleControlActivation(int id) {
         return;
     }
 
-    if (id == SettingID::FACE_ENROLL) {
-        FaceEnrollWindow enrollWindow;
-        const FaceEnrollWindow::Result result = enrollWindow.ShowModal(m_hInstance, m_hwnd);
+    if (id == SettingID::FACE_ENABLE) {
+        const bool wantEnable = !CpInstaller::IsRegistered();
+        if (wantEnable) {
+            // Must have enrolled templates before enabling.
+            if (GetFaceTemplateCount() == 0) {
+                MessageBoxW(m_hwnd, L"请先录入人脸模板，再启用锁屏人脸解锁。",
+                            L"人脸解锁", MB_ICONINFORMATION | MB_OK | MB_SETFOREGROUND);
+                SwitchCategory(m_currentCategory);
+                return;
+            }
+
+            // Prompt for Windows logon password via standard CredUI dialog.
+            wchar_t userName[CREDUI_MAX_USERNAME_LENGTH] = {};
+            wchar_t password[CREDUI_MAX_PASSWORD_LENGTH] = {};
+            ULONG uLen = CREDUI_MAX_USERNAME_LENGTH;
+            if (!GetUserNameExW(NameSamCompatible, userName, &uLen)) {
+                DWORD fallbackLen = CREDUI_MAX_USERNAME_LENGTH;
+                GetUserNameW(userName, &fallbackLen);
+            }
+
+            CREDUI_INFOW ci = {};
+            ci.cbSize       = sizeof(ci);
+            ci.hwndParent   = m_hwnd;
+            ci.pszMessageText = L"储存 Windows 密码用于人脸解锁\n启用时会迁移到系统凭据区，仅保存在此设备上";
+            ci.pszCaptionText = L"启用人脸解锁";
+
+            SetForegroundWindow(m_hwnd);
+            BringWindowToTop(m_hwnd);
+            BOOL save = FALSE;
+            DWORD err = CredUIPromptForCredentialsW(
+                &ci, L"DynamicIsland.FaceUnlock", nullptr, 0,
+                userName, CREDUI_MAX_USERNAME_LENGTH,
+                password, CREDUI_MAX_PASSWORD_LENGTH, &save,
+                CREDUI_FLAGS_DO_NOT_PERSIST |
+                CREDUI_FLAGS_ALWAYS_SHOW_UI |
+                CREDUI_FLAGS_GENERIC_CREDENTIALS);
+
+            if (err != NO_ERROR) {
+                SecureZeroMemory(password, sizeof(password));
+                if (err != ERROR_CANCELLED) {
+                    std::wstring message = L"Windows 密码验证窗口打开失败，错误码: " + std::to_wstring(err);
+                    MessageBoxW(m_hwnd, message.c_str(), L"人脸解锁",
+                                MB_ICONERROR | MB_OK | MB_SETFOREGROUND);
+                }
+                SwitchCategory(m_currentCategory);
+                return;
+            }
+
+            if (userName[0] == L'\0') {
+                SecureZeroMemory(password, sizeof(password));
+                MessageBoxW(m_hwnd, L"Windows 用户名为空，请输入当前账户名后重试。",
+                            L"人脸解锁", MB_ICONERROR | MB_OK | MB_SETFOREGROUND);
+                SwitchCategory(m_currentCategory);
+                return;
+            }
+
+            DWORD validationError = ERROR_SUCCESS;
+            if (!ValidateWindowsPassword(userName, password, validationError)) {
+                SecureZeroMemory(password, sizeof(password));
+                std::wstring message =
+                    L"Windows 密码验证失败。\n\n"
+                    L"当前验证账户: " + std::wstring(userName) + L"\n"
+                    L"请输入 Windows 账户密码，不是 PIN，也不是 Windows Hello 密码。\n"
+                    L"错误码: " + std::to_wstring(validationError);
+                MessageBoxW(m_hwnd, message.c_str(), L"人脸解锁",
+                            MB_ICONERROR | MB_OK | MB_SETFOREGROUND);
+                SwitchCategory(m_currentCategory);
+                return;
+            }
+
+            const std::wstring userSid = face_core::CredentialPasswordStore::CurrentUserSid();
+            if (userSid.empty()) {
+                SecureZeroMemory(password, sizeof(password));
+                MessageBoxW(m_hwnd, L"无法读取当前 Windows 用户 SID，请重试。",
+                            L"人脸解锁", MB_ICONERROR | MB_OK | MB_SETFOREGROUND);
+                SwitchCategory(m_currentCategory);
+                return;
+            }
+
+            // Save a temporary DPAPI record and bind it to this Windows SID. The
+            // elevated installer migrates the password into an LSA secret.
+            bool saved = face_core::CredentialPasswordStore::Save(userName, password, userSid);
+            SecureZeroMemory(password, sizeof(password));
+            if (!saved) {
+                MessageBoxW(m_hwnd, L"存储密码失败，请重试。",
+                            L"人脸解锁", MB_ICONERROR | MB_OK | MB_SETFOREGROUND);
+                SwitchCategory(m_currentCategory);
+                return;
+            }
+
+            // Copy face templates to the PROGRAMDATA shared path so SYSTEM can read them.
+            // The template blob is machine-DPAPI protected and portable on this device.
+            try {
+                face_core::FaceTemplateStore srcStore;
+                srcStore.Load();
+                std::wstring srcPath = srcStore.Path();
+                std::wstring dstPath = face_core::FaceTemplateStore::SharedPath();
+                if (!srcPath.empty() && !dstPath.empty() && srcPath != dstPath) {
+                    std::filesystem::copy_file(srcPath, dstPath,
+                        std::filesystem::copy_options::overwrite_existing);
+                }
+            } catch (...) {
+                // Non-fatal: CP falls back gracefully if templates are unavailable.
+            }
+
+            // Launch elevated installer.
+            wchar_t exePath[MAX_PATH] = {};
+            GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+            std::wstring exeDir(exePath);
+            auto slash = exeDir.rfind(L'\\');
+            if (slash != std::wstring::npos) exeDir.resize(slash);
+
+            MarkDirty(false, L"正在安装人脸解锁…");
+            bool ok = CpInstaller::Install(m_hwnd, exeDir);
+            if (ok) {
+                MarkDirty(false, L"人脸解锁已启用");
+            } else {
+                face_core::CredentialPasswordStore::Clear();
+                MessageBoxW(m_hwnd, L"安装锁屏人脸解锁失败。请确认 UAC 没有被取消，并检查管理员权限。",
+                            L"人脸解锁", MB_ICONERROR | MB_OK | MB_SETFOREGROUND);
+                MarkDirty(false, L"安装失败，请检查权限");
+            }
+        } else {
+            // Disable: unregister CP and clear stored password.
+            if (MessageBoxW(m_hwnd, L"停用人脸解锁将注销 Credential Provider，并清除存储的密码。\n继续？",
+                            L"人脸解锁", MB_ICONQUESTION | MB_YESNO | MB_DEFBUTTON2 | MB_SETFOREGROUND) == IDYES) {
+                MarkDirty(false, L"正在卸载…");
+                if (CpInstaller::Uninstall(m_hwnd)) {
+                    face_core::CredentialPasswordStore::Clear();
+                    MarkDirty(false, L"人脸解锁已停用");
+                } else {
+                    MessageBoxW(m_hwnd, L"卸载锁屏人脸解锁失败。请确认 UAC 没有被取消，并检查管理员权限。",
+                                L"人脸解锁", MB_ICONERROR | MB_OK | MB_SETFOREGROUND);
+                    MarkDirty(false, L"卸载失败，请检查权限");
+                }
+            }
+        }
         SwitchCategory(m_currentCategory);
+        return;
+    }
+
+    if (id == SettingID::FACE_UPDATE_PASSWORD) {
+        if (!CpInstaller::IsRegistered()) {
+            MessageBoxW(m_hwnd, L"请先启用人脸解锁，再更新账户密码。",
+                        L"人脸解锁", MB_ICONINFORMATION | MB_OK | MB_SETFOREGROUND);
+            SwitchCategory(m_currentCategory);
+            return;
+        }
+
+        wchar_t userName[CREDUI_MAX_USERNAME_LENGTH] = {};
+        wchar_t password[CREDUI_MAX_PASSWORD_LENGTH] = {};
+        ULONG uLen = CREDUI_MAX_USERNAME_LENGTH;
+        if (!GetUserNameExW(NameSamCompatible, userName, &uLen)) {
+            DWORD fallbackLen = CREDUI_MAX_USERNAME_LENGTH;
+            GetUserNameW(userName, &fallbackLen);
+        }
+
+        CREDUI_INFOW ci = {};
+        ci.cbSize = sizeof(ci);
+        ci.hwndParent = m_hwnd;
+        ci.pszMessageText =
+            L"重新验证 Windows 账户密码并更新人脸解锁凭据。\n"
+            L"请输入账户密码，不是 PIN。";
+        ci.pszCaptionText = L"更新人脸解锁密码";
+
+        SetForegroundWindow(m_hwnd);
+        BringWindowToTop(m_hwnd);
+        BOOL save = FALSE;
+        DWORD err = CredUIPromptForCredentialsW(
+            &ci, L"DynamicIsland.FaceUnlock", nullptr, 0,
+            userName, CREDUI_MAX_USERNAME_LENGTH,
+            password, CREDUI_MAX_PASSWORD_LENGTH, &save,
+            CREDUI_FLAGS_DO_NOT_PERSIST |
+            CREDUI_FLAGS_ALWAYS_SHOW_UI |
+            CREDUI_FLAGS_GENERIC_CREDENTIALS);
+
+        if (err != NO_ERROR) {
+            SecureZeroMemory(password, sizeof(password));
+            if (err != ERROR_CANCELLED) {
+                std::wstring message = L"Windows 密码验证窗口打开失败，错误码: " + std::to_wstring(err);
+                MessageBoxW(m_hwnd, message.c_str(), L"人脸解锁",
+                            MB_ICONERROR | MB_OK | MB_SETFOREGROUND);
+            }
+            SwitchCategory(m_currentCategory);
+            return;
+        }
+
+        if (userName[0] == L'\0') {
+            SecureZeroMemory(password, sizeof(password));
+            MessageBoxW(m_hwnd, L"Windows 用户名为空，请输入当前账户名后重试。",
+                        L"人脸解锁", MB_ICONERROR | MB_OK | MB_SETFOREGROUND);
+            SwitchCategory(m_currentCategory);
+            return;
+        }
+
+        DWORD validationError = ERROR_SUCCESS;
+        if (!ValidateWindowsPassword(userName, password, validationError)) {
+            SecureZeroMemory(password, sizeof(password));
+            std::wstring message =
+                L"Windows 密码验证失败。\n\n"
+                L"当前验证账户: " + std::wstring(userName) + L"\n"
+                L"请输入 Windows 账户密码，不是 PIN，也不是 Windows Hello 密码。\n"
+                L"错误码: " + std::to_wstring(validationError);
+            MessageBoxW(m_hwnd, message.c_str(), L"人脸解锁",
+                        MB_ICONERROR | MB_OK | MB_SETFOREGROUND);
+            SwitchCategory(m_currentCategory);
+            return;
+        }
+
+        const std::wstring userSid = face_core::CredentialPasswordStore::CurrentUserSid();
+        if (userSid.empty()) {
+            SecureZeroMemory(password, sizeof(password));
+            MessageBoxW(m_hwnd, L"无法读取当前 Windows 用户 SID，请重试。",
+                        L"人脸解锁", MB_ICONERROR | MB_OK | MB_SETFOREGROUND);
+            SwitchCategory(m_currentCategory);
+            return;
+        }
+
+        const bool saved = face_core::CredentialPasswordStore::Save(userName, password, userSid);
+        SecureZeroMemory(password, sizeof(password));
+        if (!saved) {
+            MessageBoxW(m_hwnd, L"存储密码失败，请重试。",
+                        L"人脸解锁", MB_ICONERROR | MB_OK | MB_SETFOREGROUND);
+            SwitchCategory(m_currentCategory);
+            return;
+        }
+
+        wchar_t exePath[MAX_PATH] = {};
+        GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+        std::wstring exeDir(exePath);
+        auto slash = exeDir.rfind(L'\\');
+        if (slash != std::wstring::npos) exeDir.resize(slash);
+
+        MarkDirty(false, L"正在更新人脸解锁密码…");
+        if (CpInstaller::Install(m_hwnd, exeDir)) {
+            MarkDirty(false, L"人脸解锁密码已更新");
+        } else {
+            MessageBoxW(m_hwnd, L"更新人脸解锁密码失败。请确认 UAC 没有被取消，并检查管理员权限。",
+                        L"人脸解锁", MB_ICONERROR | MB_OK | MB_SETFOREGROUND);
+            MarkDirty(false, L"更新失败，请检查权限");
+        }
+        SwitchCategory(m_currentCategory);
+        return;
+    }
+
+    if (id == SettingID::FACE_ENROLL) {
+        const bool restoreSettings = m_visible || m_hidePending;
+        if (restoreSettings) {
+            HideImmediately();
+        }
+
+        FaceEnrollWindow enrollWindow;
+        const FaceEnrollWindow::Result result = enrollWindow.ShowModal(m_hInstance, nullptr);
+
+        if (restoreSettings) {
+            Show();
+        } else {
+            SwitchCategory(m_currentCategory);
+        }
+
         if (result == FaceEnrollWindow::Result::Completed) {
             MarkDirty(false, L"人脸录入完成");
             if (m_parentHwnd) {
@@ -1955,6 +2314,10 @@ void SettingsWindow::HandleControlActivation(int id) {
                 PostMessageW(m_parentHwnd, WM_FACE_UNLOCK_EVENT, 0, reinterpret_cast<LPARAM>(event));
             }
         } else if (result == FaceEnrollWindow::Result::Failed) {
+            const std::wstring& err = enrollWindow.GetErrorMessage();
+            if (!err.empty()) {
+                MessageBoxW(m_hwnd, err.c_str(), L"人脸录入失败", MB_ICONERROR | MB_OK);
+            }
             MarkDirty(false, L"人脸录入失败");
         } else {
             MarkDirty(false, L"已取消人脸录入");

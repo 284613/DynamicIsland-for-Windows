@@ -53,7 +53,7 @@
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>..\..\third_party\onnxruntime\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>onnxruntime.lib;crypt32.lib;shell32.lib;mfplat.lib;mf.lib;mfreadwrite.lib;mfuuid.lib;ole32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>onnxruntime.lib;crypt32.lib;advapi32.lib;shell32.lib;mfplat.lib;mf.lib;mfreadwrite.lib;mfuuid.lib;ole32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
       <Command>if exist "$(ProjectDir)..\..\third_party\onnxruntime\lib\onnxruntime.dll" copy /Y "$(ProjectDir)..\..\third_party\onnxruntime\lib\onnxruntime.dll" "$(OutDir)" &gt;nul
@@ -77,7 +77,7 @@ if exist "$(ProjectDir)..\..\models" xcopy /Y /I /S "$(ProjectDir)..\..\models\*
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>..\..\third_party\onnxruntime\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>onnxruntime.lib;crypt32.lib;shell32.lib;mfplat.lib;mf.lib;mfreadwrite.lib;mfuuid.lib;ole32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>onnxruntime.lib;crypt32.lib;advapi32.lib;shell32.lib;mfplat.lib;mf.lib;mfreadwrite.lib;mfuuid.lib;ole32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
       <Command>if exist "$(ProjectDir)..\..\third_party\onnxruntime\lib\onnxruntime.dll" copy /Y "$(ProjectDir)..\..\third_party\onnxruntime\lib\onnxruntime.dll" "$(OutDir)" &gt;nul

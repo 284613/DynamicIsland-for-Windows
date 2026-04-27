@@ -6,6 +6,7 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <filesystem>
 #include <optional>
 #include <stdexcept>
 #include <windowsx.h>
@@ -22,10 +23,18 @@ namespace {
 constexpr const wchar_t* kClassName = L"DI_FaceEnrollWindow";
 constexpr UINT WM_ENROLL_PROGRESS = WM_APP + 61;
 constexpr UINT WM_ENROLL_FINISHED = WM_APP + 62;
+constexpr int kClientWidth = 720;
+constexpr int kClientHeight = 700;
+constexpr float kPi = 3.14159265f;
+constexpr float kTwoPi = 6.2831853f;
 
 double NowSeconds() {
     using Clock = std::chrono::steady_clock;
     return std::chrono::duration<double>(Clock::now().time_since_epoch()).count();
+}
+
+float Clamp01(float value) {
+    return (std::max)(0.0f, (std::min)(1.0f, value));
 }
 
 std::optional<FaceBox> BestFace(FaceDetector& detector, const Image& frame) {
@@ -48,9 +57,9 @@ bool IsPoseForAngle(uint8_t tag, const HeadPose& pose) {
 
 const wchar_t* StepTitle(int step) {
     switch (step) {
-    case 0: return L"正面对准摄像头";
-    case 1: return L"微微向左转头";
-    case 2: return L"微微向右转头";
+    case 0: return L"正视屏幕";
+    case 1: return L"缓慢向左转头";
+    case 2: return L"缓慢向右转头";
     default: return L"保存录入结果";
     }
 }
@@ -61,6 +70,94 @@ uint8_t StepTag(int step) {
 
 D2D1_COLOR_F Color(float r, float g, float b, float a = 1.0f) {
     return D2D1::ColorF(r, g, b, a);
+}
+
+D2D1_POINT_2F PointOnCircle(float cx, float cy, float radius, float angle) {
+    return D2D1::Point2F(cx + std::cos(angle) * radius, cy + std::sin(angle) * radius);
+}
+
+D2D1_RECT_F CoverAspectRect(const D2D1_RECT_F& bounds, int srcWidth, int srcHeight) {
+    if (srcWidth <= 0 || srcHeight <= 0) {
+        return bounds;
+    }
+    const float boundsW = bounds.right - bounds.left;
+    const float boundsH = bounds.bottom - bounds.top;
+    const float srcRatio = static_cast<float>(srcWidth) / static_cast<float>(srcHeight);
+    const float boundsRatio = boundsW / (std::max)(1.0f, boundsH);
+
+    float drawW = boundsW;
+    float drawH = boundsH;
+    if (boundsRatio > srcRatio) {
+        drawW = boundsW;
+        drawH = drawW / srcRatio;
+    } else {
+        drawH = boundsH;
+        drawW = drawH * srcRatio;
+    }
+
+    const float left = bounds.left + (boundsW - drawW) * 0.5f;
+    const float top = bounds.top + (boundsH - drawH) * 0.5f;
+    return D2D1::RectF(left, top, left + drawW, top + drawH);
+}
+
+void DrawSmile(ID2D1Factory1* factory, ID2D1RenderTarget* target, ID2D1Brush* brush,
+    float cx, float cy, float width, float height, float strokeWidth) {
+    if (!factory || !target || !brush) {
+        return;
+    }
+
+    ComPtr<ID2D1PathGeometry> geometry;
+    if (FAILED(factory->CreatePathGeometry(&geometry))) {
+        return;
+    }
+    ComPtr<ID2D1GeometrySink> sink;
+    if (FAILED(geometry->Open(&sink))) {
+        return;
+    }
+    sink->BeginFigure(D2D1::Point2F(cx - width * 0.5f, cy), D2D1_FIGURE_BEGIN_HOLLOW);
+    sink->AddBezier(D2D1::BezierSegment(
+        D2D1::Point2F(cx - width * 0.22f, cy + height),
+        D2D1::Point2F(cx + width * 0.22f, cy + height),
+        D2D1::Point2F(cx + width * 0.5f, cy)));
+    sink->EndFigure(D2D1_FIGURE_END_OPEN);
+    if (SUCCEEDED(sink->Close())) {
+        target->DrawGeometry(geometry.Get(), brush, strokeWidth);
+    }
+}
+
+void DrawArc(ID2D1Factory1* factory, ID2D1RenderTarget* target, ID2D1Brush* brush,
+    float cx, float cy, float radius, float startAngle, float sweepAngle, float strokeWidth) {
+    if (!factory || !target || !brush || sweepAngle <= 0.001f) {
+        return;
+    }
+
+    if (sweepAngle >= kTwoPi - 0.01f) {
+        D2D1_ELLIPSE ellipse = D2D1::Ellipse(D2D1::Point2F(cx, cy), radius, radius);
+        target->DrawEllipse(&ellipse, brush, strokeWidth);
+        return;
+    }
+
+    ComPtr<ID2D1PathGeometry> geometry;
+    if (FAILED(factory->CreatePathGeometry(&geometry))) {
+        return;
+    }
+    ComPtr<ID2D1GeometrySink> sink;
+    if (FAILED(geometry->Open(&sink))) {
+        return;
+    }
+    D2D1_POINT_2F start = PointOnCircle(cx, cy, radius, startAngle);
+    D2D1_POINT_2F end = PointOnCircle(cx, cy, radius, startAngle + sweepAngle);
+    sink->BeginFigure(start, D2D1_FIGURE_BEGIN_HOLLOW);
+    sink->AddArc(D2D1::ArcSegment(
+        end,
+        D2D1::SizeF(radius, radius),
+        0.0f,
+        D2D1_SWEEP_DIRECTION_CLOCKWISE,
+        sweepAngle > kPi ? D2D1_ARC_SIZE_LARGE : D2D1_ARC_SIZE_SMALL));
+    sink->EndFigure(D2D1_FIGURE_END_OPEN);
+    if (SUCCEEDED(sink->Close())) {
+        target->DrawGeometry(geometry.Get(), brush, strokeWidth);
+    }
 }
 
 std::vector<unsigned char> BgrToBgra(const Image& image) {
@@ -91,7 +188,11 @@ FaceEnrollWindow::~FaceEnrollWindow() {
 }
 
 FaceEnrollWindow::Result FaceEnrollWindow::ShowModal(HINSTANCE instance, HWND owner) {
+    if (!instance) {
+        instance = GetModuleHandleW(nullptr);
+    }
     m_instance = instance;
+    if (owner && !IsWindow(owner)) owner = nullptr;
     m_owner = owner;
     m_result = Result::Cancelled;
     m_cancel = false;
@@ -102,30 +203,52 @@ FaceEnrollWindow::Result FaceEnrollWindow::ShowModal(HINSTANCE instance, HWND ow
     wc.hInstance = instance;
     wc.lpszClassName = kClassName;
     wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    RegisterClassW(&wc);
+    if (!RegisterClassW(&wc)) {
+        DWORD err = GetLastError();
+        if (err != ERROR_CLASS_ALREADY_EXISTS) {
+            wchar_t msg[256];
+            swprintf_s(msg, L"RegisterClassW 失败，GetLastError=%lu", err);
+            MessageBoxW(owner, msg, L"人脸录入窗口创建失败", MB_ICONERROR | MB_OK);
+            return Result::Failed;
+        }
+    }
 
-    const int width = 620;
-    const int height = 560;
-    RECT ownerRect{};
-    GetWindowRect(owner, &ownerRect);
-    int x = ownerRect.left + ((ownerRect.right - ownerRect.left) - width) / 2;
-    int y = ownerRect.top + ((ownerRect.bottom - ownerRect.top) - height) / 2;
+    const DWORD windowStyle = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU;
+    RECT desiredRect{ 0, 0, kClientWidth, kClientHeight };
+    AdjustWindowRectEx(&desiredRect, windowStyle, FALSE, 0);
+    const int width = desiredRect.right - desiredRect.left;
+    const int height = desiredRect.bottom - desiredRect.top;
+    int x = 0;
+    int y = 0;
+    if (owner) {
+        RECT ownerRect{};
+        GetWindowRect(owner, &ownerRect);
+        x = ownerRect.left + ((ownerRect.right - ownerRect.left) - width) / 2;
+        y = ownerRect.top + ((ownerRect.bottom - ownerRect.top) - height) / 2;
+    } else {
+        x = (GetSystemMetrics(SM_CXSCREEN) - width) / 2;
+        y = (GetSystemMetrics(SM_CYSCREEN) - height) / 2;
+    }
 
     m_hwnd = CreateWindowExW(
-        WS_EX_DLGMODALFRAME,
+        0,
         kClassName,
         L"录入人脸",
-        WS_CAPTION | WS_SYSMENU,
+        windowStyle,
         x,
         y,
         width,
         height,
-        owner,
+        nullptr,
         nullptr,
         instance,
         this);
 
     if (!m_hwnd) {
+        DWORD err = GetLastError();
+        wchar_t msg[256];
+        swprintf_s(msg, L"CreateWindowExW 失败，GetLastError=%lu", err);
+        MessageBoxW(owner, msg, L"人脸录入窗口创建失败", MB_ICONERROR | MB_OK);
         return Result::Failed;
     }
 
@@ -160,14 +283,18 @@ LRESULT CALLBACK FaceEnrollWindow::StaticWndProc(HWND hwnd, UINT message, WPARAM
     if (message == WM_NCCREATE) {
         auto* cs = reinterpret_cast<CREATESTRUCTW*>(lParam);
         self = static_cast<FaceEnrollWindow*>(cs->lpCreateParams);
+        if (!self) {
+            return FALSE;
+        }
+        self->m_hwnd = hwnd;
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
     } else {
         self = reinterpret_cast<FaceEnrollWindow*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
     }
-    return self ? self->WndProc(message, wParam, lParam) : DefWindowProcW(hwnd, message, wParam, lParam);
+    return self ? self->WndProc(hwnd, message, wParam, lParam) : DefWindowProcW(hwnd, message, wParam, lParam);
 }
 
-LRESULT FaceEnrollWindow::WndProc(UINT message, WPARAM wParam, LPARAM lParam) {
+LRESULT FaceEnrollWindow::WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
     switch (message) {
     case WM_CREATE:
         CreateWindowResources();
@@ -175,6 +302,7 @@ LRESULT FaceEnrollWindow::WndProc(UINT message, WPARAM wParam, LPARAM lParam) {
     case WM_SIZE:
         if (m_renderTarget) {
             m_renderTarget->Resize(D2D1::SizeU(LOWORD(lParam), HIWORD(lParam)));
+            m_renderTarget->SetDpi(96.0f, 96.0f);
         }
         InvalidateRect(m_hwnd, nullptr, FALSE);
         return 0;
@@ -198,10 +326,15 @@ LRESULT FaceEnrollWindow::WndProc(UINT message, WPARAM wParam, LPARAM lParam) {
         DestroyWindow(m_hwnd);
         return 0;
     case WM_DESTROY:
-        m_hwnd = nullptr;
         return 0;
+    case WM_NCDESTROY:
+        if (m_hwnd == hwnd) {
+            m_hwnd = nullptr;
+        }
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+        return DefWindowProcW(hwnd, message, wParam, lParam);
     default:
-        return DefWindowProcW(m_hwnd, message, wParam, lParam);
+        return DefWindowProcW(hwnd, message, wParam, lParam);
     }
 }
 
@@ -220,9 +353,23 @@ bool FaceEnrollWindow::CreateWindowResources() {
     m_dwriteFactory->CreateTextFormat(L"Microsoft YaHei", nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD,
         DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 24.0f, L"zh-cn", &m_titleFormat);
     m_dwriteFactory->CreateTextFormat(L"Microsoft YaHei", nullptr, DWRITE_FONT_WEIGHT_NORMAL,
-        DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 14.0f, L"zh-cn", &m_bodyFormat);
+        DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 16.0f, L"zh-cn", &m_bodyFormat);
     m_dwriteFactory->CreateTextFormat(L"Microsoft YaHei", nullptr, DWRITE_FONT_WEIGHT_NORMAL,
-        DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 12.0f, L"zh-cn", &m_captionFormat);
+        DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 13.0f, L"zh-cn", &m_captionFormat);
+
+    if (m_titleFormat) {
+        m_titleFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        m_titleFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    }
+    if (m_bodyFormat) {
+        m_bodyFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        m_bodyFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    }
+    if (m_captionFormat) {
+        m_captionFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        m_captionFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    }
+
     return EnsureRenderTarget();
 }
 
@@ -240,6 +387,7 @@ bool FaceEnrollWindow::EnsureRenderTarget() {
     if (FAILED(hr)) {
         return false;
     }
+    m_renderTarget->SetDpi(96.0f, 96.0f);
     m_renderTarget->CreateSolidColorBrush(Color(1, 1, 1), &m_brush);
     return true;
 }
@@ -259,11 +407,7 @@ void FaceEnrollWindow::Render() {
 
     std::wstring status;
     int step = 0;
-    int captured = 0;
     int total = 0;
-    float live = 0.0f;
-    float yaw = 0.0f;
-    float pitch = 0.0f;
     int previewW = 0;
     int previewH = 0;
     std::vector<unsigned char> preview;
@@ -271,39 +415,39 @@ void FaceEnrollWindow::Render() {
         std::lock_guard<std::mutex> lock(m_mutex);
         status = m_status;
         step = m_step;
-        captured = m_capturedInStep;
         total = m_totalCaptured;
-        live = m_liveScore;
-        yaw = m_yaw;
-        pitch = m_pitch;
         previewW = m_previewWidth;
         previewH = m_previewHeight;
         preview = m_previewBgra;
     }
 
     m_renderTarget->BeginDraw();
-    m_renderTarget->Clear(Color(0.07f, 0.075f, 0.09f));
+    m_renderTarget->Clear(Color(0.010f, 0.011f, 0.014f));
 
     auto drawText = [&](const std::wstring& text, IDWriteTextFormat* format, const D2D1_RECT_F& rect, D2D1_COLOR_F color) {
+        if (!format) return;
         m_brush->SetColor(color);
         m_renderTarget->DrawTextW(text.c_str(), static_cast<UINT32>(text.size()), format, rect, m_brush.Get(),
             D2D1_DRAW_TEXT_OPTIONS_CLIP);
     };
-    auto fillRound = [&](const D2D1_RECT_F& rect, float radius, D2D1_COLOR_F color) {
-        m_brush->SetColor(color);
-        m_renderTarget->FillRoundedRectangle(D2D1::RoundedRect(rect, radius, radius), m_brush.Get());
-    };
-    auto drawRound = [&](const D2D1_RECT_F& rect, float radius, D2D1_COLOR_F color, float stroke) {
-        m_brush->SetColor(color);
-        m_renderTarget->DrawRoundedRectangle(D2D1::RoundedRect(rect, radius, radius), m_brush.Get(), stroke);
-    };
 
-    drawText(L"人脸录入", m_titleFormat.Get(), D2D1::RectF(28, 20, 560, 56), Color(0.96f, 0.96f, 0.98f));
-    drawText(L"请按提示完成正面、左侧、右侧各 2 次采集。", m_bodyFormat.Get(),
-        D2D1::RectF(28, 58, 560, 84), Color(0.70f, 0.72f, 0.78f));
+    drawText(L"录入人脸", m_titleFormat.Get(), D2D1::RectF(0, 24, kClientWidth, 58), Color(0.96f, 0.96f, 0.98f));
+    drawText(StepTitle(step), m_bodyFormat.Get(), D2D1::RectF(0, 60, kClientWidth, 88), Color(0.72f, 0.74f, 0.80f));
 
-    D2D1_RECT_F previewRect = D2D1::RectF(28, 96, 592, 418);
-    fillRound(previewRect, 16.0f, Color(0.12f, 0.13f, 0.16f));
+    const float cx = kClientWidth * 0.5f;
+    const float cy = 318.0f;
+    const float previewRadius = 202.0f;
+    const float ringRadius = 218.0f;
+    const D2D1_RECT_F circleRect = D2D1::RectF(
+        cx - previewRadius,
+        cy - previewRadius,
+        cx + previewRadius,
+        cy + previewRadius);
+
+    m_brush->SetColor(Color(0.025f, 0.027f, 0.034f));
+    D2D1_ELLIPSE previewEllipse = D2D1::Ellipse(D2D1::Point2F(cx, cy), previewRadius, previewRadius);
+    m_renderTarget->FillEllipse(&previewEllipse, m_brush.Get());
+
     if (!preview.empty() && previewW > 0 && previewH > 0) {
         D2D1_BITMAP_PROPERTIES props = D2D1::BitmapProperties(
             D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_IGNORE));
@@ -314,28 +458,55 @@ void FaceEnrollWindow::Render() {
             static_cast<UINT32>(previewW * 4),
             props,
             &bitmap))) {
-            m_renderTarget->DrawBitmap(bitmap.Get(), previewRect, 0.92f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+            ComPtr<ID2D1EllipseGeometry> clipGeometry;
+            if (SUCCEEDED(m_d2dFactory->CreateEllipseGeometry(&previewEllipse, &clipGeometry))) {
+                ComPtr<ID2D1Layer> clipLayer;
+                m_renderTarget->CreateLayer(nullptr, &clipLayer);
+                D2D1_LAYER_PARAMETERS layerParams = D2D1::LayerParameters(D2D1::InfiniteRect(), clipGeometry.Get());
+                m_renderTarget->PushLayer(&layerParams, clipLayer.Get());
+                m_renderTarget->DrawBitmap(
+                    bitmap.Get(),
+                    CoverAspectRect(circleRect, previewW, previewH),
+                    0.96f,
+                    D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+                m_renderTarget->PopLayer();
+            }
         }
     } else {
         drawText(L"正在打开摄像头...", m_bodyFormat.Get(),
-            D2D1::RectF(previewRect.left, previewRect.top + 135, previewRect.right, previewRect.top + 170),
-            Color(0.58f, 0.60f, 0.66f));
+            D2D1::RectF(circleRect.left, cy - 15.0f, circleRect.right, cy + 18.0f),
+            Color(0.64f, 0.66f, 0.72f));
+        m_brush->SetColor(Color(1.0f, 1.0f, 1.0f, 0.42f));
+        const D2D1_RECT_F faceRect = D2D1::RectF(cx - 56.0f, cy - 86.0f, cx + 56.0f, cy + 26.0f);
+        m_renderTarget->DrawRoundedRectangle(D2D1::RoundedRect(faceRect, 24.0f, 24.0f), m_brush.Get(), 2.0f);
+        m_renderTarget->FillEllipse(D2D1::Ellipse(D2D1::Point2F(cx - 24.0f, cy - 42.0f), 4.0f, 4.0f), m_brush.Get());
+        m_renderTarget->FillEllipse(D2D1::Ellipse(D2D1::Point2F(cx + 24.0f, cy - 42.0f), 4.0f, 4.0f), m_brush.Get());
+        DrawSmile(m_d2dFactory.Get(), m_renderTarget.Get(), m_brush.Get(), cx, cy - 5.0f, 56.0f, 22.0f, 2.0f);
     }
-    drawRound(previewRect, 16.0f, Color(0.28f, 0.30f, 0.36f), 1.0f);
 
-    D2D1_RECT_F statusRect = D2D1::RectF(28, 432, 592, 520);
-    fillRound(statusRect, 12.0f, Color(0.10f, 0.11f, 0.14f));
-    drawText(StepTitle(step), m_bodyFormat.Get(), D2D1::RectF(44, 444, 290, 468), Color(0.96f, 0.96f, 0.98f));
-    drawText(status, m_captionFormat.Get(), D2D1::RectF(44, 468, 560, 490), Color(0.70f, 0.72f, 0.78f));
+    m_brush->SetColor(Color(1.0f, 1.0f, 1.0f, 0.18f));
+    m_renderTarget->DrawEllipse(&previewEllipse, m_brush.Get(), 1.2f);
 
-    wchar_t metrics[160] = {};
-    swprintf_s(metrics, L"进度 %d/6    当前步骤 %d/2    Live %.2f    Yaw %.1f    Pitch %.1f",
-        total, captured, live, yaw, pitch);
-    drawText(metrics, m_captionFormat.Get(), D2D1::RectF(44, 493, 560, 512), Color(0.52f, 0.55f, 0.62f));
+    D2D1_ELLIPSE ringEllipse = D2D1::Ellipse(D2D1::Point2F(cx, cy), ringRadius, ringRadius);
+    m_brush->SetColor(Color(1.0f, 1.0f, 1.0f, 0.13f));
+    m_renderTarget->DrawEllipse(&ringEllipse, m_brush.Get(), 7.0f);
 
-    float progress = static_cast<float>(total) / 6.0f;
-    fillRound(D2D1::RectF(390, 450, 560, 456), 3.0f, Color(0.28f, 0.30f, 0.36f));
-    fillRound(D2D1::RectF(390, 450, 390 + 170 * progress, 456), 3.0f, Color(0.30f, 0.58f, 1.0f));
+    const float progress = Clamp01(static_cast<float>(total) / 6.0f);
+    m_brush->SetColor(Color(0.22f, 0.64f, 1.0f, 0.96f));
+    DrawArc(m_d2dFactory.Get(), m_renderTarget.Get(), m_brush.Get(),
+        cx, cy, ringRadius, -kPi * 0.5f, kTwoPi * progress, 7.0f);
+    if (progress > 0.0f) {
+        const D2D1_POINT_2F dot = PointOnCircle(cx, cy, ringRadius, -kPi * 0.5f + kTwoPi * progress);
+        m_renderTarget->FillEllipse(D2D1::Ellipse(dot, 4.0f, 4.0f), m_brush.Get());
+    }
+
+    const std::wstring hint = status.empty() ? L"请把脸放入圆圈内" : status;
+    drawText(hint, m_bodyFormat.Get(), D2D1::RectF(58, 558, 662, 590), Color(0.94f, 0.95f, 0.98f));
+
+    wchar_t progressText[64] = {};
+    swprintf_s(progressText, L"已采集 %d / 6", total);
+    drawText(progressText, m_captionFormat.Get(), D2D1::RectF(58, 594, 662, 618), Color(0.55f, 0.58f, 0.66f));
+    drawText(L"按提示缓慢调整头部方向", m_captionFormat.Get(), D2D1::RectF(58, 622, 662, 648), Color(0.42f, 0.45f, 0.52f));
 
     HRESULT hr = m_renderTarget->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {
@@ -438,7 +609,7 @@ void FaceEnrollWindow::WorkerMain() {
 
                 auto best = BestFace(detector, frame);
                 if (!best) {
-                    SetStatus(L"未检测到人脸，请看向摄像头");
+                    SetStatus(L"请把脸放入圆圈内");
                     continue;
                 }
 
@@ -449,7 +620,7 @@ void FaceEnrollWindow::WorkerMain() {
                         std::lock_guard<std::mutex> lock(m_mutex);
                         m_liveScore = real;
                     }
-                    SetStatus(L"等待真人检测通过");
+                    SetStatus(L"保持注视，等待真人检测通过");
                     continue;
                 }
 
@@ -485,7 +656,7 @@ void FaceEnrollWindow::WorkerMain() {
                     std::lock_guard<std::mutex> lock(m_mutex);
                     m_capturedInStep = captured;
                     m_totalCaptured = step * 2 + captured;
-                    m_status = L"已采集，保持姿势准备下一次";
+                    m_status = L"已采集，继续下一步";
                 }
                 if (m_hwnd) {
                     PostMessageW(m_hwnd, WM_ENROLL_PROGRESS, 0, 0);
@@ -498,16 +669,36 @@ void FaceEnrollWindow::WorkerMain() {
             m_result = Result::Cancelled;
         } else {
             store.Save();
+            try {
+                std::wstring src = store.Path();
+                std::wstring dst = FaceTemplateStore::SharedPath();
+                if (!src.empty() && !dst.empty() && src != dst) {
+                    std::filesystem::copy_file(src, dst,
+                        std::filesystem::copy_options::overwrite_existing);
+                }
+            } catch (...) {}
             SetStatus(L"录入完成");
             m_result = Result::Completed;
         }
     } catch (const std::exception& ex) {
-        std::wstring message = L"录入失败: ";
         std::string what = ex.what();
-        message += std::wstring(what.begin(), what.end());
+        std::wstring message = L"录入失败: " + std::wstring(what.begin(), what.end());
         SetStatus(message);
+        {
+            std::lock_guard<std::mutex> lk(m_mutex);
+            m_errorMessage = message;
+        }
         m_result = Result::Failed;
-        Sleep(1200);
+        MessageBoxW(m_owner, message.c_str(), L"人脸录入失败", MB_ICONERROR | MB_OK);
+    } catch (...) {
+        std::wstring message = L"录入失败: 未知异常";
+        SetStatus(message);
+        {
+            std::lock_guard<std::mutex> lk(m_mutex);
+            m_errorMessage = message;
+        }
+        m_result = Result::Failed;
+        MessageBoxW(m_owner, message.c_str(), L"人脸录入失败", MB_ICONERROR | MB_OK);
     }
 
     m_done = true;

@@ -63,6 +63,7 @@ namespace SettingID {
     constexpr int FACE_DELETE      = 82;
     constexpr int FACE_AUTOSTART   = 83;
     constexpr int FACE_PERF_MODE   = 84;
+    constexpr int FACE_UPDATE_PASSWORD = 85;
     constexpr int BTN_RESET        = 99;
     constexpr int BTN_SAVE         = 100;
     constexpr int BTN_APPLY        = 101;

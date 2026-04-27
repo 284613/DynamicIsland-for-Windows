@@ -142,6 +142,7 @@ private:
     void HandleCodexHookEvent(const CodexHookEvent& event);
     void HandleFaceUnlockEvent(const FaceUnlockEvent& event);
     void ShowFaceUnlockFeedback(FaceIdState state, const std::wstring& text);
+    void StartPendingFaceUnlockVisualIfReady();
     void ClearFaceUnlockFeedback();
     void RunClaudeHookAction(int actionId);
     bool HasWorkingClaudeSession() const;
@@ -244,6 +245,8 @@ private:
     MusicArtworkStyle m_compactArtworkStyle = MusicArtworkStyle::Vinyl;
     MusicArtworkStyle m_expandedArtworkStyle = MusicArtworkStyle::Square;
     bool m_faceUnlockFeedbackActive = false;
+    bool m_faceUnlockVisualPending = false;
+    bool m_faceUnlockVisualStarted = false;
     FaceIdState m_faceUnlockState = FaceIdState::Hidden;
     std::wstring m_faceUnlockText;
     UINT_PTR m_faceUnlockTimerId = 6;

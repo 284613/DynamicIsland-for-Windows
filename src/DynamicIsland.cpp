@@ -585,13 +585,14 @@ void DynamicIsland::HandleFaceUnlockEvent(const FaceUnlockEvent& event) {
 
 void DynamicIsland::ShowFaceUnlockFeedback(FaceIdState state, const std::wstring& text) {
     KillTimer(m_window.GetHWND(), m_faceUnlockTimerId);
-    ClearCompactOverride();
     m_faceUnlockFeedbackActive = state != FaceIdState::Hidden;
+    m_faceUnlockVisualPending = m_faceUnlockFeedbackActive;
+    m_faceUnlockVisualStarted = false;
     m_faceUnlockState = state;
     m_faceUnlockText = text;
-    m_renderer.SetFaceUnlockState(state, text);
 
     if (!m_faceUnlockFeedbackActive) {
+        m_renderer.SetFaceUnlockState(FaceIdState::Hidden, L"");
         TransitionTo(DetermineDisplayMode());
         Invalidate(Dirty_FaceUnlock | Dirty_Region);
         return;
@@ -599,17 +600,45 @@ void DynamicIsland::ShowFaceUnlockFeedback(FaceIdState state, const std::wstring
 
     m_state = IslandState::Collapsed;
     TransitionTo(IslandDisplayMode::FaceUnlockFeedback);
-    if (state == FaceIdState::Success) {
-        SetTimer(m_window.GetHWND(), m_faceUnlockTimerId, 1000, nullptr);
-    } else if (state == FaceIdState::Failed) {
-        SetTimer(m_window.GetHWND(), m_faceUnlockTimerId, 1500, nullptr);
-    }
+    StartPendingFaceUnlockVisualIfReady();
     Invalidate(Dirty_FaceUnlock | Dirty_Region | Dirty_Hover);
+}
+
+void DynamicIsland::StartPendingFaceUnlockVisualIfReady() {
+    if (!m_faceUnlockFeedbackActive || !m_faceUnlockVisualPending) {
+        return;
+    }
+
+    const bool targetIsFaceUnlock =
+        std::abs(GetTargetWidth() - Constants::Size::FACE_UNLOCK_WIDTH) < 0.5f &&
+        std::abs(GetTargetHeight() - Constants::Size::FACE_UNLOCK_HEIGHT) < 0.5f;
+    const bool currentIsFaceUnlock =
+        std::abs(GetCurrentWidth() - Constants::Size::FACE_UNLOCK_WIDTH) < 1.0f &&
+        std::abs(GetCurrentHeight() - Constants::Size::FACE_UNLOCK_HEIGHT) < 1.0f;
+
+    if (!targetIsFaceUnlock || !currentIsFaceUnlock || !m_layoutController.IsSettled()) {
+        if (!m_faceUnlockVisualStarted) {
+            m_renderer.SetFaceUnlockState(FaceIdState::Hidden, L"");
+        }
+        return;
+    }
+
+    m_faceUnlockVisualPending = false;
+    m_faceUnlockVisualStarted = true;
+    m_renderer.SetFaceUnlockState(m_faceUnlockState, m_faceUnlockText);
+
+    if (m_faceUnlockState == FaceIdState::Success) {
+        SetTimer(m_window.GetHWND(), m_faceUnlockTimerId, 3000, nullptr);
+    } else if (m_faceUnlockState == FaceIdState::Failed) {
+        SetTimer(m_window.GetHWND(), m_faceUnlockTimerId, 1800, nullptr);
+    }
 }
 
 void DynamicIsland::ClearFaceUnlockFeedback() {
     KillTimer(m_window.GetHWND(), m_faceUnlockTimerId);
     m_faceUnlockFeedbackActive = false;
+    m_faceUnlockVisualPending = false;
+    m_faceUnlockVisualStarted = false;
     m_faceUnlockState = FaceIdState::Hidden;
     m_faceUnlockText.clear();
     m_renderer.SetFaceUnlockState(FaceIdState::Hidden, L"");
@@ -1577,6 +1606,7 @@ void DynamicIsland::UpdatePhysics() {
 	}
 
 	m_layoutController.UpdatePhysics();
+	StartPendingFaceUnlockVisualIfReady();
 
 	// 物理动画完成后，根据状态自动调整目标尺寸
 

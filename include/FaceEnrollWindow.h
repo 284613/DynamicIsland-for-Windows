@@ -22,10 +22,11 @@ public:
     ~FaceEnrollWindow();
 
     Result ShowModal(HINSTANCE instance, HWND owner);
+    const std::wstring& GetErrorMessage() const { return m_errorMessage; }
 
 private:
     static LRESULT CALLBACK StaticWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
-    LRESULT WndProc(UINT message, WPARAM wParam, LPARAM lParam);
+    LRESULT WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
 
     bool CreateWindowResources();
     bool EnsureRenderTarget();
@@ -48,6 +49,7 @@ private:
 
     mutable std::mutex m_mutex;
     std::wstring m_status = L"正在初始化摄像头...";
+    std::wstring m_errorMessage;
     int m_step = 0;
     int m_capturedInStep = 0;
     int m_totalCaptured = 0;

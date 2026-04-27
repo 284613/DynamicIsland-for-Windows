@@ -33,6 +33,16 @@ static std::wstring LocalAppDataModelsDir() {
     return p.wstring();
 }
 
+static std::wstring ProgramDataModelsDir() {
+    wchar_t* pd = nullptr;
+    if (FAILED(SHGetKnownFolderPath(FOLDERID_ProgramData, 0, nullptr, &pd))) return L"";
+    fs::path p(pd);
+    CoTaskMemFree(pd);
+    p /= L"DynamicIsland";
+    p /= L"models";
+    return p.wstring();
+}
+
 std::wstring ResolveModelPath(const std::wstring& name) {
     std::vector<fs::path> candidates;
     fs::path exe = ExeDir();
@@ -48,6 +58,10 @@ std::wstring ResolveModelPath(const std::wstring& name) {
     fs::path appData = LocalAppDataModelsDir();
     if (!appData.empty()) {
         candidates.push_back(appData / name);
+    }
+    fs::path progData = ProgramDataModelsDir();
+    if (!progData.empty()) {
+        candidates.push_back(progData / name);
     }
     for (const auto& c : candidates) {
         std::error_code ec;

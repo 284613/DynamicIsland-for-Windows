@@ -75,6 +75,7 @@
     <ClInclude Include="include\face_core\FaceLandmarks3D.h" />
     <ClInclude Include="include\face_core\ActiveLiveness.h" />
     <ClInclude Include="include\face_core\FacePipeline.h" />
+    <ClInclude Include="include\face_core\CredentialPasswordStore.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\face_core.cpp" />
@@ -89,6 +90,7 @@
     <ClCompile Include="src\FaceLandmarks3D.cpp" />
     <ClCompile Include="src\ActiveLiveness.cpp" />
     <ClCompile Include="src\FacePipeline.cpp" />
+    <ClCompile Include="src\CredentialPasswordStore.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

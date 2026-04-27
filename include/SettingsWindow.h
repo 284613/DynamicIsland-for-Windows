@@ -131,6 +131,7 @@ private:
     void MarkDirty(bool dirty = true, const std::wstring& statusText = L"");
     void SetStatusText(const std::wstring& statusText);
     void CenterToParent() const;
+    void HideImmediately();
     std::wstring ResolveConfigPath() const;
     std::wstring GetSettingsPath() const;
     std::wstring GetConfigPath() const;

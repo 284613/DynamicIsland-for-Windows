@@ -19,12 +19,17 @@ struct MatchResult {
     float score = 0.0f;     // best cosine similarity across all templates
 };
 
-// Persistent, DPAPI-encrypted ArcFace template store. Backed by
-// %LOCALAPPDATA%\DynamicIsland\faces.bin. Multiple templates per user are
-// supported (typically 6: front/left/right x 2 captures each).
+// Persistent, DPAPI-encrypted ArcFace template store. Default path:
+// %LOCALAPPDATA%\DynamicIsland\faces.bin. The CP DLL uses SharedPath()
+// (%PROGRAMDATA%\DynamicIsland\faces.bin) which is accessible by SYSTEM.
 class FaceTemplateStore {
 public:
     FaceTemplateStore();
+    // Explicit path — used by the CP DLL:  FaceTemplateStore(SharedPath())
+    explicit FaceTemplateStore(std::wstring customPath);
+
+    // Machine-accessible path (writable by Authenticated Users after install).
+    static std::wstring SharedPath();
 
     // Load existing store; returns true even if file is missing (empty store).
     bool Load();

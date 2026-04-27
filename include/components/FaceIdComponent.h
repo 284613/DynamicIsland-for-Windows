@@ -27,7 +27,6 @@ private:
     void DrawFailed(const D2D1_RECT_F& rect, float alpha, ULONGLONG now);
     void DrawArc(float cx, float cy, float radius, float startAngle, float sweepAngle,
         ID2D1Brush* brush, float strokeWidth);
-    void DrawCenteredText(const std::wstring& text, const D2D1_RECT_F& rect, float alpha);
 
     SharedResources* m_res = nullptr;
     FaceIdState m_state = FaceIdState::Hidden;
@@ -39,5 +38,4 @@ private:
     ComPtr<ID2D1SolidColorBrush> m_greenBrush;
     ComPtr<ID2D1SolidColorBrush> m_redBrush;
     ComPtr<ID2D1SolidColorBrush> m_softBrush;
-    ComPtr<IDWriteTextFormat> m_labelFormat;
 };

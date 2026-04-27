@@ -234,28 +234,142 @@ MSBuild.exe DynamicIsland.sln /p:Configuration=Debug /p:Platform=x64 /m /nologo 
 .\x64\Debug\face_console.exe selftest
 ```
 
-### ⏳ Phase 3 — Credential Provider DLL
+### ✅ Phase 3 — Credential Provider DLL (done)
 
-- DLL skeleton: `IClassFactory`, `DllGetClassObject`, `DllRegisterServer`,
-  `DllUnregisterServer`. INITGUID lives in dllmain.cpp.
+**Implemented (2026-04-27):**
+
+- `face_core::CredentialPasswordStore` — machine-scope DPAPI store at
+  `%PROGRAMDATA%\DynamicIsland\face_cred.bin`. Strategy A: any local
+  process (including SYSTEM) can decrypt. Phase 4 can migrate to LSA secrets.
+- `FaceTemplateStore::SharedPath()` + path constructor — allows CP DLL to
+  load from `%PROGRAMDATA%\DynamicIsland\faces.bin` (SYSTEM-accessible).
+- `ModelLoader` now also searches `%PROGRAMDATA%\DynamicIsland\models`.
+- `FaceUnlockProvider\IpcNotifier` — one-shot pipe write to main app bridge.
+- `FaceUnlockProvider\UnlockOrchestrator` — drives `FacePipeline` on a
+  worker thread, updates CP status text via `SetFieldString`, calls a
+  provider-supplied callback on success.
+- `FaceUnlockProvider\CFaceCredential` (`ICredentialProviderCredential2`):
+  - Fields: tile image + large text (username) + small text (status) + submit button.
+  - `SetSelected` starts the orchestrator.
+  - `GetSerialization` calls `CredentialPasswordStore::Load`, builds
+    `KERB_INTERACTIVE_UNLOCK_LOGON` with relative string offsets.
 - `CFaceCredentialProvider` (`ICredentialProvider`):
-  - Respond only to `CPUS_LOGON` and `CPUS_UNLOCK_WORKSTATION`.
-  - One credential per user.
-- `CFaceCredential` (`ICredentialProviderCredential2`):
-  - Fields: tile image (state indicator) + status text + cancel link +
-    hidden password fallback box.
-  - `SetSelected` triggers `UnlockOrchestrator`.
-  - `GetSerialization` builds `KERB_INTERACTIVE_UNLOCK_LOGON` from
-    DPAPI-decrypted password and identity-match name.
-- `UnlockOrchestrator`: runs `FacePipeline` on a worker thread, pumps state
-  text via `events->SetFieldString`, fires `events->CredentialsChanged` on
-  success.
-- `IpcNotifier`: short-lived named-pipe write `{event, user}` (consumed by
-  the main app once user-session resumes after unlock).
-- Registration via `regsvr32 FaceUnlockProvider.dll` invoked from the
-  settings page enable toggle. **Note**: needs admin elevation.
+  - `CPUS_LOGON` and `CPUS_UNLOCK_WORKSTATION` only.
+  - Checks camera availability via `MFEnumDeviceSources` and template existence.
+  - `Advise/UnAdvise` holds `ICredentialProviderEvents*` for `CredentialsChanged`.
+  - On face success: `m_autoLogon = true` → `CredentialsChanged` → LogonUI
+    calls `GetCredentialCount` (now returns `pbAutoLogonWithDefault=TRUE`) →
+    calls `GetSerialization` for auto-unlock.
+- `dllmain.cpp`: real `DllGetClassObject` factory, `DllRegisterServer` writes
+  3 registry keys (HKCR CLSID + InprocServer32 + HKLM CP registration),
+  `DllUnregisterServer` deletes them. Delay-load hook redirects
+  `onnxruntime.dll` to the DLL's own directory so PROGRAMDATA hosting works.
+- `CpInstaller` (main app): elevated self-invoke (`--install-cp / --uninstall-cp`)
+  copies DLLs + models to `%PROGRAMDATA%\DynamicIsland\`, sets ACL for
+  Authenticated Users, runs regsvr32.
+- Settings FACE_ENABLE toggle: CredUI password prompt → DPAPI save →
+  template file copy to SharedPath → elevated CpInstaller::Install.
+- Enrollment (`FaceEnrollWindow`) mirrors templates to SharedPath on completion.
+
+**Key limitations (Phase 4 work):**
+- DPAPI strategy A (LOCAL_MACHINE) — any local process can decrypt the
+  stored password. Acceptable on personal devices; Phase 4 migrates to LSA secrets.
+- No SID filtering — CP tile shows for all users; only the enrolled user's
+  face will actually succeed. Phase 4: filter by SID.
+- No code signing — Smart App Control may block on hardened systems.
+  Phase 4: add Authenticode signing or document the workaround.
+
+### 🟡 FaceEnrollWindow 创建失败 — code fix applied, needs manual smoke test
+
+`FaceEnrollWindow::ShowModal` 调用 `CreateWindowExW` 时持续返回
+`ERROR_INVALID_WINDOW_HANDLE` (1400)，窗口无法打开，录入直接报失败。
+
+**已尝试的修复（均无效）：**
+1. 加了 `IsWindow(owner)` 保护
+2. 跳过 `WS_CHILD` / `WS_EX_TOOLWINDOW` 窗口，改用 `GetAncestor(GA_ROOTOWNER)`
+3. 移除 `WS_EX_DLGMODALFRAME`，改用 `WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU`
+4. `hWndParent` 改传 `nullptr`（应最安全，但 1400 依然出现）
+
+**奇怪之处：** 即使 `hWndParent = nullptr`，仍然返回 1400。
+这说明问题可能不在 owner 参数上，而是 HINSTANCE、窗口类注册
+或 `WM_NCCREATE` 内部的某处出问题了。
+
+**2026-04-27 code-level fix:**
+- Root cause: `StaticWndProc` routed `WM_NCCREATE` into the instance
+  `WndProc` before `m_hwnd` was assigned. The default path then called
+  `DefWindowProcW(m_hwnd, ...)` with `m_hwnd == nullptr`, which can abort
+  window creation and surface as `ERROR_INVALID_WINDOW_HANDLE` (1400).
+- Fix: set `m_hwnd = hwnd` during `WM_NCCREATE`, pass the real `HWND` into
+  `WndProc`, and call `DefWindowProcW(hwnd, ...)` on all default paths.
+- Also added `RegisterClassW` error reporting and `GetModuleHandleW(nullptr)`
+  fallback when the caller passes a null `HINSTANCE`.
+- Build verified:
+  `MSBuild.exe DynamicIsland.sln /p:Configuration=Debug /p:Platform=x64 /m /nologo /v:minimal`
+
+**Remaining manual smoke test:**
+- Open Settings → 人脸解锁 → 录入人脸 and confirm the Direct2D enrollment
+  window appears instead of failing with error 1400.
+- Confirm the settings window hides while enrollment is open, so the topmost
+  settings UI does not cover the camera preview; it should reappear when
+  enrollment closes.
+- Confirm the 人脸解锁 enable/disable toggle rebuilds the current settings page
+  immediately after install/uninstall, without closing and reopening Settings.
+- Confirm the enrollment preview is now larger, keeps the camera aspect ratio,
+  and shows a phone-style Face ID guide instead of the previous small stretched
+  preview.
+- Confirm post-unlock island success feedback uses the Face ID-style glyph,
+  pulse, and check animation.
 
 ### ⏳ Phase 4 — End-to-end polish
+
+- ✅ **SID filtering / account binding (2026-04-27)**:
+  - `CredentialPasswordStore` now stores the enabling user's Windows SID
+    alongside username metadata in `%PROGRAMDATA%\DynamicIsland\face_cred.bin`.
+  - Old two-field blobs remain readable; disabling/re-enabling upgrades the
+    blob with SID metadata.
+  - `FaceUnlockProvider` implements `ICredentialProviderSetUserArray`, checks
+    LogonUI's user array against the stored SID, and returns that SID from
+    `ICredentialProviderCredential2::GetUserSid`.
+  - Result: on multi-user machines, the face-unlock tile is bound to the
+    enrolled/enabled Windows account instead of appearing globally.
+
+- ✅ **LSA secret migration (2026-04-27)**:
+  - The settings page still writes a short-lived machine-DPAPI credential blob
+    so the password never travels on a command line.
+  - The elevated installer immediately migrates the password into
+    `L$DynamicIsland.FaceUnlock.Password` with `LsaStorePrivateData`, then
+    rewrites `%PROGRAMDATA%\DynamicIsland\face_cred.bin` as username/SID
+    metadata only.
+  - The Credential Provider reads the password through `LsaRetrievePrivateData`
+    and keeps old DPAPI blobs readable as a backward-compatible fallback.
+  - Uninstall clears both the CP registration and the LSA secret.
+
+- ✅ **Local-account end-to-end unlock validated (2026-04-27)**:
+  - User switched from a Microsoft account to local account `LCX\28443`,
+    re-enabled face unlock with the real Windows account password, and
+    confirmed lock-screen face unlock works.
+  - Root cause of the earlier failure: the user had entered a Windows Hello
+    PIN; Windows returned `0xC000006D` / error `1326`.
+
+- ✅ **Password update and diagnostics polish (2026-04-27)**:
+  - Settings now validates the Windows account password with `LogonUserW`
+    before storing or migrating it, explicitly rejecting PIN-only input.
+  - Added a Face Unlock settings action to update the stored account password
+    without deleting face templates.
+  - CP file logging is disabled by default; create
+    `%PROGRAMDATA%\DynamicIsland\face_cp_debug.flag` to re-enable
+    `%PROGRAMDATA%\DynamicIsland\face_cp.log` diagnostics.
+
+- ✅ **iPhone-style Face ID feedback and enrollment UI (2026-04-27)**:
+  - `FaceUnlockFeedback` now uses the same 220x40 target size as system-style
+    alerts, instead of the old 276x60 dedicated panel.
+  - Face unlock events now wait until the island has entered and settled into
+    the compact feedback size before starting the Face ID animation, so content
+    no longer renders during the size transition.
+  - `FaceIdComponent` is icon-only: centered smile glyph, rotating scan arcs,
+    success pulse/check, and failure shake/X with no inline text.
+  - `FaceEnrollWindow` now uses a circular live camera preview with a one-loop
+    clock-style progress ring and prompt text for front/left/right capture.
 
 - Lock → CP UI → recognition → unlock → island success animation.
 - Failure fallback: liveness/threshold fail → CP shows "请输入密码".
@@ -302,23 +416,15 @@ toolset, C++17, Unicode, static CRT (`/NODEFAULTLIB:MSVCRT` on the main app).
 
 ## Next session — start here
 
-Phase 2 is closed. Pick up Phase 3 (Credential Provider DLL), keeping the Phase
-2 boundary intact: the desktop app already has enrollment, template management,
-autostart, pipe events, and island feedback. Phase 3 owns CP registration,
-elevation, lock-screen UI, and password/secret strategy.
+**当前验证点**：`FaceEnrollWindow` 创建失败已有 code-level fix（见上方小节），
+需要在桌面端手动打开 Settings → 人脸解锁 → 录入人脸确认窗口能显示。
 
-Start Phase 3 with:
-
-1. Decide credential secret storage: machine-scope DPAPI MVP vs LSA secret.
-2. Wire `FaceUnlockProvider` to `face_core::FacePipeline`.
-3. Write pipe events from the CP (`scan_started`, `success`, `failed`) to the
-   Phase 2 bridge after unlock/failure.
-4. Add an elevated enable/disable flow in settings only when CP registration is
-   ready.
+Phase 3 已完成。Phase 4 已开始：设置页/录入窗口 UI 修复、SID 绑定、
+LSA Secret 凭据迁移已完成；下一步继续做端到端锁屏手测和性能/异常路径打磨。
 
 Resume in any new session with:
 ```
-读 docs/FaceUnlockPlan.md 继续 Phase 3
+读 docs/FaceUnlockPlan.md 手动验证 FaceEnrollWindow 录入窗口能否打开
 ```
 
 ---
@@ -695,9 +801,10 @@ SYSTEM. Two strategies, decide in early Phase 3:
 - Cons: requires elevation at enrollment time (we already need it for
   regsvr32, so no extra UX cost). More complex, but the right answer.
 
-**Plan**: ship **A** in Phase 3 MVP, migrate to **B** in Phase 4 polish.
-Document in user-facing settings: "本设备的人脸解锁密码以本机密钥加密存储,
-共享电脑请勿启用".
+**Implemented in Phase 4**: the normal enable flow now writes a temporary
+machine-DPAPI blob only long enough for the elevated installer to migrate the
+password to `L$DynamicIsland.FaceUnlock.Password`. The DPAPI file remains as
+username/SID metadata and legacy fallback support.
 
 ### CP UI animation approximation
 
@@ -734,7 +841,7 @@ each `Advise/UnAdvise` cycle.
 7. Screen replay: hold up phone with own face video → liveness should reject.
 8. Twin / similar-face attack: not in scope, log expected behavior.
 9. Multiple users on the same machine: only the enrolling user's CP shows
-   (filter by SID, not implemented in MVP — file as Phase 4 follow-up).
+   (SID filtering implemented; still needs manual multi-account validation).
 10. Performance: log per-frame timings; goal ≥ 5 fps on integrated CPU.
 11. Memory: track DLL working set; goal < 80 MB while idle, < 150 MB scanning.
 12. Uninstall flow: settings toggle off → regsvr32 /u → reboot → CP gone.
@@ -746,7 +853,7 @@ each `Advise/UnAdvise` cycle.
 | # | Risk                                                            | Severity | Mitigation                                                  |
 |---|------------------------------------------------------------------|----------|-------------------------------------------------------------|
 | 1 | CP DLL fails to load due to unsigned binary                      | High     | Test early; if blocked, document signing requirement        |
-| 2 | DPAPI/SYSTEM mismatch breaks unlock                              | High     | Strategy A in MVP, plan B for Phase 4                       |
+| 2 | DPAPI/SYSTEM mismatch breaks unlock                              | High     | Phase 4 migrated steady-state password storage to LSA secret |
 | 3 | YuNet decode mismatch produces wrong bbox                        | Medium   | Smoke test + visual inspection in console demo              |
 | 4 | ArcFace threshold 0.42 too loose for impostors                   | Medium   | Add per-user calibration in Phase 4                         |
 | 5 | Silent-Face fooled by high-res print                             | Medium   | Active liveness layer covers this; document residual risk   |
@@ -778,9 +885,9 @@ These need user input or research before the relevant phase:
    UAC prompt in-app, or pop a separate elevated helper EXE? This starts only
    after CP registration is implemented.
 
-2. **Phase 3 — multi-user**: do we filter the CP by SID so it only shows
-   for users who have enrolled? Required if the machine has multiple
-   accounts; not required for the user's personal device.
+2. **Phase 3 — multi-user**: resolved in Phase 4 via SID binding and
+   `ICredentialProviderSetUserArray`; still needs manual multi-account
+   validation on a machine with more than one Windows account.
 
 3. **Phase 4 — distribution**: the CP DLL should ideally be code-signed
    to avoid Smart App Control / WDAC issues. Does the user have a code

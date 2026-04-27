@@ -65,7 +65,25 @@ void WriteFile(const std::wstring& path, const std::vector<uint8_t>& data) {
 
 }  // namespace
 
+std::wstring SharedStorePath() {
+    wchar_t* pd = nullptr;
+    if (FAILED(SHGetKnownFolderPath(FOLDERID_ProgramData, 0, nullptr, &pd))) return L"";
+    fs::path p(pd);
+    CoTaskMemFree(pd);
+    p /= L"DynamicIsland";
+    std::error_code ec;
+    fs::create_directories(p, ec);
+    p /= L"faces.bin";
+    return p.wstring();
+}
+
 FaceTemplateStore::FaceTemplateStore() : path_(DefaultStorePath()) {}
+
+FaceTemplateStore::FaceTemplateStore(std::wstring customPath)
+    : path_(std::move(customPath)) {}
+
+// static
+std::wstring FaceTemplateStore::SharedPath() { return SharedStorePath(); }
 
 bool FaceTemplateStore::Load() {
     templates_.clear();
