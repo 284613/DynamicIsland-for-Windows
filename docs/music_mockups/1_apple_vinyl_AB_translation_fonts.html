@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>方案 1 · A+B · 翻译 + 字体选择</title>
+<!-- Google Fonts (中英双语备选) -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=Source+Han+Sans+SC&family=ZCOOL+XiaoWei&family=Smiley+Sans&family=LXGW+WenKai+TC&family=Plus+Jakarta+Sans:wght@400;500;700&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 48px 32px 96px;
+    background:
+      radial-gradient(1200px 600px at 20% 0%, #2b2440 0%, transparent 60%),
+      radial-gradient(900px 600px at 90% 30%, #1f2d3a 0%, transparent 60%),
+      #0b0b0f;
+    color: #e8e8ee;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+  }
+  h1 { font-size: 22px; margin: 0 0 6px; font-weight: 600; }
+  p.lede { color: #9aa0b0; margin: 0 0 32px; font-size: 13px; max-width: 760px; line-height: 1.6; }
+  h2.section { font-size: 16px; margin: 40px 0 14px; padding-left: 12px; border-left: 3px solid #7f5af0; }
+
+  /* ---- Stage chrome ---- */
+  .stage-row { display: flex; flex-wrap: wrap; gap: 28px; align-items: flex-start; }
+  .stage {
+    background: repeating-linear-gradient(45deg, rgba(255,255,255,0.012) 0 10px, transparent 10px 20px), #08080c;
+    border: 1px dashed rgba(255,255,255,0.05);
+    border-radius: 14px;
+    padding: 26px 22px;
+    display: flex; flex-direction: column; align-items: center; gap: 14px;
+  }
+  .label { font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: rgba(255,255,255,0.35); }
+
+  /* ---- Island ---- */
+  .island { background:#000; color:#fff; box-shadow: 0 8px 32px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.04); overflow:hidden; }
+  .island.compact { width: 380px; height: 50px; border-radius: 999px; padding: 0 14px; display: flex; align-items: center; gap: 12px; }
+  .island.compact.tall { height: 60px; }
+  .island.expanded { width: 480px; border-radius: 28px; padding: 18px; display:flex; flex-direction: column; gap: 12px; }
+
+  .vinyl { width: 32px; height: 32px; border-radius: 50%; background: radial-gradient(circle at 50% 50%, #444 0 18%, #111 19% 100%); position: relative; animation: spin 6s linear infinite; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.05); flex-shrink:0; }
+  .vinyl::after { content:''; position: absolute; inset: 7px; border-radius: 50%; background: linear-gradient(135deg,#ff6a88,#ffc796); }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .vinyl.lg { width: 96px; height: 96px; }
+  .vinyl.lg::after { inset: 22px; }
+
+  .ticker { flex:1; min-width: 0; overflow: hidden; display: flex; flex-direction: column; justify-content: center; gap: 1px; }
+  .ticker .title { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ticker .lyric { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ticker .trans { font-size: 11px; color: rgba(255,255,255,0.45); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .progress { width:100%; height:3px; background: rgba(255,255,255,0.12); border-radius: 999px; overflow: hidden; }
+  .progress > i { display: block; height: 100%; background:#fff; width: 42%; border-radius: 999px; }
+  .row { display: flex; align-items: center; width: 100%; gap: 14px; }
+  .controls { display: flex; align-items: center; gap: 16px; }
+  .controls .play { width: 36px; height: 36px; border-radius: 50%; background: rgba(255,255,255,0.92); color:#000; display: inline-flex; align-items: center; justify-content: center; }
+  .controls svg { width: 18px; height: 18px; fill: currentColor; }
+  .time { font-size: 11px; color: rgba(255,255,255,0.55); font-variant-numeric: tabular-nums; }
+
+  /* ---- Karaoke YRC wipe ---- */
+  .karaoke { display: inline-flex; flex-wrap: wrap; }
+  .karaoke .word { color: rgba(255,255,255,0.32); white-space: pre; }
+  .karaoke .word.sung { color: #fff; }
+  .karaoke .word.cur {
+    background: linear-gradient(90deg, #fff 0 var(--p, 50%), rgba(255,255,255,0.32) var(--p, 50%) 100%);
+    -webkit-background-clip: text; background-clip: text;
+    color: transparent;
+    animation: wipe 1.4s linear infinite;
+  }
+  @keyframes wipe { from { --p: 0%; } to { --p: 100%; } }
+
+  /* ---- Lyrics column (B) with translation ---- */
+  .lyrics-col { display: flex; flex-direction: column; gap: 6px; min-height: 96px; justify-content: center; }
+  .lyrics-col .l-prev { font-size: 12px; color: rgba(255,255,255,0.26); line-height: 1.3; }
+  .lyrics-col .l-prev .tr { font-size: 10.5px; color: rgba(255,255,255,0.18); margin-top: 1px; display:block; }
+  .lyrics-col .l-cur { font-size: 16px; font-weight: 700; color: #fff; line-height: 1.3; }
+  .lyrics-col .l-cur .tr { font-size: 12px; color: rgba(255,255,255,0.55); font-weight: 500; margin-top: 2px; display:block; }
+  .lyrics-col .l-next { font-size: 12px; color: rgba(255,255,255,0.42); line-height: 1.3; }
+  .lyrics-col .l-next .tr { font-size: 10.5px; color: rgba(255,255,255,0.28); margin-top: 1px; display:block; }
+
+  /* ---- Translation modes ---- */
+  .modes { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+  .modes button {
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08);
+    color: #cdd2dc; padding: 6px 12px; border-radius: 999px; font-size: 12px; cursor: pointer;
+    font-family: inherit;
+  }
+  .modes button.active { background: #fff; color: #000; border-color: transparent; }
+
+  /* ---- Font picker tabs ---- */
+  .fonts { display: flex; gap: 8px; margin: 8px 0 18px; flex-wrap: wrap; }
+  .fonts button {
+    background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+    color: #cdd2dc; padding: 7px 14px; border-radius: 10px; font-size: 12px; cursor: pointer;
+    text-align: left; line-height: 1.3;
+  }
+  .fonts button.active { background: rgba(127,90,240,0.25); border-color: rgba(127,90,240,0.6); color:#fff; }
+  .fonts button .fname { display:block; font-size: 13px; font-weight: 600; }
+  .fonts button .fnote { display:block; font-size: 10.5px; color: rgba(255,255,255,0.5); margin-top: 1px; }
+
+  /* ---- Font preset bodies ---- */
+  /* Windows 自带（无需打包，最稳） */
+  .font-yahei  { font-family: "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", sans-serif; }
+  .font-segoe  { font-family: "Segoe UI Variable Display", "Segoe UI", "Microsoft YaHei UI", sans-serif; }
+  /* Web 字体（建议打包到 resources/fonts/） */
+  .font-inter  { font-family: "Inter", "Noto Sans SC", "Microsoft YaHei UI", sans-serif; letter-spacing: -0.005em; }
+  .font-jakarta{ font-family: "Plus Jakarta Sans", "Noto Sans SC", "Microsoft YaHei UI", sans-serif; }
+  .font-dmsans { font-family: "DM Sans", "Noto Sans SC", "Microsoft YaHei UI", sans-serif; }
+  .font-noto   { font-family: "Inter", "Noto Sans SC", "Microsoft YaHei UI", sans-serif; }
+  .font-misans { font-family: "MiSans", "Inter", "Noto Sans SC", "Microsoft YaHei UI", sans-serif; }
+  .font-harmony{ font-family: "HarmonyOS Sans SC", "HarmonyOS Sans", "Inter", "Microsoft YaHei UI", sans-serif; }
+  .font-lxgw   { font-family: "LXGW WenKai TC", "LXGW WenKai", "Inter", "Microsoft YaHei UI", serif; }
+  .font-zcool  { font-family: "ZCOOL XiaoWei", "Inter", "Microsoft YaHei UI", serif; }
+  .font-smiley { font-family: "Smiley Sans", "Inter", "Microsoft YaHei UI", sans-serif; letter-spacing: 0.01em; }
+</style>
+</head>
+<body>
+
+<h1>方案 1 · A+B · 翻译 + 字体选择</h1>
+<p class="lede">
+  确定 A（紧凑态副标题位歌词）+ B（展开态三行歌词列）。<br>
+  下面回答两件事：①<b>翻译怎么排</b>（原词 vs 译文的位置和层级）；②<b>字体怎么选</b>（中英文混排都试一下）。
+</p>
+
+<!-- ============================================================
+     1. 翻译 · 三种排法
+     ============================================================ -->
+<h2 class="section">① 歌词翻译 · 三种排法</h2>
+
+<div class="modes">
+  <button class="active">模式一：双行（推荐）</button>
+  <button>模式二：仅原文 / 长按切译文</button>
+  <button>模式三：原文上 + 译文小字下</button>
+</div>
+
+<p class="desc" style="color:#9aa0b0; font-size:13px; margin: 0 0 18px; max-width: 720px; line-height:1.6">
+  歌词数据源：网易云 YRC（带逐字时间戳）+ 网易云 lrc 翻译版。我们已经有 LyricsMonitor 在拉 YRC，
+  扩一个翻译解析（LRC 双轨）就行；展开态主要消化高度，紧凑态只能切显示原文或译文（按长按切换）。
+</p>
+
+<div class="stage-row">
+
+  <!-- 模式一：双行 -->
+  <div class="stage">
+    <div class="label">模式一 · 紧凑态</div>
+    <div class="island compact tall">
+      <div class="vinyl"></div>
+      <div class="ticker">
+        <div class="title">Blinding Lights</div>
+        <div class="lyric">
+          <span class="karaoke">
+            <span class="word sung">I'm </span>
+            <span class="word cur">blinded </span>
+            <span class="word">by the lights</span>
+          </span>
+        </div>
+        <div class="trans">我已被光芒所眩目</div>
+      </div>
+    </div>
+
+    <div class="label">模式一 · 展开态</div>
+    <div class="island expanded">
+      <div class="row">
+        <div class="vinyl lg"></div>
+        <div style="flex:1; min-width:0">
+          <div style="font-size:14px; font-weight:700;">Blinding Lights</div>
+          <div style="font-size:11px; color:rgba(255,255,255,0.5)">The Weeknd</div>
+          <div class="lyrics-col" style="margin-top:6px">
+            <div class="l-prev">
+              I'm drowning in the night
+              <span class="tr">我在夜里沉沦</span>
+            </div>
+            <div class="l-cur">
+              <span class="karaoke">
+                <span class="word sung">I'm </span>
+                <span class="word cur">blinded </span>
+                <span class="word">by </span>
+                <span class="word">the </span>
+                <span class="word">lights</span>
+              </span>
+              <span class="tr">我已被光芒所眩目</span>
+            </div>
+            <div class="l-next">
+              No, I can't sleep until I feel your touch
+              <span class="tr">无法入眠，除非感受到你的触碰</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="row">
+        <span class="time">1:24</span>
+        <div class="progress"><i></i></div>
+        <span class="time">3:20</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 模式二：仅原文 -->
+  <div class="stage">
+    <div class="label">模式二 · 紧凑态（仅原文）</div>
+    <div class="island compact">
+      <div class="vinyl"></div>
+      <div class="ticker">
+        <div class="title">Blinding Lights</div>
+        <div class="lyric" style="font-size:11.5px">
+          <span class="karaoke">
+            <span class="word sung">I'm </span>
+            <span class="word cur">blinded </span>
+            <span class="word">by the lights</span>
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <div class="label">模式二 · 展开态（仅原文，最简）</div>
+    <div class="island expanded">
+      <div class="row">
+        <div class="vinyl lg"></div>
+        <div style="flex:1; min-width:0">
+          <div style="font-size:14px; font-weight:700;">Blinding Lights</div>
+          <div style="font-size:11px; color:rgba(255,255,255,0.5)">The Weeknd</div>
+          <div class="lyrics-col" style="margin-top:6px">
+            <div class="l-prev">I'm drowning in the night</div>
+            <div class="l-cur">
+              <span class="karaoke">
+                <span class="word sung">I'm </span>
+                <span class="word cur">blinded </span>
+                <span class="word">by </span>
+                <span class="word">the </span>
+                <span class="word">lights</span>
+              </span>
+            </div>
+            <div class="l-next">No, I can't sleep until I feel your touch</div>
+          </div>
+        </div>
+      </div>
+      <div class="row">
+        <span class="time">1:24</span>
+        <div class="progress"><i></i></div>
+        <span class="time">3:20</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 模式三：原文大 + 译文小字下 -->
+  <div class="stage">
+    <div class="label">模式三 · 紧凑态（与模式一相同布局）</div>
+    <div class="island compact tall">
+      <div class="vinyl"></div>
+      <div class="ticker">
+        <div class="title" style="font-size:11px; color:rgba(255,255,255,0.5)">Blinding Lights · The Weeknd</div>
+        <div class="lyric" style="font-size:13px; font-weight:600">
+          <span class="karaoke">
+            <span class="word sung">I'm </span>
+            <span class="word cur">blinded </span>
+            <span class="word">by the lights</span>
+          </span>
+        </div>
+        <div class="trans">我已被光芒所眩目</div>
+      </div>
+    </div>
+
+    <div class="label">模式三 · 展开态（原文大字 + 译文淡灰，仅当前句有译）</div>
+    <div class="island expanded">
+      <div class="row">
+        <div class="vinyl lg"></div>
+        <div style="flex:1; min-width:0">
+          <div style="font-size:14px; font-weight:700;">Blinding Lights</div>
+          <div style="font-size:11px; color:rgba(255,255,255,0.5)">The Weeknd</div>
+          <div class="lyrics-col" style="margin-top:6px">
+            <div class="l-prev">I'm drowning in the night</div>
+            <div class="l-cur">
+              <span class="karaoke">
+                <span class="word sung">I'm </span>
+                <span class="word cur">blinded </span>
+                <span class="word">by </span>
+                <span class="word">the </span>
+                <span class="word">lights</span>
+              </span>
+              <span class="tr" style="font-size:11px; color:rgba(255,255,255,0.42)">我已被光芒所眩目</span>
+            </div>
+            <div class="l-next">No, I can't sleep until I feel your touch</div>
+          </div>
+        </div>
+      </div>
+      <div class="row">
+        <span class="time">1:24</span>
+        <div class="progress"><i></i></div>
+        <span class="time">3:20</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div style="margin-top:18px; padding:14px 18px; background: rgba(126,198,153,0.06); border:1px solid rgba(126,198,153,0.18); border-radius:12px; max-width:760px;">
+  <p style="margin:0; font-size:13px; color:#cdd2dc; line-height:1.7;">
+    <b style="color:#a4dabf;">推荐：模式三</b>。每行原文都显示，但只在<b>当前句</b>下方挂一条小字译文 ——
+    既不让历史和未来歌词高度翻倍，又能在最关键的位置给翻译。设置里给一个开关：「显示翻译 / 仅原文 / 仅译文」。
+  </p>
+</div>
+
+
+<!-- ============================================================
+     2. 字体 · 8 个候选（中英混排）
+     ============================================================ -->
+<h2 class="section">② 字体 · 中英混排候选</h2>
+
+<p class="desc" style="color:#9aa0b0; font-size:13px; margin: 0 0 18px; max-width: 720px; line-height:1.6">
+  每个候选都用<b>展开态完整组件</b>渲染同一首歌（含 YRC 高亮 + 中文翻译），方便直接对比。
+  Windows 自带的字体不需要打包；Inter / Noto / MiSans / HarmonyOS 等需要放进 <code>resources/fonts/</code>
+  并用 DirectWrite 自定义字体集合加载。
+</p>
+
+<div class="grid" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(520px, 1fr)); gap: 24px;">
+
+  <!-- F1 - YaHei 默认 -->
+  <div class="stage" style="background: #08080c">
+    <div class="label">F1 · Microsoft YaHei UI （Windows 默认，零打包）</div>
+    <div class="island expanded font-yahei">
+      <div class="row"><div class="vinyl lg"></div>
+        <div style="flex:1; min-width:0">
+          <div style="font-size:14px; font-weight:700">Blinding Lights</div>
+          <div style="font-size:11px; color:rgba(255,255,255,0.5)">The Weeknd</div>
+          <div class="lyrics-col" style="margin-top:6px">
+            <div class="l-prev">I'm drowning in the night</div>
+            <div class="l-cur">
+              <span class="karaoke"><span class="word sung">I'm </span><span class="word cur">blinded </span><span class="word">by the lights</span></span>
+              <span class="tr">我已被光芒所眩目</span>
+            </div>
+            <div class="l-next">No, I can't sleep until I feel your touch</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- F2 - Segoe UI Variable -->
+  <div class="stage" style="background: #08080c">
+    <div class="label">F2 · Segoe UI Variable + 雅黑回退（Win11 默认 UI 字体）</div>
+    <div class="island expanded font-segoe">
+      <div class="row"><div class="vinyl lg"></div>
+        <div style="flex:1; min-width:0">
+          <div style="font-size:14px; font-weight:700">Blinding Lights</div>
+          <div style="font-size:11px; color:rgba(255,255,255,0.5)">The Weeknd</div>
+          <div class="lyrics-col" style="margin-top:6px">
+            <div class="l-prev">I'm drowning in the night</div>
+            <div class="l-cur">
+              <span class="karaoke"><span class="word sung">I'm </span><span class="word cur">blinded </span><span class="word">by the lights</span></span>
+              <span class="tr">我已被光芒所眩目</span>
+            </div>
+            <div class="l-next">No, I can't sleep until I feel your touch</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- F3 - Inter + Noto -->
+  <div class="stage" style="background: #08080c">
+    <div class="label">F3 · Inter + Noto Sans SC （现代克制，最像 Apple Music）</div>
+    <div class="island expanded font-inter">
+      <div class="row"><div class="vinyl lg"></div>
+        <div style="flex:1; min-width:0">
+          <div style="font-size:14px; font-weight:700">Blinding Lights</div>
+          <div style="font-size:11px; color:rgba(255,255,255,0.5)">The Weeknd</div>
+          <div class="lyrics-col" style="margin-top:6px">
+            <div class="l-prev">I'm drowning in the night</div>
+            <div class="l-cur">
+              <span class="karaoke"><span class="word sung">I'm </span><span class="word cur">blinded </span><span class="word">by the lights</span></span>
+              <span class="tr">我已被光芒所眩目</span>
+            </div>
+            <div class="l-next">No, I can't sleep until I feel your touch</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- F4 - Plus Jakarta Sans -->
+  <div class="stage" style="background: #08080c">
+    <div class="label">F4 · Plus Jakarta Sans + Noto SC （略圆润有亲和力）</div>
+    <div class="island expanded font-jakarta">
+      <div class="row"><div class="vinyl lg"></div>
+        <div style="flex:1; min-width:0">
+          <div style="font-size:14px; font-weight:700">Blinding Lights</div>
+          <div style="font-size:11px; color:rgba(255,255,255,0.5)">The Weeknd</div>
+          <div class="lyrics-col" style="margin-top:6px">
+            <div class="l-prev">I'm drowning in the night</div>
+            <div class="l-cur">
+              <span class="karaoke"><span class="word sung">I'm </span><span class="word cur">blinded </span><span class="word">by the lights</span></span>
+              <span class="tr">我已被光芒所眩目</span>
+            </div>
+            <div class="l-next">No, I can't sleep until I feel your touch</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- F5 - DM Sans -->
+  <div class="stage" style="background: #08080c">
+    <div class="label">F5 · DM Sans + Noto SC （几何感、Spotify 既视感）</div>
+    <div class="island expanded font-dmsans">
+      <div class="row"><div class="vinyl lg"></div>
+        <div style="flex:1; min-width:0">
+          <div style="font-size:14px; font-weight:700">Blinding Lights</div>
+          <div style="font-size:11px; color:rgba(255,255,255,0.5)">The Weeknd</div>
+          <div class="lyrics-col" style="margin-top:6px">
+            <div class="l-prev">I'm drowning in the night</div>
+            <div class="l-cur">
+              <span class="karaoke"><span class="word sung">I'm </span><span class="word cur">blinded </span><span class="word">by the lights</span></span>
+              <span class="tr">我已被光芒所眩目</span>
+            </div>
+            <div class="l-next">No, I can't sleep until I feel your touch</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- F6 - HarmonyOS / MiSans 风格（用 Noto 模拟） -->
+  <div class="stage" style="background: #08080c">
+    <div class="label">F6 · HarmonyOS Sans / MiSans （国产现代屏显字体，回退 Noto）</div>
+    <div class="island expanded font-harmony">
+      <div class="row"><div class="vinyl lg"></div>
+        <div style="flex:1; min-width:0">
+          <div style="font-size:14px; font-weight:700">Blinding Lights</div>
+          <div style="font-size:11px; color:rgba(255,255,255,0.5)">The Weeknd</div>
+          <div class="lyrics-col" style="margin-top:6px">
+            <div class="l-prev">I'm drowning in the night</div>
+            <div class="l-cur">
+              <span class="karaoke"><span class="word sung">I'm </span><span class="word cur">blinded </span><span class="word">by the lights</span></span>
+              <span class="tr">我已被光芒所眩目</span>
+            </div>
+            <div class="l-next">No, I can't sleep until I feel your touch</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- F7 - LXGW WenKai 文楷 -->
+  <div class="stage" style="background: #08080c">
+    <div class="label">F7 · 霞鹜文楷 LXGW WenKai （文艺、楷体感，适合民谣）</div>
+    <div class="island expanded font-lxgw">
+      <div class="row"><div class="vinyl lg"></div>
+        <div style="flex:1; min-width:0">
+          <div style="font-size:14px; font-weight:700">Blinding Lights</div>
+          <div style="font-size:11px; color:rgba(255,255,255,0.5)">The Weeknd</div>
+          <div class="lyrics-col" style="margin-top:6px">
+            <div class="l-prev">I'm drowning in the night</div>
+            <div class="l-cur">
+              <span class="karaoke"><span class="word sung">I'm </span><span class="word cur">blinded </span><span class="word">by the lights</span></span>
+              <span class="tr">我已被光芒所眩目</span>
+            </div>
+            <div class="l-next">No, I can't sleep until I feel your touch</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- F8 - Smiley Sans 得意黑 -->
+  <div class="stage" style="background: #08080c">
+    <div class="label">F8 · 得意黑 Smiley Sans （斜切个性，氛围最重）</div>
+    <div class="island expanded font-smiley">
+      <div class="row"><div class="vinyl lg"></div>
+        <div style="flex:1; min-width:0">
+          <div style="font-size:14px; font-weight:700">Blinding Lights</div>
+          <div style="font-size:11px; color:rgba(255,255,255,0.5)">The Weeknd</div>
+          <div class="lyrics-col" style="margin-top:6px">
+            <div class="l-prev">I'm drowning in the night</div>
+            <div class="l-cur">
+              <span class="karaoke"><span class="word sung">I'm </span><span class="word cur">blinded </span><span class="word">by the lights</span></span>
+              <span class="tr">我已被光芒所眩目</span>
+            </div>
+            <div class="l-next">No, I can't sleep until I feel your touch</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ============================================================
+     字体对比小结
+     ============================================================ -->
+<h2 class="section">字体对比小结</h2>
+
+<table style="width: 100%; max-width: 900px; border-collapse: collapse; font-size: 13px;">
+  <thead>
+    <tr style="background: rgba(255,255,255,0.04); text-align: left;">
+      <th style="padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,0.06);">字体</th>
+      <th style="padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,0.06);">气质</th>
+      <th style="padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,0.06);">是否需打包</th>
+      <th style="padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,0.06);">建议</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td style="padding:10px 14px;">F1 Microsoft YaHei UI</td><td style="color:#9aa0b0">通用、中庸</td><td style="color:#7ec699">否（系统）</td><td>保底默认</td></tr>
+    <tr><td style="padding:10px 14px;">F2 Segoe UI Variable</td><td style="color:#9aa0b0">现代、Win11 原生</td><td style="color:#7ec699">否（Win11+）</td><td>英文段最好看</td></tr>
+    <tr><td style="padding:10px 14px;"><b>F3 Inter + Noto SC</b></td><td style="color:#9aa0b0">克制、Apple Music 感</td><td style="color:#e4a26a">是（OFL）</td><td><b>★ 推荐主力</b></td></tr>
+    <tr><td style="padding:10px 14px;">F4 Plus Jakarta Sans</td><td style="color:#9aa0b0">圆润、亲和</td><td style="color:#e4a26a">是（OFL）</td><td>偏可爱风</td></tr>
+    <tr><td style="padding:10px 14px;">F5 DM Sans</td><td style="color:#9aa0b0">几何、Spotify 风</td><td style="color:#e4a26a">是（OFL）</td><td>备选</td></tr>
+    <tr><td style="padding:10px 14px;">F6 HarmonyOS / MiSans</td><td style="color:#9aa0b0">国产现代、屏显锐利</td><td style="color:#e4a26a">是（免费可商用）</td><td>中文最佳屏显</td></tr>
+    <tr><td style="padding:10px 14px;">F7 霞鹜文楷</td><td style="color:#9aa0b0">楷体、文艺</td><td style="color:#e4a26a">是（OFL）</td><td>适合民谣/古风主题</td></tr>
+    <tr><td style="padding:10px 14px;">F8 得意黑 Smiley Sans</td><td style="color:#9aa0b0">斜切、个性</td><td style="color:#e4a26a">是（OFL）</td><td>偏夜店/电子</td></tr>
+  </tbody>
+</table>
+
+<div style="margin-top:24px; padding:18px 22px; background: rgba(127,90,240,0.08); border:1px solid rgba(127,90,240,0.25); border-radius: 14px; max-width:900px;">
+  <h3 style="margin:0 0 8px; font-size:14px; color:#bdaaff;">🎯 我的最终推荐</h3>
+  <ul style="margin: 0; padding-left: 20px; color:#cdd2dc; font-size:13px; line-height:1.85;">
+    <li>翻译：<b>模式三</b>（每行原文 + 当前句下挂一条小字译文），设置里给「翻译开/关」+「显示原文/译文/双语」三选项。</li>
+    <li>字体：<b>F3 Inter + Noto Sans SC</b> 作主力，配 F1 Microsoft YaHei UI 作系统回退；用户可在设置里切到 F6 (HarmonyOS) 或 F7 (霞鹜文楷)。</li>
+    <li>实现：在 <code>resources/fonts/</code> 放入打包字体，用 <code>IDWriteFontCollection</code> 自定义集合加载，避免依赖系统安装。</li>
+  </ul>
+</div>
+
+<script>
+  document.querySelectorAll('.modes button').forEach(b => {
+    b.addEventListener('click', () => {
+      b.parentElement.querySelectorAll('button').forEach(x => x.classList.remove('active'));
+      b.classList.add('active');
+    });
+  });
+</script>
+
+</body>
+</html>

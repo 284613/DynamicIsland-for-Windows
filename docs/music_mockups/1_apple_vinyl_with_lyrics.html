@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>方案 1 · Apple 黑胶 + 歌词四种集成方式</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 48px 32px 96px;
+    background:
+      radial-gradient(1200px 600px at 20% 0%, #2b2440 0%, transparent 60%),
+      radial-gradient(900px 600px at 90% 30%, #1f2d3a 0%, transparent 60%),
+      #0b0b0f;
+    color: #e8e8ee;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", Roboto, sans-serif;
+  }
+  h1 { font-weight: 600; font-size: 22px; margin: 0 0 6px; }
+  p.lede { color: #9aa0b0; margin: 0 0 36px; font-size: 13px; max-width: 760px; line-height: 1.6; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(560px, 1fr)); gap: 32px; }
+  .case {
+    background: rgba(255,255,255,0.025);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 18px;
+    padding: 22px 22px 28px;
+  }
+  .case h2 { margin: 0 0 4px; font-size: 15px; font-weight: 600; display:flex; align-items:center; gap:10px; }
+  .case h2 .num { width: 22px; height: 22px; border-radius: 50%; background: rgba(255,255,255,0.08); display:inline-flex; align-items:center; justify-content:center; font-size: 12px; font-weight: 700; }
+  .case .desc { color:#8b90a0; font-size:12.5px; margin: 0 0 18px; line-height:1.6; }
+  .case .pros { color:#7ec699; font-size:11.5px; margin:6px 0 0; }
+  .case .cons { color:#e4a26a; font-size:11.5px; margin:2px 0 0; }
+  .stage {
+    background:
+      linear-gradient(180deg, rgba(255,255,255,0.02), transparent 50%),
+      repeating-linear-gradient(45deg, rgba(255,255,255,0.012) 0 10px, transparent 10px 20px),
+      #08080c;
+    border: 1px dashed rgba(255,255,255,0.05);
+    border-radius: 14px;
+    padding: 26px;
+    display: flex; flex-direction: column; align-items: center; gap: 22px;
+  }
+  .label { font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: rgba(255,255,255,0.35); }
+
+  /* ===== Common island ===== */
+  .island { background:#000; color:#fff; box-shadow: 0 8px 32px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.04); overflow:hidden; }
+  .island.compact { width: 360px; height: 44px; border-radius: 999px; padding: 0 14px; display: flex; align-items: center; gap: 10px; }
+  .island.expanded { width: 460px; border-radius: 28px; padding: 18px; display:flex; flex-direction: column; gap: 12px; }
+
+  .vinyl { width: 28px; height: 28px; border-radius: 50%; background: radial-gradient(circle at 50% 50%, #444 0 18%, #111 19% 100%); position: relative; animation: spin 6s linear infinite; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.05); flex-shrink:0; }
+  .vinyl::after { content:''; position: absolute; inset: 6px; border-radius: 50%; background: linear-gradient(135deg,#ff6a88,#ffc796); }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .vinyl.lg { width: 96px; height: 96px; }
+  .vinyl.lg::after { inset: 22px; }
+  .vinyl.md { width: 64px; height: 64px; }
+  .vinyl.md::after { inset: 14px; }
+
+  .ticker { flex:1; min-width: 0; overflow: hidden; }
+  .ticker .title { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ticker .sub { font-size: 11px; color: rgba(255,255,255,0.55); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .progress { width:100%; height:3px; background: rgba(255,255,255,0.12); border-radius: 999px; overflow: hidden; }
+  .progress > i { display: block; height: 100%; background:#fff; width: 42%; border-radius: 999px; }
+
+  .row { display: flex; align-items: center; width: 100%; gap: 14px; }
+  .controls { display: flex; align-items: center; gap: 16px; }
+  .controls .play { width: 36px; height: 36px; border-radius: 50%; background: rgba(255,255,255,0.92); color:#000; display: inline-flex; align-items: center; justify-content: center; }
+  .controls svg { width: 18px; height: 18px; fill: currentColor; }
+  .time { font-size: 11px; color: rgba(255,255,255,0.55); font-variant-numeric: tabular-nums; }
+
+  /* ===== KARAOKE (YRC word-by-word) =====
+     已唱过 = 全亮白；未唱 = 半透明；当前字 = 渐进高亮 */
+  .karaoke { display: inline-flex; flex-wrap: wrap; }
+  .karaoke .word { color: rgba(255,255,255,0.32); transition: color 0.15s; position: relative; white-space: pre; }
+  .karaoke .word.sung { color: #fff; }
+  .karaoke .word.cur {
+    background: linear-gradient(90deg, #fff 0 var(--p, 50%), rgba(255,255,255,0.32) var(--p, 50%) 100%);
+    -webkit-background-clip: text; background-clip: text;
+    color: transparent;
+  }
+  @keyframes wipe { from { --p: 0%; } to { --p: 100%; } }
+  .karaoke .word.cur { animation: wipe 1.4s linear infinite; }
+
+  /* ===== Compact lyric scroller (a single line, fades on edges) ===== */
+  .lyric-line {
+    flex:1; min-width: 0;
+    font-size: 13px; font-weight: 500;
+    white-space: nowrap; overflow: hidden; position: relative;
+    -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 18px, #000 calc(100% - 18px), transparent 100%);
+            mask-image: linear-gradient(90deg, transparent 0, #000 18px, #000 calc(100% - 18px), transparent 100%);
+  }
+
+  /* ===== Multi-line lyrics column (expanded, three lines) ===== */
+  .lyrics-col { display:flex; flex-direction: column; gap: 4px; min-height: 96px; justify-content: center; }
+  .lyrics-col .l-prev { font-size: 12px; color: rgba(255,255,255,0.28); }
+  .lyrics-col .l-cur  { font-size: 16px; font-weight: 700; color: #fff; line-height: 1.35; }
+  .lyrics-col .l-next { font-size: 12px; color: rgba(255,255,255,0.45); }
+
+  /* ===== Full-width lyric below cover (variant C) ===== */
+  .lyric-strip {
+    width: 100%; padding: 10px 12px; border-radius: 12px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.05);
+  }
+  .lyric-strip .l-cur { font-size: 15px; font-weight: 700; }
+  .lyric-strip .l-next { font-size: 11.5px; color: rgba(255,255,255,0.45); margin-top: 4px; }
+</style>
+</head>
+<body>
+
+<h1>方案 1 · Apple 黑胶 + 歌词集成 · 4 个细分方向</h1>
+<p class="lede">
+  既然喜欢 1 号黑胶，就在它基础上把歌词融进去。下面 4 种是「歌词出现的位置和强度」的不同选择 —
+  从最克制到最沉浸。挑一个，或者紧凑态用 A、展开态用 B/C 这种组合也可以。
+</p>
+
+<div class="grid">
+
+  <!-- ========================================================
+       A) 紧凑态：副标题位轮播歌词（最低改动）
+       ======================================================== -->
+  <section class="case">
+    <h2><span class="num">A</span>紧凑态 · 副标题位 = 歌词</h2>
+    <p class="desc">
+      紧凑岛保持现有布局：左侧黑胶、右侧文字。<b>把「艺术家」那一行换成当前歌词</b>，标题行保留歌名。
+      没有歌词时回退到艺术家。改动量最小，也保持紧凑岛 44px 高度。
+    </p>
+    <div class="stage">
+      <div class="label">Compact (无歌词时)</div>
+      <div class="island compact">
+        <div class="vinyl"></div>
+        <div class="ticker">
+          <div class="title">Blinding Lights</div>
+          <div class="sub">The Weeknd</div>
+        </div>
+      </div>
+
+      <div class="label">Compact (有歌词时)</div>
+      <div class="island compact">
+        <div class="vinyl"></div>
+        <div class="ticker">
+          <div class="title">Blinding Lights</div>
+          <div class="sub" style="color: rgba(255,255,255,0.85)">I said, ooh, I'm blinded by the lights</div>
+        </div>
+      </div>
+
+      <div class="label">Compact (YRC 逐字高亮)</div>
+      <div class="island compact">
+        <div class="vinyl"></div>
+        <div class="ticker">
+          <div class="title">Blinding Lights</div>
+          <div class="sub" style="color:#fff; font-size:11.5px">
+            <span class="karaoke">
+              <span class="word sung">I </span>
+              <span class="word sung">said, </span>
+              <span class="word sung">ooh, </span>
+              <span class="word sung">I'm </span>
+              <span class="word cur">blinded </span>
+              <span class="word">by </span>
+              <span class="word">the </span>
+              <span class="word">lights</span>
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="pros">优点：紧凑岛布局完全不变，工程最简单（已有 LyricsMonitor 直接接进来）</p>
+    <p class="cons">代价：每行只能看一句，歌词长了得滚动；艺术家信息会消失</p>
+  </section>
+
+  <!-- ========================================================
+       B) 展开态：左封面/右文字三行歌词（推荐）
+       ======================================================== -->
+  <section class="case">
+    <h2><span class="num">B</span>展开态 · 黑胶 + 三行歌词列（推荐）</h2>
+    <p class="desc">
+      展开后左边黑胶变大，右边一栏显示<b>「上一句 / 当前句 / 下一句」三行</b>，当前句字号最大、纯白。
+      底部仍保留进度条和控制按钮。这是现有 LyricsComponent 三行模式的自然延伸。
+    </p>
+    <div class="stage">
+      <div class="label">Expanded</div>
+      <div class="island expanded">
+        <div class="row">
+          <div class="vinyl lg"></div>
+          <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:6px">
+            <div style="font-size:14px; font-weight:700;">Blinding Lights</div>
+            <div style="font-size:11px; color:rgba(255,255,255,0.5)">The Weeknd</div>
+            <div class="lyrics-col" style="margin-top:2px">
+              <div class="l-prev">I'm drowning in the night</div>
+              <div class="l-cur">
+                <span class="karaoke">
+                  <span class="word sung">I'm </span>
+                  <span class="word sung">blinded </span>
+                  <span class="word cur">by </span>
+                  <span class="word">the </span>
+                  <span class="word">lights</span>
+                </span>
+              </div>
+              <div class="l-next">No, I can't sleep until I feel your touch</div>
+            </div>
+          </div>
+        </div>
+        <div class="row">
+          <span class="time">1:24</span>
+          <div class="progress"><i></i></div>
+          <span class="time">3:20</span>
+        </div>
+        <div class="row" style="justify-content:center">
+          <div class="controls">
+            <svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+            <span class="play"><svg viewBox="0 0 24 24"><path d="M6 19h4V5H6zm8-14v14h4V5z"/></svg></span>
+            <svg viewBox="0 0 24 24"><path d="M16 6h2v12h-2zM6 18l8.5-6L6 6z"/></svg>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="pros">优点：信息密度刚好；三行上下文符合直觉；YRC 高亮自然落在中间一行</p>
+    <p class="cons">代价：展开态高度需要 ~210-220px（当前是 200，可微调）</p>
+  </section>
+
+  <!-- ========================================================
+       C) 展开态：上半封面+元信息，下半整条歌词带
+       ======================================================== -->
+  <section class="case">
+    <h2><span class="num">C</span>展开态 · 顶部信息 + 底部歌词带</h2>
+    <p class="desc">
+      上半部维持现状（黑胶 + 标题 + 进度），<b>底部新增一条横向歌词带</b>，居中显示当前句，下方一行预告。
+      和现状改动最小，歌词当作可开关的扩展模块。
+    </p>
+    <div class="stage">
+      <div class="label">Expanded</div>
+      <div class="island expanded">
+        <div class="row">
+          <div class="vinyl md"></div>
+          <div style="flex:1; min-width:0">
+            <div style="font-size:14px; font-weight:700;">Blinding Lights</div>
+            <div style="font-size:11px; color:rgba(255,255,255,0.5); margin-top:2px">The Weeknd · After Hours</div>
+            <div class="row" style="margin-top:8px">
+              <span class="time">1:24</span>
+              <div class="progress"><i></i></div>
+              <span class="time">3:20</span>
+            </div>
+          </div>
+          <div class="controls">
+            <span class="play"><svg viewBox="0 0 24 24"><path d="M6 19h4V5H6zm8-14v14h4V5z"/></svg></span>
+          </div>
+        </div>
+        <div class="lyric-strip">
+          <div class="l-cur">
+            <span class="karaoke">
+              <span class="word sung">I'm </span>
+              <span class="word sung">blinded </span>
+              <span class="word cur">by </span>
+              <span class="word">the </span>
+              <span class="word">lights</span>
+            </span>
+          </div>
+          <div class="l-next">No, I can't sleep until I feel your touch</div>
+        </div>
+      </div>
+    </div>
+    <p class="pros">优点：歌词作为独立模块；用户可一键关掉只剩播放器；视觉层次最清晰</p>
+    <p class="cons">代价：展开态变高（~230px）；视觉信息略多</p>
+  </section>
+
+  <!-- ========================================================
+       D) 沉浸态：第三档高度，整岛只有歌词
+       ======================================================== -->
+  <section class="case">
+    <h2><span class="num">D</span>沉浸态 · 第三档「全屏歌词」</h2>
+    <p class="desc">
+      在现有「紧凑 / 展开」之外加<b>第三档：歌词模式</b>。点击展开态的歌词带或专门按钮进入，
+      黑胶缩小到角落，整岛是 5-7 行歌词的滚动列表，当前句最大最亮。最沉浸但占屏幕大。
+    </p>
+    <div class="stage">
+      <div class="label">Lyrics Mode</div>
+      <div class="island expanded" style="padding: 20px 22px;">
+        <div class="row" style="gap:10px">
+          <div class="vinyl" style="width:22px; height:22px"></div>
+          <div style="font-size:11px; color:rgba(255,255,255,0.55); flex:1">Blinding Lights · The Weeknd</div>
+          <div class="time">1:24 / 3:20</div>
+        </div>
+        <div style="display:flex; flex-direction: column; gap: 10px; padding: 8px 0; text-align:center;">
+          <div style="font-size:12px; color:rgba(255,255,255,0.18)">Yeah, you can start a fire</div>
+          <div style="font-size:13px; color:rgba(255,255,255,0.32)">'Cause I just wanna be by your side</div>
+          <div style="font-size:14px; color:rgba(255,255,255,0.55)">I'm drowning in the night</div>
+          <div style="font-size:18px; font-weight:700; color:#fff; line-height:1.35;">
+            <span class="karaoke">
+              <span class="word sung">I'm </span>
+              <span class="word sung">blinded </span>
+              <span class="word cur">by </span>
+              <span class="word">the </span>
+              <span class="word">lights</span>
+            </span>
+          </div>
+          <div style="font-size:14px; color:rgba(255,255,255,0.55)">No, I can't sleep until I feel your touch</div>
+          <div style="font-size:13px; color:rgba(255,255,255,0.32)">I said, ooh, I'm drowning in the night</div>
+          <div style="font-size:12px; color:rgba(255,255,255,0.18)">Oh, when I'm like this, you're the one I trust</div>
+        </div>
+      </div>
+    </div>
+    <p class="pros">优点：极致沉浸；适合用户专门"看歌词"的场景</p>
+    <p class="cons">代价：要在 LayoutController 里加新档位 + 状态机分支；改动最大</p>
+  </section>
+
+</div>
+
+<div style="margin-top:48px; padding:20px 22px; background: rgba(126,198,153,0.06); border:1px solid rgba(126,198,153,0.18); border-radius: 14px; max-width:760px;">
+  <h3 style="margin:0 0 8px; font-size:14px; color:#a4dabf;">🎯 推荐组合</h3>
+  <p style="margin:0; font-size:13px; color:#cdd2dc; line-height:1.7;">
+    <b>紧凑态用 A</b>（副标题位歌词，YRC 逐字）<b>+ 展开态用 B</b>（三行歌词列）。
+    这套覆盖 80% 场景且改动可控；如果未来想要 D 的沉浸态，再做成展开态长按或专门按钮触发的第三档。
+    确认这个方向我就开始改 <code style="color:#9aa0b0">MusicPlayerComponent</code> 和 <code style="color:#9aa0b0">LyricsComponent</code> 的协同布局。
+  </p>
+</div>
+
+</body>
+</html>

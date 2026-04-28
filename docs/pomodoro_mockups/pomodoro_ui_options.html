@@ -1,0 +1,879 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pomodoro UI Options - Current Based</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --page: #090a0d;
+      --island: rgba(14, 15, 20, 0.96);
+      --surface: rgba(255, 255, 255, 0.052);
+      --surface-strong: rgba(255, 255, 255, 0.086);
+      --stroke: rgba(255, 255, 255, 0.09);
+      --stroke-soft: rgba(255, 255, 255, 0.055);
+      --text: rgba(255, 255, 255, 0.95);
+      --muted: rgba(255, 255, 255, 0.56);
+      --faint: rgba(255, 255, 255, 0.32);
+      --tomato: #ef5a4e;
+      --tomato-soft: rgba(239, 90, 78, 0.2);
+      --amber: #f3a83e;
+      --green: #55d49b;
+      --blue: #7ab8ff;
+      font-family: "Microsoft YaHei", "Segoe UI", Arial, sans-serif;
+      font-size: 14px;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at 20% 0%, rgba(239, 90, 78, 0.12), transparent 28%),
+        radial-gradient(circle at 80% 8%, rgba(122, 184, 255, 0.06), transparent 24%),
+        linear-gradient(145deg, #090a0d 0%, #14161c 48%, #0a0b0f 100%);
+      color: var(--text);
+    }
+
+    main {
+      width: min(1180px, calc(100vw - 36px));
+      margin: 0 auto;
+      padding: 32px 0 48px;
+    }
+
+    h1 {
+      margin: 0 0 6px;
+      font-size: 23px;
+      font-weight: 760;
+      letter-spacing: 0;
+    }
+
+    .subhead {
+      margin: 0 0 24px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 22px;
+    }
+
+    .option {
+      min-width: 0;
+      padding: 17px;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.075);
+      background: rgba(255, 255, 255, 0.034);
+      box-shadow: 0 18px 42px rgba(0, 0, 0, 0.24);
+    }
+
+    .option-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .option-title {
+      font-size: 15px;
+      font-weight: 760;
+    }
+
+    .option-note {
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .stage {
+      display: grid;
+      place-items: center;
+      gap: 14px;
+    }
+
+    .island {
+      position: relative;
+      overflow: hidden;
+      isolation: isolate;
+      background: var(--island);
+      border: 1px solid rgba(255, 255, 255, 0.078);
+      box-shadow:
+        0 24px 54px rgba(0, 0, 0, 0.42),
+        inset 0 1px 0 rgba(255, 255, 255, 0.055);
+    }
+
+    .island::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.042), transparent 42%);
+      z-index: 4;
+    }
+
+    .compact {
+      width: 252px;
+      height: 54px;
+      border-radius: 27px;
+    }
+
+    .expanded {
+      width: 370px;
+      height: 246px;
+      border-radius: 31px;
+    }
+
+    .top {
+      position: relative;
+      z-index: 2;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 14px;
+    }
+
+    .title {
+      font-size: 13px;
+      font-weight: 760;
+      line-height: 1.1;
+    }
+
+    .caption {
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.2;
+    }
+
+    .time {
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 0;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      height: 22px;
+      min-width: 54px;
+      padding: 0 9px;
+      border-radius: 99px;
+      color: var(--muted);
+      background: rgba(255, 255, 255, 0.07);
+      border: 1px solid rgba(255, 255, 255, 0.055);
+      font-size: 11px;
+      line-height: 1;
+    }
+
+    .chip.hot {
+      color: #fff;
+      background: rgba(239, 90, 78, 0.19);
+      border-color: rgba(239, 90, 78, 0.32);
+    }
+
+    .button-row {
+      position: relative;
+      z-index: 2;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 13px;
+    }
+
+    .button {
+      width: 54px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      border-radius: 17px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.09);
+      color: #fff;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045);
+    }
+
+    .button.primary {
+      background: #f7f7f7;
+      color: #111216;
+      border-color: transparent;
+      box-shadow: 0 8px 18px rgba(255, 255, 255, 0.08);
+    }
+
+    .small-btn {
+      width: 27px;
+      height: 27px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      color: #fff;
+      background: rgba(255, 255, 255, 0.095);
+      border: 1px solid rgba(255, 255, 255, 0.055);
+    }
+
+    .icon {
+      position: relative;
+      display: block;
+      width: 18px;
+      height: 18px;
+    }
+
+    .icon.pause::before,
+    .icon.pause::after {
+      content: "";
+      position: absolute;
+      top: 2px;
+      width: 4px;
+      height: 14px;
+      border-radius: 3px;
+      background: currentColor;
+    }
+
+    .icon.pause::before { left: 4px; }
+    .icon.pause::after { right: 4px; }
+
+    .icon.play {
+      width: 0;
+      height: 0;
+      margin-left: 3px;
+      border-top: 8px solid transparent;
+      border-bottom: 8px solid transparent;
+      border-left: 13px solid currentColor;
+    }
+
+    .icon.stop::before {
+      content: "";
+      position: absolute;
+      inset: 4px;
+      border-radius: 4px;
+      background: currentColor;
+    }
+
+    .icon.down::before,
+    .icon.down::after {
+      content: "";
+      position: absolute;
+      top: 8px;
+      width: 10px;
+      height: 2px;
+      border-radius: 2px;
+      background: currentColor;
+    }
+
+    .icon.down::before { left: 2px; transform: rotate(32deg); }
+    .icon.down::after { right: 2px; transform: rotate(-32deg); }
+
+    .dial {
+      position: relative;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+    }
+
+    .dial-core {
+      position: absolute;
+      display: grid;
+      place-items: center;
+      text-align: center;
+      border-radius: 50%;
+    }
+
+    .tick-ring {
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      background:
+        repeating-conic-gradient(from -90deg,
+          rgba(239, 90, 78, 0.94) 0deg 3.5deg,
+          transparent 3.5deg 6deg,
+          rgba(255, 255, 255, 0.16) 6deg 7.4deg,
+          transparent 7.4deg 12deg);
+      mask: radial-gradient(circle, transparent 0 61%, #000 62% 100%);
+    }
+
+    .progress {
+      height: 5px;
+      overflow: hidden;
+      border-radius: 99px;
+      background: rgba(255, 255, 255, 0.105);
+    }
+
+    .progress span {
+      display: block;
+      width: 74%;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--tomato), #f59c68);
+      box-shadow: 0 0 16px rgba(239, 90, 78, 0.46);
+    }
+
+    /* 方案 A */
+    .a-compact {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 10px 8px 14px;
+    }
+
+    .a-mini {
+      position: relative;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: conic-gradient(var(--tomato) 74%, rgba(255, 255, 255, 0.13) 0);
+      flex: 0 0 auto;
+    }
+
+    .a-mini::before {
+      content: "";
+      position: absolute;
+      inset: 6px;
+      border-radius: inherit;
+      background: #101116;
+    }
+
+    .a-compact-text {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .a-compact .time {
+      font-size: 20px;
+      font-weight: 820;
+      color: #fff;
+    }
+
+    .a-expanded {
+      padding: 16px 17px;
+    }
+
+    .a-panel {
+      position: absolute;
+      left: 14px;
+      right: 14px;
+      top: 10px;
+      height: 170px;
+      border-radius: 20px;
+      background:
+        radial-gradient(circle at 50% 52%, rgba(239, 90, 78, 0.15), transparent 45%),
+        rgba(255, 255, 255, 0.044);
+      border: 1px solid rgba(255, 255, 255, 0.07);
+    }
+
+    .a-footer {
+      position: absolute;
+      left: 14px;
+      right: 14px;
+      bottom: 14px;
+      height: 46px;
+      border-radius: 19px;
+      background: rgba(255, 255, 255, 0.045);
+      border: 1px solid rgba(255, 255, 255, 0.065);
+    }
+
+    .a-dial {
+      width: 128px;
+      height: 128px;
+      margin: 18px auto 0;
+      background: conic-gradient(var(--tomato) 74%, rgba(255, 255, 255, 0.12) 0);
+      box-shadow: 0 0 38px rgba(239, 90, 78, 0.15);
+    }
+
+    .a-dial::before {
+      content: "";
+      position: absolute;
+      inset: 8px;
+      border-radius: inherit;
+      background: #101116;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.075);
+    }
+
+    .a-dial .time {
+      font-size: 30px;
+      font-weight: 840;
+      color: var(--tomato);
+    }
+
+    .a-expanded .button-row {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 20px;
+    }
+
+    /* 方案 B */
+    .b-compact {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 10px 8px 14px;
+    }
+
+    .b-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--tomato);
+      box-shadow: 0 0 16px rgba(239, 90, 78, 0.8);
+    }
+
+    .b-compact .time {
+      font-size: 21px;
+      font-weight: 800;
+    }
+
+    .b-actions {
+      display: flex;
+      gap: 6px;
+    }
+
+    .b-expanded {
+      padding: 17px;
+    }
+
+    .b-dial-wrap {
+      position: relative;
+      height: 142px;
+      margin-top: 4px;
+      display: grid;
+      place-items: center;
+    }
+
+    .b-dial {
+      width: 126px;
+      height: 126px;
+      background:
+        radial-gradient(circle, rgba(255, 255, 255, 0.07) 0 45%, transparent 46%),
+        rgba(255, 255, 255, 0.035);
+      border: 1px solid rgba(255, 255, 255, 0.07);
+      box-shadow: 0 0 26px rgba(0, 0, 0, 0.24);
+    }
+
+    .b-hand {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 2px;
+      height: 45px;
+      border-radius: 3px;
+      background: #fff;
+      transform-origin: 50% 0;
+      transform: rotate(46deg);
+      box-shadow: 0 0 12px rgba(255, 255, 255, 0.34);
+    }
+
+    .b-knob {
+      position: absolute;
+      left: calc(50% + 31px);
+      top: calc(50% + 31px);
+      width: 9px;
+      height: 9px;
+      margin-left: -4.5px;
+      margin-top: -4.5px;
+      border-radius: 50%;
+      background: var(--tomato);
+      box-shadow: 0 0 14px rgba(239, 90, 78, 0.75);
+    }
+
+    .b-dial .time {
+      font-size: 29px;
+      font-weight: 820;
+      color: #fff;
+    }
+
+    .b-expanded .progress {
+      position: absolute;
+      left: 30px;
+      right: 30px;
+      bottom: 70px;
+      height: 4px;
+    }
+
+    .b-expanded .button-row {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 20px;
+    }
+
+    /* 方案 C */
+    .c-compact {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      padding: 8px 10px 8px 14px;
+    }
+
+    .c-pill {
+      width: 5px;
+      height: 31px;
+      border-radius: 99px;
+      background: rgba(255, 255, 255, 0.11);
+      overflow: hidden;
+    }
+
+    .c-pill span {
+      display: block;
+      height: 74%;
+      margin-top: 26%;
+      border-radius: inherit;
+      background: linear-gradient(180deg, var(--amber), var(--tomato));
+    }
+
+    .c-compact-main {
+      flex: 1;
+    }
+
+    .c-compact .time {
+      font-size: 21px;
+      font-weight: 820;
+    }
+
+    .c-expanded {
+      padding: 17px;
+    }
+
+    .c-layout {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: 1fr 132px;
+      align-items: center;
+      height: 150px;
+      gap: 12px;
+      margin-top: 4px;
+    }
+
+    .c-big .time {
+      font-size: 47px;
+      font-weight: 860;
+      line-height: 1;
+    }
+
+    .c-meta {
+      display: flex;
+      gap: 7px;
+      margin-top: 13px;
+    }
+
+    .c-dial {
+      width: 122px;
+      height: 122px;
+      justify-self: end;
+      background: conic-gradient(var(--tomato) 74%, rgba(255, 255, 255, 0.1) 0);
+      box-shadow: 0 0 28px rgba(239, 90, 78, 0.12);
+    }
+
+    .c-dial::before {
+      content: "";
+      position: absolute;
+      inset: 10px;
+      border-radius: inherit;
+      background: #111218;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07);
+    }
+
+    .c-expanded .button-row {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 20px;
+    }
+
+    /* 方案 D */
+    .d-compact {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 10px 8px 15px;
+    }
+
+    .d-compact .time {
+      font-size: 20px;
+      font-weight: 810;
+    }
+
+    .d-compact .progress {
+      grid-column: 1 / -1;
+      height: 3px;
+      margin-right: 66px;
+    }
+
+    .d-actions {
+      display: flex;
+      gap: 6px;
+    }
+
+    .d-expanded {
+      padding: 17px 18px;
+    }
+
+    .d-center {
+      height: 143px;
+      display: grid;
+      place-items: center;
+      text-align: center;
+    }
+
+    .d-arc {
+      position: absolute;
+      left: 32px;
+      right: 32px;
+      top: 59px;
+      height: 88px;
+      border-radius: 88px 88px 0 0;
+      border-top: 6px solid var(--tomato);
+      border-left: 6px solid rgba(239, 90, 78, 0.72);
+      border-right: 6px solid rgba(255, 255, 255, 0.16);
+      border-bottom: 0;
+      opacity: 0.95;
+      filter: drop-shadow(0 0 14px rgba(239, 90, 78, 0.22));
+    }
+
+    .d-center .time {
+      font-size: 50px;
+      font-weight: 850;
+      line-height: 1;
+    }
+
+    .d-bottom-info {
+      position: absolute;
+      left: 26px;
+      right: 26px;
+      bottom: 69px;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      color: var(--faint);
+      font-size: 10px;
+    }
+
+    .d-bottom-info .progress {
+      flex: 1;
+      height: 4px;
+    }
+
+    .d-expanded .button-row {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 20px;
+    }
+
+    @media (max-width: 860px) {
+      main {
+        width: min(430px, calc(100vw - 24px));
+        padding-top: 24px;
+      }
+
+      .grid {
+        grid-template-columns: 1fr;
+      }
+
+      .option {
+        padding: 14px;
+      }
+
+      .expanded {
+        width: min(370px, calc(100vw - 56px));
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>番茄钟 UI 方案 · 基于当前版优化</h1>
+    <p class="subhead">这批保留当前逻辑：中心分钟盘、状态/时长、暂停/停止/收起按钮，只调整密度、层次、进度表达和紧凑态读数。</p>
+
+    <div class="grid">
+      <section class="option">
+        <div class="option-head">
+          <div class="option-title">方案 A · 当前版精修</div>
+          <div class="option-note">改动最小，质感提升</div>
+        </div>
+        <div class="stage">
+          <div class="island compact a-compact">
+            <div class="a-mini"></div>
+            <div class="a-compact-text">
+              <div class="caption">Focus · 25 min</div>
+              <div class="time">18:32</div>
+            </div>
+            <div class="small-btn"><span class="icon pause"></span></div>
+            <div class="small-btn"><span class="icon stop"></span></div>
+          </div>
+
+          <div class="island expanded a-expanded">
+            <div class="a-panel"></div>
+            <div class="a-footer"></div>
+            <div class="top">
+              <div>
+                <div class="title">Pomodoro Focus</div>
+                <div class="caption">Ready for deep work</div>
+              </div>
+              <div class="chip hot">25 min</div>
+            </div>
+            <div class="dial a-dial">
+              <div class="dial-core">
+                <div class="time">18:32</div>
+                <div class="caption">Focus</div>
+              </div>
+            </div>
+            <div class="button-row">
+              <div class="button primary"><span class="icon pause"></span></div>
+              <div class="button"><span class="icon stop"></span></div>
+              <div class="button"><span class="icon down"></span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="option">
+        <div class="option-head">
+          <div class="option-title">方案 B · 刻度表盘增强</div>
+          <div class="option-note">保留可拖动拨盘感</div>
+        </div>
+        <div class="stage">
+          <div class="island compact b-compact">
+            <div class="b-dot"></div>
+            <div>
+              <div class="caption">Focus running</div>
+              <div class="time">18:32</div>
+            </div>
+            <div class="b-actions">
+              <div class="small-btn"><span class="icon pause"></span></div>
+              <div class="small-btn"><span class="icon stop"></span></div>
+            </div>
+          </div>
+
+          <div class="island expanded b-expanded">
+            <div class="top">
+              <div>
+                <div class="title">Focus Dial</div>
+                <div class="caption">Drag ring to adjust</div>
+              </div>
+              <div class="chip hot">Running</div>
+            </div>
+            <div class="b-dial-wrap">
+              <div class="dial b-dial">
+                <div class="tick-ring"></div>
+                <div class="dial-core">
+                  <div class="time">18:32</div>
+                  <div class="caption">25 min</div>
+                </div>
+                <div class="b-hand"></div>
+                <div class="b-knob"></div>
+              </div>
+            </div>
+            <div class="progress"><span></span></div>
+            <div class="button-row">
+              <div class="button primary"><span class="icon pause"></span></div>
+              <div class="button"><span class="icon stop"></span></div>
+              <div class="button"><span class="icon down"></span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="option">
+        <div class="option-head">
+          <div class="option-title">方案 C · 左数字右圆盘</div>
+          <div class="option-note">信息更清楚，仍接近当前</div>
+        </div>
+        <div class="stage">
+          <div class="island compact c-compact">
+            <div class="c-pill"><span></span></div>
+            <div class="c-compact-main">
+              <div class="caption">25 min · focus</div>
+              <div class="time">18:32</div>
+            </div>
+            <div class="small-btn"><span class="icon pause"></span></div>
+            <div class="small-btn"><span class="icon stop"></span></div>
+          </div>
+
+          <div class="island expanded c-expanded">
+            <div class="top">
+              <div>
+                <div class="title">Pomodoro Focus</div>
+                <div class="caption">Session progress</div>
+              </div>
+              <div class="chip hot">25 min</div>
+            </div>
+            <div class="c-layout">
+              <div class="c-big">
+                <div class="time">18:32</div>
+                <div class="caption">Focus running</div>
+                <div class="c-meta">
+                  <div class="chip">07:28</div>
+                  <div class="chip hot">74%</div>
+                </div>
+              </div>
+              <div class="dial c-dial">
+                <div class="dial-core">
+                  <div class="caption">left</div>
+                </div>
+              </div>
+            </div>
+            <div class="button-row">
+              <div class="button primary"><span class="icon pause"></span></div>
+              <div class="button"><span class="icon stop"></span></div>
+              <div class="button"><span class="icon down"></span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="option">
+        <div class="option-head">
+          <div class="option-title">方案 D · 大数字半环</div>
+          <div class="option-note">当前功能，视觉更轻</div>
+        </div>
+        <div class="stage">
+          <div class="island compact d-compact">
+            <div>
+              <div class="caption">Focus · 18:32 left</div>
+              <div class="time">Pomodoro</div>
+            </div>
+            <div class="d-actions">
+              <div class="small-btn"><span class="icon pause"></span></div>
+              <div class="small-btn"><span class="icon stop"></span></div>
+            </div>
+            <div class="progress"><span></span></div>
+          </div>
+
+          <div class="island expanded d-expanded">
+            <div class="top">
+              <div>
+                <div class="title">Pomodoro</div>
+                <div class="caption">25 minute focus</div>
+              </div>
+              <div class="chip hot">Focus</div>
+            </div>
+            <div class="d-arc"></div>
+            <div class="d-center">
+              <div>
+                <div class="time">18:32</div>
+                <div class="caption">remaining</div>
+              </div>
+            </div>
+            <div class="d-bottom-info">
+              <span>07:28</span>
+              <div class="progress"><span></span></div>
+              <span>25:00</span>
+            </div>
+            <div class="button-row">
+              <div class="button primary"><span class="icon pause"></span></div>
+              <div class="button"><span class="icon stop"></span></div>
+              <div class="button"><span class="icon down"></span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

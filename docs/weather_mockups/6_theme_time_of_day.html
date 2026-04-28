@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>晴朗天气 - 日夜时间推移 (Sunny - Time of Day Variants)</title>
+<style>
+  body {
+    background: #000;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 40px;
+    min-height: 100vh;
+    margin: 0;
+    padding: 40px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    box-sizing: border-box;
+  }
+
+  .card-container { position: relative; }
+
+  .label {
+    position: absolute; top: -30px; color: #fff; font-size: 14px;
+    text-align: center; width: 100%; left: 0; opacity: 0.7; font-weight: 500;
+  }
+
+  .card {
+    width: 320px; height: 180px; border-radius: 32px;
+    position: relative; overflow: hidden;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+  }
+  .card:hover {
+    transform: translateY(-5px) scale(1.02);
+    box-shadow: 0 30px 60px rgba(0, 0, 0, 0.7);
+  }
+
+  /* --- 沉浸式背景层 (Atmospheric Backgrounds) --- */
+  .bg-layer {
+    position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 0;
+  }
+
+  /* 1. 清晨 (Morning) */
+  .bg-morning { background: linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%); }
+  .bg-morning .bg-sun {
+    position: absolute; bottom: 10px; left: -20px; width: 180px; height: 180px;
+    background: radial-gradient(circle, rgba(255, 180, 100, 0.6) 0%, transparent 60%);
+    animation: sun-rise 10s ease-out infinite alternate;
+  }
+  @keyframes sun-rise { 0% { transform: translateY(20px); opacity: 0.6; } 100% { transform: translateY(0); opacity: 1; } }
+
+  /* 2. 正午 (Noon) */
+  .bg-noon { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); }
+  .bg-noon .bg-sun {
+    position: absolute; top: -40px; left: 50%; transform: translateX(-50%); width: 220px; height: 220px;
+    background: radial-gradient(circle, rgba(255, 255, 255, 0.5) 0%, transparent 65%);
+    animation: sun-blaze 6s ease-in-out infinite alternate;
+  }
+  @keyframes sun-blaze { 0% { transform: translateX(-50%) scale(0.9); } 100% { transform: translateX(-50%) scale(1.1); } }
+
+  /* 3. 傍晚 (Evening/Sunset) */
+  .bg-evening { background: linear-gradient(135deg, #ff7e5f 0%, #feb47b 100%); }
+  .bg-evening .bg-sun {
+    position: absolute; bottom: 10px; right: -20px; width: 200px; height: 200px;
+    background: radial-gradient(circle, rgba(255, 80, 50, 0.7) 0%, transparent 60%);
+    animation: sun-set 10s ease-out infinite alternate;
+  }
+  @keyframes sun-set { 0% { transform: translateY(-10px); opacity: 1; } 100% { transform: translateY(20px); opacity: 0.6; } }
+
+  /* --- 毛玻璃内容层 (Glass UI) --- */
+  .glass-content {
+    position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 1;
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 32px;
+    padding: 24px; box-sizing: border-box;
+    display: flex; flex-direction: column; justify-content: space-between;
+  }
+
+  .header { display: flex; justify-content: space-between; align-items: flex-start; color: #fff; text-shadow: 0 2px 4px rgba(0,0,0,0.3); }
+  .location { font-size: 20px; font-weight: 600; margin: 0; letter-spacing: 0.5px; }
+  .desc { font-size: 14px; color: rgba(255,255,255,0.8); margin: 4px 0 0 0; font-weight: 400; }
+  
+  .main { display: flex; justify-content: space-between; align-items: flex-end; }
+  .temp { font-size: 52px; font-weight: 300; color: #fff; margin: 0; line-height: 0.9; letter-spacing: -2px; text-shadow: 0 4px 12px rgba(0,0,0,0.2); }
+  .icon { position: relative; width: 80px; height: 80px; }
+
+  /* 基础太阳图标 (Foreground Icon) */
+  .sun-icon {
+    width: 56px; height: 56px; border-radius: 50%; position: absolute; top: 12px; left: 12px;
+    animation: sun-pulse 4s ease-in-out infinite alternate;
+  }
+  .sun-morning { background: linear-gradient(135deg, #FFB75E, #ED8F03); box-shadow: 0 0 25px rgba(237, 143, 3, 0.6); }
+  .sun-noon { background: linear-gradient(135deg, #FFDE00, #FF8C00); box-shadow: 0 0 35px rgba(255, 140, 0, 0.8); }
+  .sun-evening { background: linear-gradient(135deg, #FF4B2B, #FF416C); box-shadow: 0 0 30px rgba(255, 75, 43, 0.7); }
+
+  @keyframes sun-pulse { 0% { transform: scale(0.95); } 100% { transform: scale(1.05); } }
+
+</style>
+</head>
+<body>
+
+  <!-- 1. 清晨 -->
+  <div class="card-container">
+    <div class="label">清晨 (Morning) - 太阳位于左下方升起</div>
+    <div class="card">
+      <div class="bg-layer bg-morning">
+        <div class="bg-sun"></div>
+      </div>
+      <div class="glass-content">
+        <div class="header">
+          <div><h2 class="location">Beijing</h2><p class="desc">Sunrise</p></div>
+        </div>
+        <div class="main">
+          <h1 class="temp">16°</h1>
+          <div class="icon"><div class="sun-icon sun-morning"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. 正午 -->
+  <div class="card-container">
+    <div class="label">正午 (Noon) - 太阳位于正上方</div>
+    <div class="card">
+      <div class="bg-layer bg-noon">
+        <div class="bg-sun"></div>
+      </div>
+      <div class="glass-content">
+        <div class="header">
+          <div><h2 class="location">Beijing</h2><p class="desc">Sunny</p></div>
+        </div>
+        <div class="main">
+          <h1 class="temp">24°</h1>
+          <div class="icon"><div class="sun-icon sun-noon"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. 傍晚 -->
+  <div class="card-container">
+    <div class="label">傍晚 (Evening) - 太阳位于右下方日落</div>
+    <div class="card">
+      <div class="bg-layer bg-evening">
+        <div class="bg-sun"></div>
+      </div>
+      <div class="glass-content">
+        <div class="header">
+          <div><h2 class="location">Beijing</h2><p class="desc">Sunset</p></div>
+        </div>
+        <div class="main">
+          <h1 class="temp">21°</h1>
+          <div class="icon"><div class="sun-icon sun-evening"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>

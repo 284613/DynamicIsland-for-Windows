@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>毛玻璃 + 沉浸背景 (Glassmorphism + Atmospheric)</title>
+<style>
+  body {
+    background: #000;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 40px;
+    min-height: 100vh;
+    margin: 0;
+    padding: 40px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    box-sizing: border-box;
+  }
+
+  .card-container { position: relative; }
+
+  .label {
+    position: absolute; top: -30px; color: #fff; font-size: 14px;
+    text-align: center; width: 100%; left: 0; opacity: 0.7; font-weight: 500;
+  }
+
+  .card {
+    width: 320px; height: 180px; border-radius: 32px;
+    position: relative; overflow: hidden;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+  }
+  .card:hover {
+    transform: translateY(-5px) scale(1.02);
+    box-shadow: 0 30px 60px rgba(0, 0, 0, 0.7);
+  }
+
+  /* --- 沉浸式背景层 (Atmospheric Backgrounds) --- */
+  .bg-layer {
+    position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 0;
+  }
+  
+  /* 晴天背景 */
+  .bg-sunny { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); }
+  .bg-sunny::after {
+    content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%;
+    background: radial-gradient(circle at 50% 50%, rgba(255,255,255,0.2) 0%, transparent 60%);
+    animation: rotate-rays 20s linear infinite;
+  }
+
+  /* 多云背景 */
+  .bg-cloudy { background: linear-gradient(135deg, #8e9eab 0%, #eef2f3 100%); }
+  .bg-cloud {
+    position: absolute; background: rgba(255,255,255,0.1); border-radius: 50%;
+    filter: blur(20px);
+  }
+
+  /* 阵雨背景 */
+  .bg-rainy { background: linear-gradient(135deg, #2b4162 0%, #12100e 100%); }
+  .bg-rain-line {
+    position: absolute; width: 2px; height: 100%;
+    background: linear-gradient(to bottom, transparent, rgba(255,255,255,0.3));
+    animation: bg-rain 1s linear infinite;
+  }
+  @keyframes bg-rain { 0% { transform: translateY(-100%); } 100% { transform: translateY(100%); } }
+
+  /* 雷暴背景 */
+  .bg-thunder { background: linear-gradient(135deg, #141e30 0%, #243b55 100%); animation: bg-flash 5s infinite; }
+  @keyframes bg-flash {
+    0%, 94% { filter: brightness(1); }
+    95% { filter: brightness(2.5); }
+    96% { filter: brightness(1); }
+    97% { filter: brightness(3); }
+    98%, 100% { filter: brightness(1); }
+  }
+
+  /* 晴夜背景 */
+  .bg-night { background: linear-gradient(135deg, #0f2027 0%, #203a43 50%, #2c5364 100%); }
+  .bg-star {
+    position: absolute; background: #fff; border-radius: 50%;
+    animation: star-twinkle 4s infinite alternate;
+  }
+
+  /* --- 毛玻璃内容层 (Glass UI) --- */
+  .glass-content {
+    position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 1;
+    background: rgba(255, 255, 255, 0.05); /* 极轻微的白底 */
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 32px;
+    padding: 24px; box-sizing: border-box;
+    display: flex; flex-direction: column; justify-content: space-between;
+  }
+
+  .header { display: flex; justify-content: space-between; align-items: flex-start; color: #fff; text-shadow: 0 2px 4px rgba(0,0,0,0.3); }
+  .location { font-size: 20px; font-weight: 600; margin: 0; letter-spacing: 0.5px; }
+  .desc { font-size: 14px; color: rgba(255,255,255,0.8); margin: 4px 0 0 0; font-weight: 400; }
+  
+  .main { display: flex; justify-content: space-between; align-items: flex-end; }
+  .temp { font-size: 52px; font-weight: 300; color: #fff; margin: 0; line-height: 0.9; letter-spacing: -2px; text-shadow: 0 4px 12px rgba(0,0,0,0.2); }
+  .icon { position: relative; width: 80px; height: 80px; }
+
+  /* =========================================
+     复用精致的天气图标 (保持毛玻璃方案的质感)
+     ========================================= */
+  .sun {
+    width: 56px; height: 56px; background: linear-gradient(135deg, #FFDE00, #FF8C00);
+    border-radius: 50%; position: absolute; top: 12px; left: 12px;
+    box-shadow: 0 0 30px rgba(255, 140, 0, 0.8); animation: sun-pulse 4s ease-in-out infinite alternate;
+  }
+  @keyframes sun-pulse { 0% { transform: scale(0.95); } 100% { transform: scale(1.05); } }
+
+  .cloud-group { position: relative; width: 100%; height: 100%; filter: drop-shadow(0 4px 6px rgba(0,0,0,0.2)); }
+  .cloud-base { position: absolute; border-radius: 50px; }
+  .cloud-back {
+    width: 64px; height: 24px; top: 20px; right: -10px;
+    background: linear-gradient(180deg, #f0f0f0, #b0b0b0);
+    animation: cloud-float 6s ease-in-out infinite alternate; opacity: 0.9;
+  }
+  .cloud-back::before { content: ''; position: absolute; width: 30px; height: 30px; background: inherit; border-radius: 50%; top: -15px; left: 10px; }
+  .cloud-front {
+    width: 72px; height: 28px; top: 40px; left: -5px;
+    background: linear-gradient(180deg, #ffffff, #d4d4d4);
+    animation: cloud-float 4s ease-in-out infinite alternate-reverse;
+  }
+  .cloud-front::before { content: ''; position: absolute; width: 36px; height: 36px; background: inherit; border-radius: 50%; top: -18px; left: 12px; }
+  .cloud-front::after { content: ''; position: absolute; width: 24px; height: 24px; background: inherit; border-radius: 50%; top: -10px; left: 40px; }
+  @keyframes cloud-float { 0% { transform: translateX(-3px) translateY(0); } 100% { transform: translateX(3px) translateY(-3px); } }
+
+  .rain-cloud {
+    width: 64px; height: 24px; top: 25px; left: 8px; background: linear-gradient(180deg, #9bb0c1, #516b8b); box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+  }
+  .rain-cloud::before { content: ''; position: absolute; width: 32px; height: 32px; background: inherit; border-radius: 50%; top: -16px; left: 10px; }
+  .rain-cloud::after { content: ''; position: absolute; width: 20px; height: 20px; background: inherit; border-radius: 50%; top: -10px; left: 35px; }
+  .raindrops { position: absolute; top: 55px; left: 15px; display: flex; gap: 8px; }
+  .drop {
+    width: 3px; height: 12px; background: linear-gradient(180deg, rgba(100, 200, 255, 0), #88d4ff);
+    border-radius: 2px; animation: rain-fall 1s linear infinite; filter: drop-shadow(0 0 2px rgba(100,200,255,0.8));
+  }
+  .drop:nth-child(1) { animation-delay: 0s; height: 14px; }
+  .drop:nth-child(2) { animation-delay: 0.3s; height: 10px; }
+  .drop:nth-child(3) { animation-delay: 0.6s; height: 16px; }
+  @keyframes rain-fall { 0% { transform: translateY(-5px); opacity: 0; } 50% { opacity: 1; } 100% { transform: translateY(20px); opacity: 0; } }
+
+  .thunder-cloud {
+    width: 68px; height: 26px; top: 20px; left: 6px; background: linear-gradient(180deg, #5c6b73, #252c30); animation: cloud-shake 3s infinite; box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+  }
+  .thunder-cloud::before { content: ''; position: absolute; width: 34px; height: 34px; background: inherit; border-radius: 50%; top: -18px; left: 12px; }
+  .thunder-cloud::after { content: ''; position: absolute; width: 22px; height: 22px; background: inherit; border-radius: 50%; top: -10px; left: 40px; }
+  .lightning {
+    position: absolute; top: 45px; left: 35px; width: 14px; height: 24px; background: #FFE500;
+    clip-path: polygon(50% 0%, 0% 50%, 40% 50%, 20% 100%, 100% 40%, 60% 40%);
+    animation: lightning-flash 5s infinite; filter: drop-shadow(0 0 10px rgba(255, 229, 0, 1));
+  }
+  @keyframes cloud-shake { 0%, 100% { transform: translateX(0); } 48% { transform: translateX(0); } 50% { transform: translateX(-2px); } 52% { transform: translateX(2px); } 54% { transform: translateX(0); } }
+  @keyframes lightning-flash { 0%, 94% { opacity: 0; } 95% { opacity: 1; transform: scale(1.1); } 96% { opacity: 0; } 97% { opacity: 1; transform: scale(1); } 98%, 100% { opacity: 0; } }
+
+  .moon-group { position: relative; width: 100%; height: 100%; }
+  .moon {
+    width: 48px; height: 48px; border-radius: 50%; box-shadow: inset -12px -8px 0 0 #f0f4f8;
+    position: absolute; top: 12px; left: 16px; filter: drop-shadow(0 0 15px rgba(240, 244, 248, 0.6));
+    animation: moon-rock 8s ease-in-out infinite alternate;
+  }
+  @keyframes moon-rock { 0% { transform: rotate(-5deg); } 100% { transform: rotate(10deg); filter: drop-shadow(0 0 20px rgba(240, 244, 248, 0.9)); } }
+</style>
+</head>
+<body>
+
+  <!-- 1. 晴天 -->
+  <div class="card-container">
+    <div class="label">Sunny (天光背景 + 毛玻璃)</div>
+    <div class="card">
+      <div class="bg-layer bg-sunny"></div>
+      <div class="glass-content">
+        <div class="header">
+          <div><h2 class="location">Beijing</h2><p class="desc">Sunny</p></div>
+        </div>
+        <div class="main">
+          <h1 class="temp">24°</h1>
+          <div class="icon"><div class="sun"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. 多云 -->
+  <div class="card-container">
+    <div class="label">Cloudy (阴层背景 + 毛玻璃)</div>
+    <div class="card">
+      <div class="bg-layer bg-cloudy">
+        <div class="bg-cloud" style="width: 200px; height: 100px; top: -20px; left: -50px;"></div>
+        <div class="bg-cloud" style="width: 150px; height: 80px; bottom: -10px; right: -20px;"></div>
+      </div>
+      <div class="glass-content">
+        <div class="header">
+          <div><h2 class="location">Shanghai</h2><p class="desc">Mostly Cloudy</p></div>
+        </div>
+        <div class="main">
+          <h1 class="temp">19°</h1>
+          <div class="icon">
+            <div class="cloud-group">
+              <div class="cloud-base cloud-back"></div>
+              <div class="cloud-base cloud-front"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. 阵雨 -->
+  <div class="card-container">
+    <div class="label">Rain (全屏雨丝 + 毛玻璃)</div>
+    <div class="card">
+      <div class="bg-layer bg-rainy">
+        <div class="bg-rain-line" style="left: 20%; animation-delay: 0.1s;"></div>
+        <div class="bg-rain-line" style="left: 50%; animation-delay: 0.5s;"></div>
+        <div class="bg-rain-line" style="left: 80%; animation-delay: 0.3s;"></div>
+      </div>
+      <div class="glass-content">
+        <div class="header">
+          <div><h2 class="location">London</h2><p class="desc">Light Rain</p></div>
+        </div>
+        <div class="main">
+          <h1 class="temp">12°</h1>
+          <div class="icon">
+            <div class="cloud-base rain-cloud"></div>
+            <div class="raindrops"><div class="drop"></div><div class="drop"></div><div class="drop"></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. 雷暴 -->
+  <div class="card-container">
+    <div class="label">Thunderstorm (背景雷闪 + 毛玻璃)</div>
+    <div class="card">
+      <div class="bg-layer bg-thunder"></div>
+      <div class="glass-content">
+        <div class="header">
+          <div><h2 class="location">Guangzhou</h2><p class="desc">Thunderstorm</p></div>
+        </div>
+        <div class="main">
+          <h1 class="temp">28°</h1>
+          <div class="icon">
+            <div class="cloud-base thunder-cloud"></div>
+            <div class="lightning"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 5. 晴夜 -->
+  <div class="card-container">
+    <div class="label">Clear Night (全屏星空 + 毛玻璃)</div>
+    <div class="card">
+      <div class="bg-layer bg-night">
+        <div class="bg-star" style="width:2px; height:2px; top: 20px; left: 30px; animation-delay: 0s;"></div>
+        <div class="bg-star" style="width:3px; height:3px; top: 50px; left: 150px; animation-delay: 1s;"></div>
+        <div class="bg-star" style="width:2px; height:2px; top: 120px; left: 80px; animation-delay: 0.5s;"></div>
+        <div class="bg-star" style="width:4px; height:4px; top: 40px; right: 40px; animation-delay: 1.5s;"></div>
+      </div>
+      <div class="glass-content">
+        <div class="header">
+          <div><h2 class="location">Tokyo</h2><p class="desc">Clear Night</p></div>
+        </div>
+        <div class="main">
+          <h1 class="temp">15°</h1>
+          <div class="icon">
+            <div class="moon-group">
+              <div class="moon"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>

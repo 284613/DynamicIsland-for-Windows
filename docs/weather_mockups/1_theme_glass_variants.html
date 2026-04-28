@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>毛玻璃风格 - 多天气变体 (Glassmorphism Weather Variants)</title>
+<style>
+  body {
+    background: #1a1a1a;
+    /* 增加一个随视线变化的背景图或渐变来凸显毛玻璃效果 */
+    background-image: radial-gradient(circle at 20% 30%, #442266 0%, transparent 40%), 
+                      radial-gradient(circle at 80% 70%, #224466 0%, transparent 40%);
+    background-size: cover;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 40px;
+    min-height: 100vh;
+    margin: 0;
+    padding: 40px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    box-sizing: border-box;
+  }
+
+  .card-container {
+    position: relative;
+  }
+
+  .label {
+    position: absolute;
+    top: -30px;
+    color: #fff;
+    font-size: 14px;
+    text-align: center;
+    width: 100%;
+    left: 0;
+    opacity: 0.7;
+    font-weight: 500;
+    letter-spacing: 1px;
+  }
+
+  .card {
+    width: 320px;
+    height: 180px;
+    border-radius: 32px;
+    /* 毛玻璃核心 */
+    background: rgba(255, 255, 255, 0.03);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-top: 1px solid rgba(255, 255, 255, 0.2);
+    border-left: 1px solid rgba(255, 255, 255, 0.15);
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4);
+    padding: 24px;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+  }
+
+  .card:hover {
+    transform: translateY(-5px) scale(1.02);
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  .header { display: flex; justify-content: space-between; align-items: flex-start; color: #fff; z-index: 2; }
+  .location { font-size: 20px; font-weight: 600; margin: 0; letter-spacing: 0.5px; }
+  .desc { font-size: 14px; color: rgba(255,255,255,0.6); margin: 4px 0 0 0; font-weight: 400; }
+  
+  .main { display: flex; justify-content: space-between; align-items: flex-end; z-index: 2; position: relative; }
+  .temp { font-size: 52px; font-weight: 200; color: #fff; margin: 0; line-height: 0.9; letter-spacing: -2px; }
+  .icon { position: relative; width: 80px; height: 80px; }
+
+  /* =========================================
+     1. 晴天 (Sunny)
+     ========================================= */
+  .sun {
+    width: 56px; height: 56px;
+    background: linear-gradient(135deg, #FFDE00, #FF8C00);
+    border-radius: 50%;
+    position: absolute;
+    top: 12px; left: 12px;
+    box-shadow: 0 0 30px rgba(255, 140, 0, 0.6);
+    animation: sun-pulse 4s ease-in-out infinite alternate;
+  }
+  .sun::before {
+    content: ''; position: absolute; top: -10px; left: -10px; right: -10px; bottom: -10px;
+    border-radius: 50%; border: 2px dashed rgba(255, 215, 0, 0.3);
+    animation: sun-spin 15s linear infinite;
+  }
+  @keyframes sun-pulse { 
+    0% { transform: scale(0.95); box-shadow: 0 0 20px rgba(255, 140, 0, 0.4); } 
+    100% { transform: scale(1.05); box-shadow: 0 0 45px rgba(255, 170, 0, 0.8); } 
+  }
+  @keyframes sun-spin { 100% { transform: rotate(360deg); } }
+
+  /* =========================================
+     2. 多云 (Cloudy)
+     ========================================= */
+  .cloud-group { position: relative; width: 100%; height: 100%; }
+  .cloud-base {
+    position: absolute;
+    background: linear-gradient(180deg, #ffffff, #d4d4d4);
+    border-radius: 50px;
+    box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+  }
+  .cloud-back {
+    width: 64px; height: 24px; top: 20px; right: -10px;
+    background: linear-gradient(180deg, #e0e0e0, #a0a0a0);
+    animation: cloud-float 6s ease-in-out infinite alternate;
+    opacity: 0.8;
+  }
+  .cloud-back::before { content: ''; position: absolute; width: 30px; height: 30px; background: inherit; border-radius: 50%; top: -15px; left: 10px; }
+  .cloud-front {
+    width: 72px; height: 28px; top: 40px; left: -5px;
+    animation: cloud-float 4s ease-in-out infinite alternate-reverse;
+  }
+  .cloud-front::before { content: ''; position: absolute; width: 36px; height: 36px; background: inherit; border-radius: 50%; top: -18px; left: 12px; }
+  .cloud-front::after { content: ''; position: absolute; width: 24px; height: 24px; background: inherit; border-radius: 50%; top: -10px; left: 40px; }
+  @keyframes cloud-float {
+    0% { transform: translateX(-5px) translateY(0); }
+    100% { transform: translateX(5px) translateY(-5px); }
+  }
+
+  /* =========================================
+     3. 阵雨 (Rainy)
+     ========================================= */
+  .rain-cloud {
+    width: 64px; height: 24px; top: 25px; left: 8px;
+    background: linear-gradient(180deg, #9bb0c1, #516b8b);
+  }
+  .rain-cloud::before { content: ''; position: absolute; width: 32px; height: 32px; background: inherit; border-radius: 50%; top: -16px; left: 10px; }
+  .rain-cloud::after { content: ''; position: absolute; width: 20px; height: 20px; background: inherit; border-radius: 50%; top: -10px; left: 35px; }
+  .raindrops { position: absolute; top: 55px; left: 15px; display: flex; gap: 8px; }
+  .drop {
+    width: 3px; height: 12px;
+    background: linear-gradient(180deg, rgba(100, 200, 255, 0), #64c8ff);
+    border-radius: 2px;
+    animation: rain-fall 1s linear infinite;
+  }
+  .drop:nth-child(1) { animation-delay: 0s; height: 14px; }
+  .drop:nth-child(2) { animation-delay: 0.3s; height: 10px; }
+  .drop:nth-child(3) { animation-delay: 0.6s; height: 16px; }
+  @keyframes rain-fall {
+    0% { transform: translateY(-10px) rotate(15deg); opacity: 0; }
+    20% { opacity: 1; }
+    80% { opacity: 1; }
+    100% { transform: translateY(25px) rotate(15deg); opacity: 0; }
+  }
+
+  /* =========================================
+     4. 雷暴 (Thunderstorm)
+     ========================================= */
+  .thunder-cloud {
+    width: 68px; height: 26px; top: 20px; left: 6px;
+    background: linear-gradient(180deg, #5c6b73, #252c30);
+    animation: cloud-shake 3s infinite;
+  }
+  .thunder-cloud::before { content: ''; position: absolute; width: 34px; height: 34px; background: inherit; border-radius: 50%; top: -18px; left: 12px; }
+  .thunder-cloud::after { content: ''; position: absolute; width: 22px; height: 22px; background: inherit; border-radius: 50%; top: -10px; left: 40px; }
+  .lightning {
+    position: absolute; top: 45px; left: 35px;
+    width: 14px; height: 24px;
+    background: #FFE500;
+    clip-path: polygon(50% 0%, 0% 50%, 40% 50%, 20% 100%, 100% 40%, 60% 40%);
+    animation: lightning-flash 4s infinite;
+    filter: drop-shadow(0 0 8px rgba(255, 229, 0, 0.8));
+  }
+  @keyframes cloud-shake {
+    0%, 100% { transform: translateX(0); }
+    48% { transform: translateX(0); }
+    50% { transform: translateX(-2px) translateY(1px); }
+    52% { transform: translateX(2px) translateY(-1px); }
+    54% { transform: translateX(0); }
+  }
+  @keyframes lightning-flash {
+    0%, 48% { opacity: 0; transform: scale(0.8); }
+    50% { opacity: 1; transform: scale(1.1); filter: brightness(2) drop-shadow(0 0 15px #FFE500); }
+    52% { opacity: 0; }
+    54% { opacity: 1; transform: scale(1); }
+    56%, 100% { opacity: 0; }
+  }
+  /* 雷暴时的卡片背景光晕反馈 */
+  .thunder-card { animation: card-flash 4s infinite; }
+  @keyframes card-flash {
+    0%, 48% { background: rgba(255, 255, 255, 0.03); }
+    50% { background: rgba(255, 255, 255, 0.15); }
+    52% { background: rgba(255, 255, 255, 0.03); }
+    54% { background: rgba(255, 255, 255, 0.1); }
+    56%, 100% { background: rgba(255, 255, 255, 0.03); }
+  }
+
+  /* =========================================
+     5. 晴朗夜晚 (Clear Night)
+     ========================================= */
+  .moon-group { position: relative; width: 100%; height: 100%; }
+  .moon {
+    width: 48px; height: 48px;
+    border-radius: 50%;
+    /* 利用阴影形成月牙形状 */
+    box-shadow: inset -12px -8px 0 0 #E2E8F0;
+    position: absolute; top: 12px; left: 16px;
+    filter: drop-shadow(0 0 15px rgba(226, 232, 240, 0.5));
+    animation: moon-rock 8s ease-in-out infinite alternate;
+  }
+  .star {
+    position: absolute;
+    background: #fff;
+    border-radius: 50%;
+    box-shadow: 0 0 6px #fff;
+    animation: star-twinkle 3s infinite alternate;
+  }
+  .star:nth-child(1) { width: 3px; height: 3px; top: 10px; right: 25px; animation-delay: 0s; }
+  .star:nth-child(2) { width: 2px; height: 2px; top: 30px; right: 10px; animation-delay: 1.5s; }
+  .star:nth-child(3) { width: 4px; height: 4px; top: 60px; left: 10px; animation-delay: 0.7s; }
+  .star:nth-child(4) { width: 2px; height: 2px; top: 50px; right: 40px; animation-delay: 2.2s; }
+  
+  @keyframes moon-rock {
+    0% { transform: rotate(-10deg); }
+    100% { transform: rotate(10deg); filter: drop-shadow(0 0 25px rgba(226, 232, 240, 0.8)); }
+  }
+  @keyframes star-twinkle {
+    0% { opacity: 0.2; transform: scale(0.8); }
+    100% { opacity: 1; transform: scale(1.2); }
+  }
+
+  /* 装饰背景光晕 (增强毛玻璃穿透感) */
+  .ambient-glow {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(40px);
+    z-index: 0;
+    opacity: 0.4;
+  }
+</style>
+</head>
+<body>
+
+  <!-- 1. 晴天 -->
+  <div class="card-container">
+    <div class="label">Sunny / 晴朗</div>
+    <div class="card">
+      <div class="ambient-glow" style="width: 100px; height: 100px; background: #FF8C00; top: -20px; right: -20px;"></div>
+      <div class="header">
+        <div>
+          <h2 class="location">Beijing</h2>
+          <p class="desc">Sunny</p>
+        </div>
+      </div>
+      <div class="main">
+        <h1 class="temp">24°</h1>
+        <div class="icon">
+          <div class="sun"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. 多云 -->
+  <div class="card-container">
+    <div class="label">Cloudy / 多云</div>
+    <div class="card">
+      <div class="ambient-glow" style="width: 120px; height: 80px; background: #a0a0a0; bottom: -20px; right: 0;"></div>
+      <div class="header">
+        <div>
+          <h2 class="location">Shanghai</h2>
+          <p class="desc">Mostly Cloudy</p>
+        </div>
+      </div>
+      <div class="main">
+        <h1 class="temp">19°</h1>
+        <div class="icon">
+          <div class="cloud-group">
+            <div class="cloud-base cloud-back"></div>
+            <div class="cloud-base cloud-front"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. 阵雨 -->
+  <div class="card-container">
+    <div class="label">Rain / 阵雨</div>
+    <div class="card">
+      <div class="ambient-glow" style="width: 100px; height: 120px; background: #0078FF; top: 20px; right: -10px; opacity: 0.3;"></div>
+      <div class="header">
+        <div>
+          <h2 class="location">London</h2>
+          <p class="desc">Light Rain</p>
+        </div>
+      </div>
+      <div class="main">
+        <h1 class="temp">12°</h1>
+        <div class="icon">
+          <div class="cloud-base rain-cloud"></div>
+          <div class="raindrops">
+            <div class="drop"></div>
+            <div class="drop"></div>
+            <div class="drop"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. 雷暴 -->
+  <div class="card-container">
+    <div class="label">Thunderstorm / 雷暴</div>
+    <div class="card thunder-card">
+      <div class="ambient-glow" style="width: 80px; height: 80px; background: #FFE500; top: 40px; right: 10px; opacity: 0.15;"></div>
+      <div class="header">
+        <div>
+          <h2 class="location">Guangzhou</h2>
+          <p class="desc">Thunderstorm</p>
+        </div>
+      </div>
+      <div class="main">
+        <h1 class="temp">28°</h1>
+        <div class="icon">
+          <div class="cloud-base thunder-cloud"></div>
+          <div class="lightning"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 5. 晴朗夜晚 -->
+  <div class="card-container">
+    <div class="label">Clear Night / 晴夜</div>
+    <div class="card">
+      <div class="ambient-glow" style="width: 100px; height: 100px; background: #3b5998; top: 0; left: 0; opacity: 0.4;"></div>
+      <div class="header">
+        <div>
+          <h2 class="location">Tokyo</h2>
+          <p class="desc">Clear Night</p>
+        </div>
+      </div>
+      <div class="main">
+        <h1 class="temp">15°</h1>
+        <div class="icon">
+          <div class="moon-group">
+            <div class="star"></div>
+            <div class="star"></div>
+            <div class="star"></div>
+            <div class="star"></div>
+            <div class="moon"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>

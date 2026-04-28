@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>FINAL · 方案 1 · A+B · 模式三 · YaHei · 含按钮 + 波形</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 48px 32px 96px;
+    background:
+      radial-gradient(1200px 600px at 20% 0%, #2b2440 0%, transparent 60%),
+      radial-gradient(900px 600px at 90% 30%, #1f2d3a 0%, transparent 60%),
+      #0b0b0f;
+    color: #e8e8ee;
+    /* === 锁定 F1：Microsoft YaHei UI === */
+    font-family: "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", sans-serif;
+  }
+  h1 { font-size: 22px; margin: 0 0 6px; font-weight: 600; }
+  p.lede { color: #9aa0b0; margin: 0 0 32px; font-size: 13px; max-width: 760px; line-height: 1.7; }
+  h2.section { font-size: 16px; margin: 36px 0 16px; padding-left: 12px; border-left: 3px solid #7f5af0; }
+
+  .stage-row { display: flex; flex-wrap: wrap; gap: 28px; align-items: flex-start; }
+  .stage {
+    background: repeating-linear-gradient(45deg, rgba(255,255,255,0.012) 0 10px, transparent 10px 20px), #08080c;
+    border: 1px dashed rgba(255,255,255,0.06);
+    border-radius: 14px;
+    padding: 28px 24px;
+    display: flex; flex-direction: column; align-items: center; gap: 16px;
+  }
+  .label { font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: rgba(255,255,255,0.35); }
+  .anno { font-size: 11.5px; color: rgba(255,255,255,0.4); max-width: 420px; text-align: center; line-height: 1.6; }
+
+  /* ===========================
+     ISLAND BASE
+     =========================== */
+  .island {
+    background:#000; color:#fff;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.04);
+    overflow: hidden;
+  }
+  .island.compact {
+    width: 380px; height: 50px; border-radius: 999px;
+    padding: 0 14px; display: flex; align-items: center; gap: 12px;
+  }
+  .island.expanded {
+    width: 500px; border-radius: 28px; padding: 18px 18px 16px;
+    display: flex; flex-direction: column; gap: 12px;
+  }
+
+  /* ===========================
+     VINYL
+     =========================== */
+  .vinyl {
+    width: 32px; height: 32px; border-radius: 50%;
+    background: radial-gradient(circle at 50% 50%, #444 0 18%, #111 19% 100%);
+    position: relative; flex-shrink: 0;
+    animation: spin 6s linear infinite;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.05);
+  }
+  .vinyl::after {
+    content:''; position: absolute; inset: 7px; border-radius: 50%;
+    background: linear-gradient(135deg,#ff6a88,#ffc796);
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .vinyl.lg { width: 100px; height: 100px; }
+  .vinyl.lg::after { inset: 24px; }
+
+  /* ===========================
+     COMPACT TICKER (A 模式)
+     =========================== */
+  .ticker { flex:1; min-width: 0; overflow: hidden;
+    display: flex; flex-direction: column; justify-content: center; gap: 1px; }
+  .ticker .title { font-size: 13px; font-weight: 600;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ticker .lyric { font-size: 11.5px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ticker .trans { font-size: 10.5px; color: rgba(255,255,255,0.5);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* compact 右侧迷你波形 + 迷你播放按钮 */
+  .mini-eq {
+    display: inline-flex; align-items: flex-end; gap: 2px; height: 14px; flex-shrink: 0;
+  }
+  .mini-eq span {
+    width: 2.5px; background: #fff; border-radius: 1px;
+    animation: eqbounce 1s ease-in-out infinite;
+  }
+  .mini-eq span:nth-child(1){ height: 50%; animation-delay:.0s; }
+  .mini-eq span:nth-child(2){ height: 100%; animation-delay:.15s; }
+  .mini-eq span:nth-child(3){ height: 35%; animation-delay:.3s; }
+  .mini-eq span:nth-child(4){ height: 80%; animation-delay:.45s; }
+  @keyframes eqbounce { 0%,100% { transform: scaleY(0.4); } 50% { transform: scaleY(1); } }
+
+  .mini-btn {
+    width: 28px; height: 28px; border-radius: 50%;
+    background: rgba(255,255,255,0.12); display: inline-flex;
+    align-items: center; justify-content: center; flex-shrink: 0;
+    transition: background 0.15s;
+  }
+  .mini-btn:hover { background: rgba(255,255,255,0.22); }
+  .mini-btn svg { width: 14px; height: 14px; fill: #fff; }
+
+  /* ===========================
+     KARAOKE YRC wipe
+     =========================== */
+  .karaoke { display: inline; }
+  .karaoke .word { color: rgba(255,255,255,0.32); white-space: pre; }
+  .karaoke .word.sung { color: #fff; }
+  .karaoke .word.cur {
+    background: linear-gradient(90deg, #fff 0 var(--p, 50%), rgba(255,255,255,0.32) var(--p, 50%) 100%);
+    -webkit-background-clip: text; background-clip: text;
+    color: transparent;
+    animation: wipe 1.4s linear infinite;
+  }
+  @keyframes wipe { from { --p: 0%; } to { --p: 100%; } }
+
+  /* ===========================
+     EXPANDED · 3-line lyrics column (B 模式)
+     模式三：仅当前句下挂小字译文
+     =========================== */
+  .lyrics-col {
+    display: flex; flex-direction: column; gap: 4px;
+    min-height: 102px; justify-content: center;
+  }
+  .lyrics-col .l-prev {
+    font-size: 12px; color: rgba(255,255,255,0.28); line-height: 1.3;
+  }
+  .lyrics-col .l-cur {
+    font-size: 16px; font-weight: 700; color: #fff; line-height: 1.3;
+  }
+  .lyrics-col .l-cur .tr {
+    display: block; font-size: 11px; color: rgba(255,255,255,0.45);
+    font-weight: 400; margin-top: 3px;
+  }
+  .lyrics-col .l-next {
+    font-size: 12px; color: rgba(255,255,255,0.42); line-height: 1.3;
+  }
+
+  /* ===========================
+     WAVEFORM (展开态背景层)
+     =========================== */
+  .wave {
+    display: inline-flex; align-items: center; gap: 3px;
+    height: 32px; width: 100%;
+  }
+  .wave span {
+    flex: 1; border-radius: 1.5px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.85), rgba(255,255,255,0.55));
+    animation: wavebounce 1.4s ease-in-out infinite;
+    transform-origin: center;
+  }
+  .wave span.played {
+    background: linear-gradient(180deg, #fff, rgba(255,255,255,0.7));
+  }
+  .wave span.future {
+    background: rgba(255,255,255,0.18);
+    animation: none;
+  }
+  @keyframes wavebounce {
+    0%,100% { transform: scaleY(0.35); }
+    50%     { transform: scaleY(1); }
+  }
+  /* 错峰起跳 */
+  .wave span:nth-child(3n)   { animation-duration: 1.1s; }
+  .wave span:nth-child(4n+1) { animation-duration: 1.7s; }
+  .wave span:nth-child(5n+2) { animation-duration: 0.9s; }
+
+  /* ===========================
+     PROGRESS BAR
+     =========================== */
+  .progress {
+    flex: 1; height: 3px; background: rgba(255,255,255,0.12);
+    border-radius: 999px; overflow: hidden; cursor: pointer;
+  }
+  .progress > i {
+    display: block; height: 100%; background: #fff;
+    width: 42%; border-radius: 999px;
+  }
+  .row { display: flex; align-items: center; width: 100%; gap: 12px; }
+  .time {
+    font-size: 11px; color: rgba(255,255,255,0.5);
+    font-variant-numeric: tabular-nums; min-width: 32px;
+  }
+
+  /* ===========================
+     CONTROLS
+     =========================== */
+  .controls {
+    display: flex; align-items: center; justify-content: center;
+    gap: 22px; width: 100%;
+  }
+  .ctrl-btn {
+    width: 36px; height: 36px; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    cursor: pointer; transition: background 0.15s, transform 0.1s;
+    background: transparent;
+  }
+  .ctrl-btn:hover { background: rgba(255,255,255,0.08); }
+  .ctrl-btn:active { transform: scale(0.92); }
+  .ctrl-btn svg { width: 20px; height: 20px; fill: rgba(255,255,255,0.85); }
+  .ctrl-btn.play {
+    width: 40px; height: 40px; background: rgba(255,255,255,0.95);
+  }
+  .ctrl-btn.play svg { fill: #000; width: 18px; height: 18px; }
+  .ctrl-btn.play:hover { background: #fff; }
+
+  .like { color: rgba(255,255,255,0.55); }
+  .like.active svg { fill: #ff5566; }
+
+  /* ===========================
+     SETTINGS PANEL (示意，不是岛体)
+     =========================== */
+  .settings {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    padding: 16px 18px;
+    margin-top: 18px;
+    max-width: 760px;
+    font-size: 13px;
+  }
+  .settings h3 { margin: 0 0 10px; font-size: 13px; color: #cdd2dc; font-weight: 600; }
+  .settings .opts { display: flex; gap: 8px; flex-wrap: wrap; }
+  .settings .opt {
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+    color: #cdd2dc; padding: 6px 12px; border-radius: 999px; font-size: 12px;
+    cursor: pointer; font-family: inherit;
+  }
+  .settings .opt.active { background: #fff; color: #000; border-color: transparent; }
+</style>
+</head>
+<body>
+
+<h1>FINAL · 方案 1 · A+B · 模式三 · Microsoft YaHei UI</h1>
+<p class="lede">
+  最终落地版：<b>紧凑态歌词副标题（A）+ 展开态三行歌词列（B）</b>，翻译用<b>模式三</b>（仅当前句挂小字译文），
+  字体锁定 <b>Microsoft YaHei UI</b>（系统自带，零打包）。本页补齐<b>播放按钮 + 波形图</b>布局。
+</p>
+
+<!-- ============================================================
+     1. 紧凑态 — 三种状态切换
+     ============================================================ -->
+<h2 class="section">紧凑态 · A 布局（含迷你按钮 + 波形）</h2>
+
+<div class="stage-row">
+
+  <div class="stage">
+    <div class="label">状态 1 · 无歌词</div>
+    <div class="island compact">
+      <div class="vinyl"></div>
+      <div class="ticker">
+        <div class="title">Blinding Lights</div>
+        <div class="lyric" style="color:rgba(255,255,255,0.55)">The Weeknd</div>
+      </div>
+      <div class="mini-eq"><span></span><span></span><span></span><span></span></div>
+    </div>
+    <p class="anno">右侧 4 条迷你波形条作为正在播放的视觉指示，hover 后切换为播放/暂停按钮（状态 3）。</p>
+  </div>
+
+  <div class="stage">
+    <div class="label">状态 2 · 有歌词（含翻译）</div>
+    <div class="island compact" style="height: 60px">
+      <div class="vinyl"></div>
+      <div class="ticker">
+        <div class="title">Blinding Lights</div>
+        <div class="lyric">
+          <span class="karaoke">
+            <span class="word sung">I'm </span><span class="word cur">blinded </span><span class="word">by the lights</span>
+          </span>
+        </div>
+        <div class="trans">我已被光芒所眩目</div>
+      </div>
+      <div class="mini-eq"><span></span><span></span><span></span><span></span></div>
+    </div>
+    <p class="anno">岛体高度从 50 → 60px，多容纳一行译文；YRC 逐字 wipe 高亮；翻译可在设置中关闭。</p>
+  </div>
+
+  <div class="stage">
+    <div class="label">状态 3 · Hover · 显示控制按钮</div>
+    <div class="island compact" style="height: 60px">
+      <div class="vinyl"></div>
+      <div class="ticker">
+        <div class="title">Blinding Lights</div>
+        <div class="lyric">
+          <span class="karaoke">
+            <span class="word sung">I'm </span><span class="word cur">blinded </span><span class="word">by the lights</span>
+          </span>
+        </div>
+        <div class="trans">我已被光芒所眩目</div>
+      </div>
+      <div class="mini-btn"><svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg></div>
+      <div class="mini-btn"><svg viewBox="0 0 24 24"><path d="M6 19h4V5H6zm8-14v14h4V5z"/></svg></div>
+      <div class="mini-btn"><svg viewBox="0 0 24 24"><path d="M16 6h2v12h-2zM6 18l8.5-6L6 6z"/></svg></div>
+    </div>
+    <p class="anno">鼠标进入紧凑岛后，波形条淡出，三个迷你控制按钮（上一首/暂停/下一首）淡入；离开后 1.2s 复位。</p>
+  </div>
+</div>
+
+
+<!-- ============================================================
+     2. 展开态 — 完整布局
+     ============================================================ -->
+<h2 class="section">展开态 · B 布局（黑胶 + 三行歌词 + 波形 + 进度 + 按钮）</h2>
+
+<div class="stage-row">
+
+  <div class="stage">
+    <div class="label">展开态 · 完整版</div>
+    <div class="island expanded">
+      <!-- 顶部：黑胶 + 信息 + 三行歌词 -->
+      <div class="row" style="align-items: flex-start; gap: 14px;">
+        <div class="vinyl lg"></div>
+        <div style="flex:1; min-width: 0; display:flex; flex-direction: column; gap: 6px;">
+          <div style="font-size:14px; font-weight:700; line-height: 1.2;">Blinding Lights</div>
+          <div style="font-size:11px; color:rgba(255,255,255,0.5); line-height: 1.2;">The Weeknd · After Hours</div>
+          <div class="lyrics-col" style="margin-top: 4px;">
+            <div class="l-prev">I'm drowning in the night</div>
+            <div class="l-cur">
+              <span class="karaoke">
+                <span class="word sung">I'm </span>
+                <span class="word cur">blinded </span>
+                <span class="word">by </span>
+                <span class="word">the </span>
+                <span class="word">lights</span>
+              </span>
+              <span class="tr">我已被光芒所眩目</span>
+            </div>
+            <div class="l-next">No, I can't sleep until I feel your touch</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 波形 -->
+      <div class="wave">
+        <!-- 36 条，前 15 条为 played，第 16 条为 cur，剩余为 future -->
+        <span class="played" style="height:30%"></span>
+        <span class="played" style="height:55%"></span>
+        <span class="played" style="height:40%"></span>
+        <span class="played" style="height:75%"></span>
+        <span class="played" style="height:50%"></span>
+        <span class="played" style="height:85%"></span>
+        <span class="played" style="height:35%"></span>
+        <span class="played" style="height:65%"></span>
+        <span class="played" style="height:90%"></span>
+        <span class="played" style="height:45%"></span>
+        <span class="played" style="height:70%"></span>
+        <span class="played" style="height:55%"></span>
+        <span class="played" style="height:80%"></span>
+        <span class="played" style="height:40%"></span>
+        <span class="played" style="height:60%"></span>
+        <span style="height:95%"></span>
+        <span class="future" style="height:50%"></span>
+        <span class="future" style="height:75%"></span>
+        <span class="future" style="height:35%"></span>
+        <span class="future" style="height:80%"></span>
+        <span class="future" style="height:45%"></span>
+        <span class="future" style="height:65%"></span>
+        <span class="future" style="height:55%"></span>
+        <span class="future" style="height:90%"></span>
+        <span class="future" style="height:40%"></span>
+        <span class="future" style="height:70%"></span>
+        <span class="future" style="height:60%"></span>
+        <span class="future" style="height:85%"></span>
+        <span class="future" style="height:50%"></span>
+        <span class="future" style="height:75%"></span>
+        <span class="future" style="height:35%"></span>
+        <span class="future" style="height:80%"></span>
+        <span class="future" style="height:55%"></span>
+        <span class="future" style="height:65%"></span>
+        <span class="future" style="height:45%"></span>
+        <span class="future" style="height:70%"></span>
+      </div>
+
+      <!-- 进度条 + 时间 -->
+      <div class="row">
+        <span class="time">1:24</span>
+        <div class="progress"><i></i></div>
+        <span class="time" style="text-align:right">3:20</span>
+      </div>
+
+      <!-- 控制按钮 -->
+      <div class="controls">
+        <div class="ctrl-btn like active" title="收藏">
+          <svg viewBox="0 0 24 24"><path d="M12 21s-7-4.35-7-10a4 4 0 017-2.65A4 4 0 0119 11c0 5.65-7 10-7 10z"/></svg>
+        </div>
+        <div class="ctrl-btn" title="上一首">
+          <svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+        </div>
+        <div class="ctrl-btn play" title="暂停">
+          <svg viewBox="0 0 24 24"><path d="M6 19h4V5H6zm8-14v14h4V5z"/></svg>
+        </div>
+        <div class="ctrl-btn" title="下一首">
+          <svg viewBox="0 0 24 24"><path d="M16 6h2v12h-2zM6 18l8.5-6L6 6z"/></svg>
+        </div>
+        <div class="ctrl-btn" title="歌词模式">
+          <svg viewBox="0 0 24 24"><path d="M4 6h12v2H4zm0 5h12v2H4zm0 5h8v2H4zM18 9l4 4-4 4z"/></svg>
+        </div>
+      </div>
+    </div>
+    <p class="anno">展开态高度约 280px。波形从左到右展示整曲振幅，已播放部分实白色，正在播放当前条最高最亮，未播放部分淡灰；点击任意位置可跳转。</p>
+  </div>
+
+  <div class="stage">
+    <div class="label">展开态 · 暂停状态</div>
+    <div class="island expanded">
+      <div class="row" style="align-items: flex-start; gap: 14px;">
+        <div class="vinyl lg" style="animation-play-state: paused;"></div>
+        <div style="flex:1; min-width: 0; display:flex; flex-direction: column; gap: 6px;">
+          <div style="font-size:14px; font-weight:700;">Blinding Lights</div>
+          <div style="font-size:11px; color:rgba(255,255,255,0.5);">The Weeknd · After Hours</div>
+          <div class="lyrics-col" style="margin-top: 4px;">
+            <div class="l-prev">I'm drowning in the night</div>
+            <div class="l-cur">
+              I'm blinded by the lights
+              <span class="tr">我已被光芒所眩目</span>
+            </div>
+            <div class="l-next">No, I can't sleep until I feel your touch</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="wave">
+        <span class="played" style="height:30%; animation: none"></span>
+        <span class="played" style="height:55%; animation: none"></span>
+        <span class="played" style="height:40%; animation: none"></span>
+        <span class="played" style="height:75%; animation: none"></span>
+        <span class="played" style="height:50%; animation: none"></span>
+        <span class="played" style="height:85%; animation: none"></span>
+        <span class="played" style="height:35%; animation: none"></span>
+        <span class="played" style="height:65%; animation: none"></span>
+        <span class="played" style="height:90%; animation: none"></span>
+        <span class="played" style="height:45%; animation: none"></span>
+        <span class="played" style="height:70%; animation: none"></span>
+        <span class="played" style="height:55%; animation: none"></span>
+        <span class="played" style="height:80%; animation: none"></span>
+        <span class="played" style="height:40%; animation: none"></span>
+        <span class="played" style="height:60%; animation: none"></span>
+        <span style="height:95%; animation: none"></span>
+        <span class="future" style="height:50%"></span>
+        <span class="future" style="height:75%"></span>
+        <span class="future" style="height:35%"></span>
+        <span class="future" style="height:80%"></span>
+        <span class="future" style="height:45%"></span>
+        <span class="future" style="height:65%"></span>
+        <span class="future" style="height:55%"></span>
+        <span class="future" style="height:90%"></span>
+        <span class="future" style="height:40%"></span>
+        <span class="future" style="height:70%"></span>
+        <span class="future" style="height:60%"></span>
+        <span class="future" style="height:85%"></span>
+        <span class="future" style="height:50%"></span>
+        <span class="future" style="height:75%"></span>
+        <span class="future" style="height:35%"></span>
+        <span class="future" style="height:80%"></span>
+        <span class="future" style="height:55%"></span>
+        <span class="future" style="height:65%"></span>
+        <span class="future" style="height:45%"></span>
+        <span class="future" style="height:70%"></span>
+      </div>
+
+      <div class="row">
+        <span class="time">1:24</span>
+        <div class="progress"><i></i></div>
+        <span class="time" style="text-align:right">3:20</span>
+      </div>
+
+      <div class="controls">
+        <div class="ctrl-btn like" title="收藏">
+          <svg viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.55)" stroke-width="2"><path d="M12 21s-7-4.35-7-10a4 4 0 017-2.65A4 4 0 0119 11c0 5.65-7 10-7 10z"/></svg>
+        </div>
+        <div class="ctrl-btn" title="上一首">
+          <svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+        </div>
+        <div class="ctrl-btn play" title="播放">
+          <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+        </div>
+        <div class="ctrl-btn" title="下一首">
+          <svg viewBox="0 0 24 24"><path d="M16 6h2v12h-2zM6 18l8.5-6L6 6z"/></svg>
+        </div>
+        <div class="ctrl-btn" title="歌词模式">
+          <svg viewBox="0 0 24 24"><path d="M4 6h12v2H4zm0 5h12v2H4zm0 5h8v2H4zM18 9l4 4-4 4z"/></svg>
+        </div>
+      </div>
+    </div>
+    <p class="anno">暂停时：黑胶旋转停止，波形条停止跳动（保留振幅形态），播放按钮变为▶，YRC 高亮 wipe 暂停。</p>
+  </div>
+</div>
+
+
+<!-- ============================================================
+     3. 设置项预览
+     ============================================================ -->
+<h2 class="section">配套设置项</h2>
+
+<div class="settings">
+  <h3>歌词翻译显示</h3>
+  <div class="opts">
+    <button class="opt">关闭</button>
+    <button class="opt active">仅当前句（模式三）</button>
+    <button class="opt">每行都显示</button>
+    <button class="opt">仅显示译文</button>
+  </div>
+</div>
+
+<div class="settings">
+  <h3>字体</h3>
+  <div class="opts">
+    <button class="opt active">Microsoft YaHei UI（默认）</button>
+    <button class="opt">Segoe UI</button>
+    <button class="opt">系统默认</button>
+  </div>
+</div>
+
+<div class="settings">
+  <h3>波形显示</h3>
+  <div class="opts">
+    <button class="opt active">展开态显示</button>
+    <button class="opt">仅播放时显示</button>
+    <button class="opt">关闭</button>
+  </div>
+</div>
+
+
+<!-- ============================================================
+     4. 落地清单
+     ============================================================ -->
+<h2 class="section">落地清单（按文件）</h2>
+<div style="max-width: 760px; font-size: 13px; line-height: 1.85; color:#cdd2dc;">
+  <ul style="padding-left: 22px;">
+    <li><code style="color:#9aa0b0">src/components/MusicPlayerComponent.cpp</code> — 改紧凑态布局（增加副标题歌词位 + 迷你 EQ/按钮切换），展开态高度从 200 → 280，重排控件层叠。</li>
+    <li><code style="color:#9aa0b0">src/components/LyricsComponent.cpp</code> — 三行模式与音乐组件耦合定位；新增「当前句下挂译文」绘制逻辑。</li>
+    <li><code style="color:#9aa0b0">src/LyricsMonitor.cpp</code> — 网易云接口扩 <code style="color:#9aa0b0">tlyric</code> 字段解析（LRC 格式），与 YRC 时间戳对齐合并。</li>
+    <li><code style="color:#9aa0b0">src/components/WaveformComponent.cpp</code> — 已有；展开态嵌入到音乐组件下方，已播放/未播放双色，命中测试支持点击跳转。</li>
+    <li><code style="color:#9aa0b0">src/SettingsWindow.cpp</code> — 新增「歌词翻译显示」三选项 + 「波形显示」开关。</li>
+    <li><code style="color:#9aa0b0">include/Constants.h</code> — <code style="color:#9aa0b0">MUSIC_COMPACT_HEIGHT</code> 增加「带歌词」变体，<code style="color:#9aa0b0">MUSIC_EXPANDED_HEIGHT</code> 调到 280。</li>
+  </ul>
+</div>
+
+<div style="margin-top: 28px; padding: 18px 22px; background: rgba(127,90,240,0.08); border:1px solid rgba(127,90,240,0.25); border-radius: 14px; max-width: 760px;">
+  <p style="margin: 0; font-size: 13px; color: #cdd2dc; line-height: 1.7;">
+    确认这版稿就开工。落地完会先编 Debug 跑一次冒烟（无歌词 / 有 YRC / 有翻译 / 暂停 4 个状态），通过再合 Release。
+  </p>
+</div>
+
+<script>
+  document.querySelectorAll('.settings .opts').forEach(g => {
+    g.querySelectorAll('.opt').forEach(b => {
+      b.addEventListener('click', () => {
+        g.querySelectorAll('.opt').forEach(x => x.classList.remove('active'));
+        b.classList.add('active');
+      });
+    });
+  });
+</script>
+
+</body>
+</html>

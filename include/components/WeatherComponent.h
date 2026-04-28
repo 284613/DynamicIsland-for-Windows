@@ -31,8 +31,11 @@ public:
     void OnAttach(SharedResources* res) override;
     void Update(float deltaTime) override;
     void Draw(const D2D1_RECT_F& rect, float contentAlpha, ULONGLONG currentTimeMs) override;
-    bool IsActive() const override { return m_isExpanded; }
-    bool NeedsRender() const override { return m_isExpanded; }
+    
+    // 修改：确保引擎知道我们需要持续重绘动画
+    bool IsActive() const override { return true; } 
+    bool NeedsRender() const override { return true; } 
+    
     bool OnMouseWheel(float x, float y, int delta) override;
 
     void SetWeatherData(
@@ -51,7 +54,7 @@ public:
     void DrawCompact(float iconX, float iconY, float iconSize,
                      float contentAlpha, ULONGLONG currentTimeMs);
 
-    void ResetAnimation() { m_animPhase = 0.0f; m_lastAnimTime = 0; }
+    void ResetAnimation() { m_animPhase = 0.0f; }
 
 private:
     void DrawUnavailable(const D2D1_RECT_F& rect, float contentAlpha, ULONGLONG currentTimeMs);
@@ -87,10 +90,9 @@ private:
     WeatherViewMode m_transitionFromMode = WeatherViewMode::Hourly;
     bool m_isViewTransitioning = false;
     float m_viewTransitionProgress = 1.0f;
-    float m_viewTransitionDuration = 0.20f;
+    float m_viewTransitionDuration = 0.25f;
     WeatherType m_weatherType = WeatherType::Default;
     float m_animPhase = 0.0f;
-    ULONGLONG m_lastAnimTime = 0;
 
     struct CacheEntry {
         ComPtr<IDWriteTextLayout> layout;

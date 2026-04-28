@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>极简动效 (Kinetic & Minimalist)</title>
+<style>
+  body { background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; font-family: "SF Pro Display", sans-serif; }
+  .card {
+    width: 320px; height: 180px; border-radius: 32px;
+    background: #0f0f0f;
+    border: 2px solid #222;
+    padding: 24px; box-sizing: border-box;
+    position: relative; overflow: hidden;
+    color: #fff;
+    transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .card:hover { transform: scale(1.05); }
+  .info { z-index: 2; position: relative; }
+  .location { font-size: 20px; font-weight: 700; margin: 0; text-transform: uppercase; letter-spacing: 1px; }
+  .temp { font-size: 64px; font-weight: 800; margin: 10px 0 0 0; line-height: 1; background: -webkit-linear-gradient(#fff, #888); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .icon-container { position: absolute; right: -20px; top: 20px; width: 120px; height: 120px; z-index: 1; }
+  .cloud { width: 80px; height: 30px; background: #fff; border-radius: 20px; position: absolute; top: 40px; right: 20px; animation: float 3s ease-in-out infinite; }
+  .cloud::before { content: ''; width: 40px; height: 40px; background: #fff; border-radius: 50%; position: absolute; top: -20px; left: 10px; }
+  .cloud::after { content: ''; width: 30px; height: 30px; background: #fff; border-radius: 50%; position: absolute; top: -10px; left: 40px; }
+  .rain { width: 4px; height: 15px; background: #00f0ff; border-radius: 2px; position: absolute; top: 75px; right: 60px; animation: rain 0.8s linear infinite; }
+  .rain:nth-child(2) { right: 40px; animation-delay: 0.2s; }
+  .rain:nth-child(3) { right: 80px; animation-delay: 0.4s; }
+  @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+  @keyframes rain { 0% { transform: translateY(0); opacity: 1; } 100% { transform: translateY(30px); opacity: 0; } }
+  .label { position: absolute; top: -40px; color: #fff; font-size: 14px; text-align: center; width: 100%; left:0; opacity: 0.5; }
+</style>
+</head>
+<body>
+  <div style="position:relative">
+    <div class="label">方案 2：高对比极简 (Q弹交互 + 扁平组件漂浮动画)</div>
+    <div class="card">
+      <div class="info">
+        <h2 class="location">London</h2>
+        <h1 class="temp">12°</h1>
+      </div>
+      <div class="icon-container">
+        <div class="cloud"></div>
+        <div class="rain"></div>
+        <div class="rain"></div>
+        <div class="rain"></div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>Dynamic Island · Music Player Style Mockups</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 48px 32px 96px;
+    background:
+      radial-gradient(1200px 600px at 20% 0%, #2b2440 0%, transparent 60%),
+      radial-gradient(900px 600px at 90% 30%, #1f2d3a 0%, transparent 60%),
+      #0b0b0f;
+    color: #e8e8ee;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", Roboto, sans-serif;
+  }
+  h1 { font-weight: 600; font-size: 22px; letter-spacing: 0.3px; margin: 0 0 8px; }
+  p.lede { color: #9aa0b0; margin: 0 0 36px; font-size: 13px; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(560px, 1fr));
+    gap: 32px;
+  }
+  .case {
+    background: rgba(255,255,255,0.025);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 18px;
+    padding: 22px 22px 28px;
+  }
+  .case h2 {
+    margin: 0 0 4px; font-size: 15px; font-weight: 600;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .case h2 .num {
+    width: 22px; height: 22px; border-radius: 50%;
+    background: rgba(255,255,255,0.08); color: #fff;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 700;
+  }
+  .case .desc { color: #8b90a0; font-size: 12.5px; margin: 0 0 18px; line-height: 1.55; }
+  .stage {
+    background:
+      linear-gradient(180deg, rgba(255,255,255,0.02), transparent 50%),
+      repeating-linear-gradient(45deg, rgba(255,255,255,0.012) 0 10px, transparent 10px 20px),
+      #08080c;
+    border: 1px dashed rgba(255,255,255,0.05);
+    border-radius: 14px;
+    padding: 26px;
+    display: flex; flex-direction: column; align-items: center; gap: 22px;
+  }
+  .label {
+    font-size: 11px; letter-spacing: 1px; text-transform: uppercase;
+    color: rgba(255,255,255,0.35);
+  }
+
+  /* ======================== Common island chrome ======================== */
+  .island {
+    background: #000;
+    border-radius: 999px;
+    color: #fff;
+    display: flex; align-items: center;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.04);
+    overflow: hidden;
+  }
+  .island.compact { width: 360px; height: 44px; padding: 0 14px; gap: 10px; }
+  .island.expanded { width: 460px; height: 200px; border-radius: 28px; padding: 18px; flex-direction: column; gap: 0; }
+
+  .ticker { flex: 1; min-width: 0; overflow: hidden; }
+  .ticker .title { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ticker .sub { font-size: 11px; color: rgba(255,255,255,0.55); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* === Reusable album thumbs (replace with real art later) === */
+  .cover { border-radius: 8px; flex-shrink: 0; }
+  .cover.sm { width: 28px; height: 28px; }
+  .cover.lg { width: 96px; height: 96px; border-radius: 14px; }
+  .cover-1 { background: linear-gradient(135deg,#ff6a88,#ff99ac 50%,#ffc796); }
+  .cover-2 { background: linear-gradient(135deg,#43cea2,#185a9d); }
+  .cover-3 { background: linear-gradient(135deg,#7f5af0,#2cb67d); }
+  .cover-4 { background: linear-gradient(135deg,#fa709a,#fee140); }
+  .cover-5 { background: linear-gradient(135deg,#0f2027,#203a43,#2c5364); }
+  .cover-6 { background: linear-gradient(135deg,#fc466b,#3f5efb); }
+
+  /* ============ Equalizer (animated bars) ============ */
+  .eq { display: inline-flex; align-items: flex-end; gap: 2px; height: 14px; }
+  .eq span {
+    width: 2.5px; background: currentColor; border-radius: 1px;
+    animation: eqbounce 1s ease-in-out infinite;
+  }
+  .eq span:nth-child(1){ height: 60%; animation-delay:.0s; }
+  .eq span:nth-child(2){ height: 100%; animation-delay:.15s; }
+  .eq span:nth-child(3){ height: 40%; animation-delay:.3s; }
+  .eq span:nth-child(4){ height: 80%; animation-delay:.45s; }
+  @keyframes eqbounce { 0%,100% { transform: scaleY(0.4); } 50% { transform: scaleY(1); } }
+
+  /* ============ Waveform (taller, expanded view) ============ */
+  .wave { display: inline-flex; align-items: center; gap: 3px; height: 36px; }
+  .wave span {
+    width: 3px; border-radius: 1.5px;
+    background: rgba(255,255,255,0.7);
+    animation: wavebounce 1.4s ease-in-out infinite;
+  }
+  .wave span:nth-child(odd){ animation-duration: 1.1s; }
+  @keyframes wavebounce {
+    0%,100% { height: 20%; opacity:.55; }
+    50%     { height: 100%; opacity: 1; }
+  }
+
+  /* ============ Progress bar (thin) ============ */
+  .progress { width: 100%; height: 3px; background: rgba(255,255,255,0.12); border-radius: 999px; overflow: hidden; }
+  .progress > i { display: block; height: 100%; background: #fff; width: 42%; border-radius: 999px; }
+
+  .row { display: flex; align-items: center; width: 100%; gap: 14px; }
+  .controls { display: flex; align-items: center; gap: 16px; color: #fff; }
+  .controls .play {
+    width: 36px; height: 36px; border-radius: 50%;
+    background: rgba(255,255,255,0.92); color:#000;
+    display: inline-flex; align-items: center; justify-content: center;
+    cursor: pointer;
+  }
+  .controls svg { width: 18px; height: 18px; fill: currentColor; }
+  .time { font-size: 11px; color: rgba(255,255,255,0.55); font-variant-numeric: tabular-nums; }
+
+  /* ============================================================
+     1) Apple Music vinyl  —  black island + spinning vinyl
+     ============================================================ */
+  .vinyl {
+    width: 28px; height: 28px; border-radius: 50%;
+    background:
+      radial-gradient(circle at 50% 50%, #444 0 18%, #111 19% 100%);
+    position: relative;
+    animation: spin 6s linear infinite;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.05);
+  }
+  .vinyl::after {
+    content:''; position: absolute; inset: 6px; border-radius: 50%;
+    background: linear-gradient(135deg,#ff6a88,#ffc796);
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .vinyl.lg { width: 96px; height: 96px; }
+  .vinyl.lg::after { inset: 22px; }
+
+  /* ============================================================
+     2) Spotify-style album-tinted gradient card
+     ============================================================ */
+  .island.spotify-x {
+    background:
+      linear-gradient(135deg, rgba(255,106,136,0.85) 0%, rgba(127,90,240,0.55) 60%, rgba(0,0,0,0.95) 110%);
+  }
+  .island.spotify-c {
+    background: linear-gradient(90deg, rgba(255,106,136,0.55), rgba(0,0,0,1) 70%);
+  }
+
+  /* ============================================================
+     3) Liquid glass / frosted blur
+     ============================================================ */
+  .glass-stage {
+    background:
+      radial-gradient(circle at 30% 30%, #ff6a88 0%, transparent 40%),
+      radial-gradient(circle at 70% 70%, #43cea2 0%, transparent 50%),
+      #0c0c12;
+  }
+  .island.glass {
+    background: rgba(255,255,255,0.08);
+    backdrop-filter: blur(28px) saturate(180%);
+    -webkit-backdrop-filter: blur(28px) saturate(180%);
+    border: 1px solid rgba(255,255,255,0.14);
+    box-shadow: 0 18px 48px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.18);
+  }
+
+  /* ============================================================
+     4) Neon synthwave
+     ============================================================ */
+  .island.neon {
+    background: #0a0014;
+    border: 1px solid rgba(255,0,180,0.3);
+    box-shadow:
+      0 0 0 1px rgba(255,0,180,0.2),
+      0 0 24px rgba(255,0,180,0.35),
+      0 0 60px rgba(0,200,255,0.18);
+  }
+  .island.neon .title { color: #ff5cd9; text-shadow: 0 0 10px rgba(255,92,217,0.7); }
+  .island.neon .sub { color: #5cf0ff; text-shadow: 0 0 6px rgba(92,240,255,0.6); }
+  .island.neon .progress { background: rgba(255,92,217,0.12); }
+  .island.neon .progress > i { background: linear-gradient(90deg,#ff5cd9,#5cf0ff); box-shadow: 0 0 10px #ff5cd9; }
+  .island.neon .controls .play { background: linear-gradient(135deg,#ff5cd9,#5cf0ff); color:#0a0014; box-shadow: 0 0 16px rgba(255,92,217,0.6); }
+
+  /* ============================================================
+     5) Album-art ambient (blurred art as full background)
+     ============================================================ */
+  .island.ambient {
+    position: relative;
+    background: #000;
+  }
+  .island.ambient::before {
+    content:''; position: absolute; inset: 0;
+    background: linear-gradient(135deg,#fa709a,#fee140);
+    filter: blur(32px) saturate(150%);
+    transform: scale(1.4);
+    opacity: 0.55;
+  }
+  .island.ambient::after {
+    content:''; position: absolute; inset: 0;
+    background: linear-gradient(180deg, rgba(0,0,0,0.05) 0%, rgba(0,0,0,0.55) 100%);
+  }
+  .island.ambient > * { position: relative; z-index: 1; }
+
+  /* ============================================================
+     6) Minimal monochrome (clean text-first)
+     ============================================================ */
+  .island.mono {
+    background: #fff; color: #111;
+    border: 1px solid rgba(0,0,0,0.06);
+    box-shadow: 0 14px 30px rgba(0,0,0,0.18);
+  }
+  .island.mono .sub { color: rgba(0,0,0,0.45); }
+  .island.mono .progress { background: rgba(0,0,0,0.08); }
+  .island.mono .progress > i { background: #111; }
+  .island.mono .time { color: rgba(0,0,0,0.45); }
+  .island.mono .controls .play { background: #111; color: #fff; }
+  .island.mono .wave span { background: rgba(0,0,0,0.7); }
+  .island.mono .eq { color: #111; }
+
+  .swatch-row { display:flex; gap:6px; margin-top: 10px; }
+  .swatch { width: 14px; height: 14px; border-radius: 4px; border:1px solid rgba(255,255,255,0.08); }
+</style>
+</head>
+<body>
+
+<h1>Music Player Style Mockups</h1>
+<p class="lede">六种音乐岛风格方案，每个含紧凑态（顶部细岛）与展开态。挑一个或几个组合，告诉我你要哪种走向。</p>
+
+<div class="grid">
+
+  <!-- ============ 1. Apple Vinyl ============ -->
+  <section class="case">
+    <h2><span class="num">1</span>Apple 黑胶 · 经典稳重</h2>
+    <p class="desc">沿用现有黑胶旋转 + 纯黑岛体；强化字重对比与圆形播放按钮，去掉多余装饰。最贴近 macOS 通知风格，工程改动最小。</p>
+    <div class="stage">
+      <div class="label">Compact</div>
+      <div class="island compact">
+        <div class="vinyl"></div>
+        <div class="ticker">
+          <div class="title">Blinding Lights</div>
+          <div class="sub">The Weeknd</div>
+        </div>
+        <div class="eq" style="color:#fff"><span></span><span></span><span></span><span></span></div>
+      </div>
+
+      <div class="label">Expanded</div>
+      <div class="island expanded">
+        <div class="row" style="flex:1">
+          <div class="vinyl lg"></div>
+          <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:6px">
+            <div style="font-size:16px; font-weight:700;">Blinding Lights</div>
+            <div style="font-size:12px; color:rgba(255,255,255,0.55)">The Weeknd · After Hours</div>
+            <div class="wave" style="margin-top:4px">
+              <span style="height:30%"></span><span style="height:70%"></span><span style="height:50%"></span>
+              <span style="height:90%"></span><span style="height:60%"></span><span style="height:80%"></span>
+              <span style="height:40%"></span><span style="height:75%"></span><span style="height:55%"></span>
+              <span style="height:90%"></span><span style="height:35%"></span><span style="height:65%"></span>
+            </div>
+          </div>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <span class="time">1:24</span>
+          <div class="progress"><i></i></div>
+          <span class="time">3:20</span>
+        </div>
+        <div class="row" style="justify-content:center; margin-top:10px">
+          <div class="controls">
+            <svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+            <span class="play"><svg viewBox="0 0 24 24"><path d="M6 19h4V5H6zm8-14v14h4V5z"/></svg></span>
+            <svg viewBox="0 0 24 24"><path d="M16 6h2v12h-2zM6 18l8.5-6L6 6z"/></svg>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 2. Spotify Color ============ -->
+  <section class="case">
+    <h2><span class="num">2</span>Album Color · 取色渐变</h2>
+    <p class="desc">从专辑封面提取主色，整个岛体使用渐变流光。氛围最强、辨识度最高；需要在 C++ 侧加一段封面取色（已有 WIC，可在 LoadAlbumArt 后采样平均色）。</p>
+    <div class="stage">
+      <div class="label">Compact</div>
+      <div class="island compact spotify-c">
+        <div class="cover sm cover-1"></div>
+        <div class="ticker">
+          <div class="title">Levitating</div>
+          <div class="sub">Dua Lipa</div>
+        </div>
+        <div class="eq" style="color:#fff"><span></span><span></span><span></span><span></span></div>
+      </div>
+
+      <div class="label">Expanded</div>
+      <div class="island expanded spotify-x">
+        <div class="row" style="flex:1">
+          <div class="cover lg cover-1"></div>
+          <div style="flex:1; min-width:0">
+            <div style="font-size:16px; font-weight:700;">Levitating</div>
+            <div style="font-size:12px; color:rgba(255,255,255,0.7); margin-top:4px">Dua Lipa</div>
+            <div style="font-size:11px; color:rgba(255,255,255,0.5)">Future Nostalgia</div>
+            <div class="swatch-row">
+              <div class="swatch" style="background:#ff6a88"></div>
+              <div class="swatch" style="background:#ff99ac"></div>
+              <div class="swatch" style="background:#ffc796"></div>
+              <div style="font-size:10px; color:rgba(255,255,255,0.45); align-self:center; margin-left:6px">取自封面</div>
+            </div>
+          </div>
+        </div>
+        <div class="row" style="margin-top:14px">
+          <span class="time">0:48</span>
+          <div class="progress"><i></i></div>
+          <span class="time">3:23</span>
+        </div>
+        <div class="row" style="justify-content:center; margin-top:8px">
+          <div class="controls">
+            <svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+            <span class="play"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></span>
+            <svg viewBox="0 0 24 24"><path d="M16 6h2v12h-2zM6 18l8.5-6L6 6z"/></svg>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 3. Liquid Glass ============ -->
+  <section class="case">
+    <h2><span class="num">3</span>Liquid Glass · 液态毛玻璃</h2>
+    <p class="desc">背景虚化 + 高光描边，最贴近 iOS 26 玻璃语言。Direct2D 实现需要用 GaussianBlur 效果对桌面截屏取样，性能成本中等。</p>
+    <div class="stage glass-stage">
+      <div class="label" style="color:rgba(255,255,255,0.55)">Compact</div>
+      <div class="island compact glass">
+        <div class="cover sm cover-3"></div>
+        <div class="ticker">
+          <div class="title">Saturn</div>
+          <div class="sub">SZA</div>
+        </div>
+        <div class="eq" style="color:#fff"><span></span><span></span><span></span><span></span></div>
+      </div>
+
+      <div class="label" style="color:rgba(255,255,255,0.55)">Expanded</div>
+      <div class="island expanded glass">
+        <div class="row" style="flex:1">
+          <div class="cover lg cover-3"></div>
+          <div style="flex:1; min-width:0">
+            <div style="font-size:16px; font-weight:700;">Saturn</div>
+            <div style="font-size:12px; color:rgba(255,255,255,0.7); margin-top:4px">SZA · Lana</div>
+            <div class="wave" style="margin-top:10px">
+              <span style="height:40%"></span><span style="height:80%"></span><span style="height:55%"></span>
+              <span style="height:95%"></span><span style="height:45%"></span><span style="height:75%"></span>
+              <span style="height:60%"></span><span style="height:85%"></span><span style="height:50%"></span>
+              <span style="height:70%"></span><span style="height:30%"></span><span style="height:90%"></span>
+            </div>
+          </div>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <span class="time">2:01</span>
+          <div class="progress"><i></i></div>
+          <span class="time">4:32</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 4. Neon ============ -->
+  <section class="case">
+    <h2><span class="num">4</span>Synthwave Neon · 霓虹赛博</h2>
+    <p class="desc">高饱和粉/青双色霓虹边缘 + 发光描边。氛围强烈但偏小众，适合主题切换中的“夜晚/电子”模式。</p>
+    <div class="stage">
+      <div class="label">Compact</div>
+      <div class="island compact neon">
+        <div class="cover sm cover-6"></div>
+        <div class="ticker">
+          <div class="title">Midnight City</div>
+          <div class="sub">M83</div>
+        </div>
+        <div class="eq" style="color:#5cf0ff"><span></span><span></span><span></span><span></span></div>
+      </div>
+
+      <div class="label">Expanded</div>
+      <div class="island expanded neon">
+        <div class="row" style="flex:1">
+          <div class="cover lg cover-6"></div>
+          <div style="flex:1; min-width:0">
+            <div style="font-size:17px; font-weight:700; color:#ff5cd9; text-shadow: 0 0 10px rgba(255,92,217,0.7);">Midnight City</div>
+            <div style="font-size:12px; color:#5cf0ff; text-shadow: 0 0 6px rgba(92,240,255,0.6); margin-top:4px">M83 · Hurry Up, We're Dreaming</div>
+            <div class="wave" style="margin-top:10px; color:#5cf0ff">
+              <span style="height:30%; background:#ff5cd9"></span><span style="height:80%; background:#5cf0ff"></span>
+              <span style="height:50%; background:#ff5cd9"></span><span style="height:90%; background:#5cf0ff"></span>
+              <span style="height:60%; background:#ff5cd9"></span><span style="height:75%; background:#5cf0ff"></span>
+              <span style="height:40%; background:#ff5cd9"></span><span style="height:85%; background:#5cf0ff"></span>
+              <span style="height:55%; background:#ff5cd9"></span><span style="height:95%; background:#5cf0ff"></span>
+            </div>
+          </div>
+        </div>
+        <div class="row" style="margin-top:12px">
+          <span class="time" style="color:#5cf0ff">1:42</span>
+          <div class="progress"><i></i></div>
+          <span class="time" style="color:#5cf0ff">4:03</span>
+        </div>
+        <div class="row" style="justify-content:center; margin-top:8px">
+          <div class="controls">
+            <svg viewBox="0 0 24 24" style="fill:#ff5cd9; filter: drop-shadow(0 0 4px #ff5cd9);"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+            <span class="play"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></span>
+            <svg viewBox="0 0 24 24" style="fill:#ff5cd9; filter: drop-shadow(0 0 4px #ff5cd9);"><path d="M16 6h2v12h-2zM6 18l8.5-6L6 6z"/></svg>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 5. Ambient blur art ============ -->
+  <section class="case">
+    <h2><span class="num">5</span>Ambient Art · 封面氛围</h2>
+    <p class="desc">把封面放大模糊作为整岛背景，前景仅留文字+控制。非常电影感，单首歌时辨识度最高。性能上需要缓存 blur 后的封面纹理。</p>
+    <div class="stage">
+      <div class="label">Compact</div>
+      <div class="island compact ambient">
+        <div class="cover sm cover-4"></div>
+        <div class="ticker">
+          <div class="title">Sunset Lover</div>
+          <div class="sub">Petit Biscuit</div>
+        </div>
+        <div class="eq" style="color:#fff"><span></span><span></span><span></span><span></span></div>
+      </div>
+
+      <div class="label">Expanded</div>
+      <div class="island expanded ambient">
+        <div class="row" style="flex:1">
+          <div class="cover lg cover-4" style="box-shadow: 0 8px 24px rgba(0,0,0,0.5)"></div>
+          <div style="flex:1; min-width:0">
+            <div style="font-size:17px; font-weight:700; text-shadow: 0 1px 6px rgba(0,0,0,0.55);">Sunset Lover</div>
+            <div style="font-size:12px; color:rgba(255,255,255,0.85); text-shadow: 0 1px 4px rgba(0,0,0,0.55); margin-top:4px">Petit Biscuit</div>
+            <div class="wave" style="margin-top:10px">
+              <span style="height:50%"></span><span style="height:75%"></span><span style="height:40%"></span>
+              <span style="height:95%"></span><span style="height:60%"></span><span style="height:80%"></span>
+              <span style="height:45%"></span><span style="height:85%"></span><span style="height:55%"></span>
+              <span style="height:70%"></span><span style="height:35%"></span><span style="height:90%"></span>
+            </div>
+          </div>
+        </div>
+        <div class="row" style="margin-top:12px">
+          <span class="time">1:08</span>
+          <div class="progress"><i></i></div>
+          <span class="time">3:54</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 6. Mono ============ -->
+  <section class="case">
+    <h2><span class="num">6</span>Minimal Mono · 极简白</h2>
+    <p class="desc">纯白 + 黑字，禁用所有渐变与发光，让封面成为唯一彩色源。极克制、专业、可读性最高。和现有黑岛形成强对比，建议作为“浅色主题”预设。</p>
+    <div class="stage" style="background:linear-gradient(180deg,#f3f4f8,#dadbe2); border-color: rgba(0,0,0,0.05)">
+      <div class="label" style="color: rgba(0,0,0,0.45)">Compact</div>
+      <div class="island compact mono">
+        <div class="cover sm cover-2"></div>
+        <div class="ticker">
+          <div class="title">Heat Waves</div>
+          <div class="sub">Glass Animals</div>
+        </div>
+        <div class="eq"><span></span><span></span><span></span><span></span></div>
+      </div>
+
+      <div class="label" style="color: rgba(0,0,0,0.45)">Expanded</div>
+      <div class="island expanded mono">
+        <div class="row" style="flex:1">
+          <div class="cover lg cover-2"></div>
+          <div style="flex:1; min-width:0">
+            <div style="font-size:16px; font-weight:700;">Heat Waves</div>
+            <div style="font-size:12px; color:rgba(0,0,0,0.5); margin-top:4px">Glass Animals · Dreamland</div>
+            <div class="wave" style="margin-top:10px">
+              <span style="height:35%"></span><span style="height:75%"></span><span style="height:50%"></span>
+              <span style="height:90%"></span><span style="height:55%"></span><span style="height:80%"></span>
+              <span style="height:45%"></span><span style="height:85%"></span><span style="height:50%"></span>
+              <span style="height:70%"></span><span style="height:30%"></span><span style="height:95%"></span>
+            </div>
+          </div>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <span class="time">2:14</span>
+          <div class="progress"><i></i></div>
+          <span class="time">3:58</span>
+        </div>
+        <div class="row" style="justify-content:center; margin-top:8px">
+          <div class="controls">
+            <svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+            <span class="play"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></span>
+            <svg viewBox="0 0 24 24"><path d="M16 6h2v12h-2zM6 18l8.5-6L6 6z"/></svg>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<p style="margin-top:48px; color:#6a6f80; font-size:12px; max-width:760px;">
+  说明：所有岛体尺寸基于 <code style="color:#9aa0b0">Constants::Size</code> 比例近似还原（紧凑 360×44，展开 460×200，圆角 28）。
+  确认风格后我会把样式落地到 <code style="color:#9aa0b0">src/components/MusicPlayerComponent.cpp</code>，必要时新增封面取色和 Direct2D 高斯模糊。
+</p>
+
+</body>
+</html>
