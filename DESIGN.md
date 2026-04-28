@@ -27,22 +27,23 @@ Semantic tokens mapped to hex codes for implementation.
 | `progress-fill` | `#ffffff` | Active progress bar fill |
 
 ### 2.2 Typography
-Based on **SF Pro** (or Segoe UI fallback) with strict optical sizing.
+Based on **Microsoft YaHei UI** for CJK and **Segoe UI** for English backdrops.
 
-- **Primary Typeface:** SF Pro Display (Medium/Semibold)
-- **Fallback:** Segoe UI
+- **Primary Typeface:** Microsoft YaHei UI (Medium/Semibold)
+- **Fallback:** Segoe UI / SF Pro (where available)
 - **Iconography:** Segoe MDL2 Assets (for system icons)
 
 | Level | Size | Weight | Tracking | Usage |
 |-------|------|--------|----------|-------|
 | **Heading** | 14px | 600 | -0.2px | Song titles, Alert titles |
 | **Body** | 12px | 400 | -0.1px | Artist names, Time, Weather |
-| **Caption** | 10px | 400 | 0px | Progress timestamps, Secondary info |
+| **Lyrics** | 16px | 700 | 0px | Current active lyric line |
+| **Caption** | 10px | 400 | 0px | Progress timestamps, Translation info |
 
 ### 2.3 Layout & Spacing
 - **Base Unit:** 4px
 - **Corner Radius:** 
-  - Main Capsule: 14px - 20px (dynamic based on height)
+  - Main Capsule: 16px - 28px (dynamic based on height)
   - Album Art: 6px
 - **Padding:**
   - Compact: 12px horizontal, 8px vertical
@@ -56,15 +57,17 @@ The core container that morphs between states.
 | Mode | Dimensions (WxH) | Corner Radius | Content |
 |------|------------------|---------------|---------|
 | `Idle` | 80x28 px | 14px | Digital Clock / Weather Icon |
-| `MusicCompact` | 200x40 px | 20px | Title (Scrolling) + Play/Pause |
-| `MusicExpanded` | 340x160 px | 28px | Album Art + Full Controls + Lyrics |
+| `MusicCompact` | 200x64/76 px | 20px | Title + Lyrics + EQ/Buttons |
+| `MusicExpanded` | 340x240 px | 28px | Large Vinyl + Ring Pulse + 3-Line Lyrics |
+| `WeatherExpanded` | 340x160 px | 28px | Ambient Background + 2x3 Hourly Grid |
 | `Alert` | 220x40 px | 20px | Icon + Title + Status Text |
 | `Volume` | 180x32 px | 16px | Icon + Level Bar |
 
 ### 3.2 Music Player (Expanded)
-- **Album Art:** 64x64 px, 6px radius.
-- **Controls:** Circular buttons (32px) with SF Symbols style icons.
-- **Lyrics:** Vertically centered, current line highlighted in `text-primary`, others in `text-secondary`.
+- **Vinyl Styling:** Large black vinyl disc with dynamic album art in center.
+- **Circular Ring Pulse:** 2-3 semi-transparent rings pulsing from the vinyl based on audio amplitude.
+- **Controls:** Five circular buttons (36-40px) including Heart, Prev, Play/Pause, Next, and Lyric Mode.
+- **Lyrics:** Three-line vertical layout with center-focused YRC wipe. Current line supports translation sub-text.
 
 ## 4. Animation Principles (Spring Physics)
 All transitions use a **Mass-Spring-Damper** model.
